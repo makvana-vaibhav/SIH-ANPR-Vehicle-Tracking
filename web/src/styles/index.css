@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Sentinel-GJ command centre — theme tokens.
+
+  Dark is the default and the only theme: this renders on control-room displays
+  that stay on for eight-hour shifts. Values are raw HSL triples so Tailwind can
+  compose them with opacity modifiers (bg-status-online/20).
+*/
+
+@layer base {
+  :root {
+    /* Surfaces — near-black slate, not pure black; pure black on an LCD
+       crushes the shadow detail in video thumbnails. */
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 44% 9%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 47% 8%;
+    --popover-foreground: 210 40% 96%;
+
+    /* Primary — Gujarat Police khaki-gold, legible on dark */
+    --primary: 43 74% 52%;
+    --primary-foreground: 222 47% 8%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 96%;
+
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 199 89% 48%;
+    --accent-foreground: 222 47% 8%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+    --ring: 43 74% 52%;
+
+    --radius: 0.5rem;
+
+    /* ── Fleet status ─────────────────────────────────────────────
+       Used for camera markers, health pills, and uptime sparklines. */
+    --status-online: 142 71% 45%;
+    --status-offline: 0 72% 51%;
+    --status-degraded: 38 92% 50%;
+    --status-unknown: 215 16% 47%;
+
+    /* ── Alert priority ───────────────────────────────────────────
+       Critical is deliberately the same red as offline: in a control
+       room, red means "act now" regardless of what raised it. */
+    --priority-critical: 0 84% 60%;
+    --priority-high: 24 95% 53%;
+    --priority-medium: 38 92% 50%;
+    --priority-low: 199 89% 48%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    /* Operators drag on the map and the video wall constantly; accidental
+       text selection mid-drag is a persistent irritation. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Number plates, camera codes, coordinates and timestamps: monospace and
+     slightly tracked out, because they are read one character at a time and
+     a misread plate is an operational error. */
+  .plate,
+  .camera-code,
+  .coord,
+  .ts {
+    @apply font-mono tracking-wider tabular-nums;
+  }
+
+  /* Scrollbars — the event ticker and alert feed scroll constantly. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-muted;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+
+  /* Respect the operator's motion preference — pulsing alerts are the most
+     aggressive animation in the product. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

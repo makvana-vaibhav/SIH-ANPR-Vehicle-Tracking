@@ -1,0 +1,48 @@
+# Keep the build context small and free of anything secret or bulky.
+.git
+.github
+*.md
+!README.md
+
+# Secrets never enter a build context.
+.env
+.env.*
+!.env.example
+
+# Fetched payloads — mounted at runtime, never baked into an image.
+data/models/*
+data/videos/*
+data/synthetic/
+
+# Container state
+.volumes/
+infra/minio/data/
+infra/postgres/data/
+infra/opensearch/data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node — installed inside the image
+node_modules/
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Test and benchmark output
+tests/load/results/
+benchmarks/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
