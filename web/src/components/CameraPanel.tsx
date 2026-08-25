@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import StreamPlayer from '@/components/StreamPlayer'
 import * as api from '@/lib/api'
 import { useAuth } from '@/hooks/useAuth'
 import type {
@@ -198,19 +199,66 @@ export default function CameraPanel({ camera, onClose, onRefresh }: Props) {
           )}
         </section>
 
-        {/* Actions */}
-        <section className="space-y-2">
-          {can('stream.view') && (
+        {/* Live video */}
+        <section>
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Live view
+          </h3>
+
+          {!can('stream.view') ? (
+            <p className="mt-2 rounded border border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+              Your role does not include <span className="font-mono">stream.view</span>.
+              Analysts and auditors work over recorded detections rather than live video.
+            </p>
+          ) : camera.status !== 'online' ? (
+            // Honesty over a broken button: this camera has no feed attached,
+            // so offering "play" would produce a black rectangle and no
+            // explanation. Say why, and offer the action that helps.
+            <div className="mt-2 rounded border border-border bg-secondary/30 px-3 py-2">
+              <p className="text-xs text-muted-foreground">
+                {camera.status === 'unknown'
+                  ? 'No live feed is attached to this camera yet, so there is nothing to play. In the demo only a subset of the estate is streamed; in a deployment this camera would be pulled on demand from its VMS.'
+                  : 'This camera is not currently delivering video.'}
+              </p>
+              {can('camera.update') && (
+                <button
+                  type="button"
+                  onClick={handleProbe}
+                  disabled={busy}
+                  className="mt-2 rounded border border-border px-2 py-1 text-xs transition hover:border-primary/50 disabled:opacity-60"
+                >
+                  Probe now
+                </button>
+              )}
+            </div>
+          ) : stream ? (
+            <div className="mt-2">
+              <StreamPlayer
+                whepUrl={stream.whep_url}
+                hlsUrl={stream.hls_url}
+                cameraCode={stream.camera_code}
+              />
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                Viewing token scoped to this camera, valid {stream.expires_in}s.
+                Recorded in the audit trail as{' '}
+                <span className="font-mono text-foreground/80">camera.view</span>.
+              </p>
+            </div>
+          ) : (
             <button
               type="button"
               onClick={handleOpenStream}
               disabled={busy}
-              className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+              className="mt-2 w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
             >
-              {busy ? 'Working…' : 'Open live stream'}
+              {busy ? 'Requesting access…' : 'Open live stream'}
             </button>
           )}
-          {can('camera.update') && (
+        </section>
+
+        {/* Diagnostics */}
+        {can('camera.update') && camera.status === 'online' && (
+          <section>
             <button
               type="button"
               onClick={handleProbe}
@@ -219,55 +267,15 @@ export default function CameraPanel({ camera, onClose, onRefresh }: Props) {
             >
               Probe now
             </button>
-          )}
-          {message && (
-            <p className="rounded border border-border bg-secondary/40 px-3 py-2 font-mono text-xs">
-              {message}
-            </p>
-          )}
-        </section>
-
-        {/* Stream grant */}
-        {stream && (
-          <section className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-primary">
-              Viewing token issued
-            </h3>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              Scoped to this camera, valid for {stream.expires_in}s. This action
-              was written to the audit trail as{' '}
-              <span className="font-mono text-foreground/80">camera.view</span>.
-            </p>
-            <dl className="mt-2 space-y-1 text-xs">
-              {stream.whep_url && (
-                <div>
-                  <dt className="text-muted-foreground">WebRTC (WHEP)</dt>
-                  <dd className="break-all font-mono text-[11px] text-foreground/80">
-                    {stream.whep_url}
-                  </dd>
-                </div>
-              )}
-              {stream.hls_url && (
-                <div>
-                  <dt className="text-muted-foreground">HLS fallback</dt>
-                  <dd className="break-all font-mono text-[11px] text-foreground/80">
-                    {stream.hls_url}
-                  </dd>
-                </div>
-              )}
-            </dl>
-            {stream.whep_url && (
-              <a
-                href={stream.whep_url.replace(/\/whep$/, '')}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 block rounded-md bg-primary px-3 py-2 text-center text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
-              >
-                Open player ↗
-              </a>
-            )}
           </section>
         )}
+
+        {message && (
+          <p className="rounded border border-border bg-secondary/40 px-3 py-2 font-mono text-xs">
+            {message}
+          </p>
+        )}
+
       </div>
     </aside>
   )
