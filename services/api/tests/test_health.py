@@ -97,9 +97,7 @@ class TestReadiness:
         assert body["status"] == "ready", body["dependencies"]
         assert body["critical_failures"] == []
 
-    async def test_postgis_and_timescale_are_installed(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_postgis_and_timescale_are_installed(self, client: AsyncClient) -> None:
         """The platform is useless without geospatial and time-series support.
 
         A plain Postgres would connect happily and then fail at the first
@@ -112,9 +110,7 @@ class TestReadiness:
         assert "timescaledb" in extensions
         assert "pg_trgm" in extensions
 
-    async def test_classifies_critical_versus_optional(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_classifies_critical_versus_optional(self, client: AsyncClient) -> None:
         """Losing search is survivable; losing the database is not."""
         deps = (await client.get("/ready")).json()["dependencies"]
 

@@ -58,6 +58,8 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=sentinel:sentinel services/api /app/services/api
 COPY --chown=sentinel:sentinel packages/contracts /app/packages/contracts
+# Seed and maintenance scripts run inside this image (`make seed`).
+COPY --chown=sentinel:sentinel scripts /app/scripts
 
 USER sentinel
 

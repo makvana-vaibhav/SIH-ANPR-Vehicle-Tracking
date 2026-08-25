@@ -15,7 +15,7 @@ then continue at the first unchecked phase.
 | Phase | Title | State |
 |---|---|---|
 | 0 | Foundation & self-documentation | ✅ **complete** |
-| 1 | Auth, RBAC, audit | ⬜ not started |
+| 1 | Auth, RBAC, audit | ✅ **complete** |
 | 2 | Camera registry + GIS + bulk onboarding | ⬜ not started |
 | 3 | Integration layer (adapters) + health monitoring | ⬜ not started |
 | 4 | Stream gateway | ⬜ not started |
@@ -131,27 +131,88 @@ interactive OpenAPI docs at :8000/docs.
 
 ---
 
-## Phase 1 — Auth, RBAC, audit
+## Phase 1 — Auth, RBAC, audit ✅
 
-- [ ] FastAPI app skeleton, `/health` + `/ready`, structlog JSON logging, OpenAPI at `/docs`
-- [ ] JWT access (15 min) + refresh (7 d), argon2 password hashing
-- [ ] `require_role()` dependency implementing the RBAC matrix below
-- [ ] Audit middleware: every mutating request and every search writes an `audit_log` row
+- [x] JWT access (15 min) + refresh (7 d), argon2id password hashing
+- [x] `require_permission()` / `require_role()` dependencies implementing the RBAC matrix
+- [x] Audit middleware: every mutating request and every search writes an `audit_log` row
+- [x] Explicit audit helpers for the three named actions (plate search, stream open, watchlist change)
+- [x] Alembic initialised; **migration 0001 carries the full schema** (see note below)
+- [x] Seed script: 6 departments + one user per role
+- [x] 80 tests passing, ruff clean
 
-RBAC matrix:
+**Gate — PASSED:**
 
-| Role | Cameras | Streams | Watchlist | Alerts | Search | Users | Audit |
-|---|---|---|---|---|---|---|---|
-| admin | CRUD | view | CRUD | all | yes | CRUD | read |
-| supervisor | CRU | view | CRU | ack/close | yes | – | read |
-| operator | read | view | read | ack | yes | – | – |
-| analyst | read | – | read | read | yes | – | – |
-| auditor | read | – | read | read | – | – | read |
-| api_client | create | – | – | – | – | – | – |
+```
+$ alembic upgrade head
+INFO  [alembic.runtime.migration] Running upgrade  -> 0001, Initial schema
 
-**Gate:** pytest suite covering each role × each endpoint, including 401 and 403 paths.
+$ psql -c "SELECT hypertable_name FROM timescaledb_information.hypertables"
+camera_health, detections            # both hypertables live
 
----
+$ python -m scripts.seed
+  departments: 6 created    users: 6 created
+
+$ pytest tests -q
+80 passed in 1.36s
+   ├─ test_rbac.py    17  the matrix vs. the specification table
+   ├─ test_auth.py    33  login, token integrity, refresh rotation, logout
+   ├─ test_audit.py   18  trail contents, scrubbing, durability
+   └─ test_health.py  12
+
+$ ruff check . && ruff format --check .
+All checks passed!
+```
+
+### What a judge can now do
+Sign in as any of six roles and see the RBAC matrix take effect; every action
+they take — including failed logins and permission denials — appears in
+`audit_log` with who, what, when, and from which IP.
+
+### Scope decision: migration 0001 carries the WHOLE schema
+`users.department_id` references `departments`, so Phase 1 could not create its
+tables in isolation. Rather than split across two migrations with awkward FK
+ordering, 0001 creates all ten tables exactly as the brief specifies
+("implement as Alembic migration 0001"). **Phase 2's migration checkbox is
+therefore already satisfied** — Phase 2 adds endpoints and seed data, not DDL.
+
+### Security decisions made here
+- **argon2id** (OWASP params: 19 MiB, t=2, p=1), not bcrypt.
+- **Refresh token rotation**: refreshing revokes the presented token, so a
+  stolen refresh token works at most once and its reuse is detectable.
+- **Revocation fails closed** — if Redis is unreachable, `is_revoked()` returns
+  True. A user re-authenticates rather than the platform honouring a token an
+  administrator believes they cancelled.
+- **Timing-safe login**: an unknown username is verified against a dummy argon2
+  hash so response time cannot enumerate valid accounts. Both failure modes
+  return an identical message.
+- **Token type confusion is blocked** — refresh and camera-scoped stream tokens
+  are rejected when presented as access tokens (tested).
+- **Audit never stores credentials** (recursive scrub) and **never fails a
+  request** — a failed audit write is logged at ERROR instead, because auditing
+  must not become an availability risk for the policing work it oversees.
+- Audit `user_id` is deliberately **not** a foreign key, so the trail survives
+  user deletion.
+
+### Reference material incorporated (sentinel.gujarat.gov.in)
+Fetched the challenge site and its resource guide. Findings that changed the build:
+
+| Finding | Action taken |
+|---|---|
+| Real departments are **Health, Police, GSRTC, Panchayat, Municipal** (+ SCRB) | Replaced the assumed POLICE/RTO/MUNI/HIGHWAY codes in `models/enums.py` and the seed |
+| Sandbox exposes `GET /api/ingest` returning every camera with id, location, codec, live status and all three stream URLs | Phase 3 gains a `SentinelSandboxAdapter`; `AdapterType.SENTINEL_SANDBOX` and `VmsVendor.SENTINEL_SANDBOX` already added |
+| Stream URLs: `rtsp://<host>:8554/stream/<id>`, `http://<host>:8889/stream/<id>/whep`, `http://<host>/live/stream/<id>/index.m3u8` | **Our MediaMTX ports already match exactly** (8554/8889) — the adapter is a thin mapping, not a translation layer |
+| Exact catalogue JSON schema is **not published**; ids "can change" | Phase 3 adapter must parse defensively and re-sync, never assume field names or a fixed id set |
+| Scale: 30+ live cameras, 12 h footage each, 5 departments → 80,000+ target | Confirms the Phase 10 load-test target |
+| Also required: **face/person detection**, "cross-reference with Government databases" | **Open scope question for the user** — the current plan is vehicle/ANPR-centric. Flagged, not silently skipped |
+| Event 10–11 Sept 2026; registration closes 7 Sept | ~2 weeks from 25 Aug 2026 |
+
+### What Phase 2 needs from here
+- `app/api/deps.py` — `CurrentUserDep`, `DbSession` annotated dependencies.
+- `app/core/rbac.py` — wrap camera endpoints in `require_permission(Permission.CAMERA_*)`.
+- `app/services/audit.py` — call `record_stream_open` / `record_plate_search` explicitly.
+- `scripts/seed.py` — extend `seed_departments`/`seed_users` pattern with cameras + watchlist.
+- Migration 0001 already created `cameras` with the GiST index; no new DDL required.
 
 ## Phase 2 — Camera registry + GIS + bulk onboarding
 

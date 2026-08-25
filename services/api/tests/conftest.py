@@ -16,22 +16,24 @@ from httpx import ASGITransport, AsyncClient
 from app.core.config import Settings, get_settings
 from app.db.session import engine
 from app.main import app
+from app.services import token_store
 
 
 @pytest.fixture(autouse=True)
-async def _dispose_engine_between_tests() -> AsyncGenerator[None, None]:
-    """Return the connection pool to a clean state after every test.
+async def _reset_pooled_clients() -> AsyncGenerator[None, None]:
+    """Return pooled connections to a clean state after every test.
 
-    The engine is a module-level singleton created at import time, while
-    pytest-asyncio runs each test in its own event loop. Without this, pooled
-    asyncpg connections outlive the loop that created them and the next test
-    fails with "attached to a different loop".
+    Both the SQLAlchemy engine and the Redis client are module-level singletons
+    created on first use, while pytest-asyncio runs each test in its own event
+    loop. Without this, connections outlive the loop that created them and the
+    next test fails with "attached to a different loop" / "Event loop is closed".
 
-    This is a test-harness concern only: in production the API runs in a single
-    long-lived loop, which is exactly what the pool is designed for.
+    This is a test-harness concern only: in production both run inside a single
+    long-lived loop, which is exactly what connection pools are designed for.
     """
     yield
     await engine.dispose()
+    await token_store.close()
 
 
 @pytest.fixture
@@ -53,3 +55,49 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 def settings() -> Settings:
     """The process-wide settings object."""
     return get_settings()
+
+
+# ── Authentication helpers ────────────────────────────────────────────
+# The seeded demo accounts (scripts/seed.py) give one user per role, which is
+# exactly what the RBAC matrix tests need.
+
+DEMO_PASSWORD = "Sentinel@2026"
+
+DEMO_ACCOUNTS = {
+    "admin": "admin",
+    "supervisor": "supervisor",
+    "operator": "operator",
+    "analyst": "analyst",
+    "auditor": "auditor",
+    "api_client": "gsrtc-integration",
+}
+
+
+@pytest.fixture
+async def login(client: AsyncClient):
+    """Return a callable that logs in as a role and yields its token pair."""
+
+    async def _login(role: str = "admin") -> dict[str, str]:
+        username = DEMO_ACCOUNTS[role]
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"username": username, "password": DEMO_PASSWORD},
+        )
+        assert response.status_code == 200, (
+            f"login as {username} failed: {response.status_code} {response.text}. "
+            "Has `make seed` been run?"
+        )
+        return response.json()
+
+    return _login
+
+
+@pytest.fixture
+async def auth_headers(login):
+    """Return a callable producing Authorization headers for a role."""
+
+    async def _headers(role: str = "admin") -> dict[str, str]:
+        tokens = await login(role)
+        return {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    return _headers

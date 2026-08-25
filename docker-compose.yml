@@ -228,6 +228,7 @@ services:
       # Live reload during development; the image is self-contained without it.
       - ./services/api:/app/services/api
       - ./packages/contracts:/app/packages/contracts:ro
+      - ./scripts:/app/scripts
       - ./data/seed:/data/seed:ro
     depends_on:
       postgres: { condition: service_healthy }

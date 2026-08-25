@@ -21,7 +21,9 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger, request_id_var
 from app.db.session import dispose_engine
-from app.routers import health
+from app.middleware.audit import AuditMiddleware
+from app.routers import auth, health
+from app.services import token_store
 
 configure_logging(service="api")
 log = get_logger("api")
@@ -60,6 +62,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
     log.info("api.stopping")
+    await token_store.close()
     await dispose_engine()
     log.info("api.stopped")
 
@@ -75,6 +78,10 @@ app = FastAPI(
     contact={"name": "Sentinel-GJ", "url": "https://sentinel.gujarat.gov.in"},
     license_info={"name": "Apache-2.0"},
 )
+
+# Every mutating request and every search writes an audit_log row. Registered
+# before CORS so it runs inside it and sees the resolved request.
+app.add_middleware(AuditMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -142,9 +149,9 @@ async def request_context(
 
 
 # ── Routers ───────────────────────────────────────────────────────────
-# Phase 0: health only. Later phases mount auth, cameras, events,
-# watchlist, alerts, search, vehicles, admin.
+# Later phases mount cameras, events, watchlist, alerts, search, vehicles, admin.
 app.include_router(health.router)
+app.include_router(auth.router)
 
 
 @app.get("/", tags=["meta"], summary="Service banner")
