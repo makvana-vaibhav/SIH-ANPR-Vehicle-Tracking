@@ -1,0 +1,125 @@
+###############################################################################
+# Sentinel-GJ — MediaMTX stream gateway
+#
+# Role: the single translation point between the camera estate (RTSP/ONVIF)
+# and the browser (WebRTC/HLS). Cameras speak RTSP; browsers do not.
+#
+# The bandwidth argument (see docs/HLD.md): sourceOnDemand means a feed is
+# only pulled from the camera/VMS while an operator is actually watching it.
+# At 80,000 cameras this is the difference between 320 Gbps of always-on
+# video and a few hundred Mbps of what someone is looking at right now.
+###############################################################################
+
+logLevel: info
+logDestinations: [stdout]
+
+# How long to keep an on-demand source alive after the last viewer leaves.
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 512
+udpMaxPayloadSize: 1472
+
+###############################################################################
+# Authentication
+#
+# MediaMTX grants the `api`, `metrics` and `pprof` actions to 127.0.0.1 only by
+# default. The API tier runs in a different container, so it must be granted
+# explicitly — by CIDR, not to the world. The subnet is pinned in
+# docker-compose.yml so this stays deterministic across restarts.
+#
+# Stream *viewing* is authorised at the application layer instead: the backend
+# issues short-lived signed tokens per camera and writes an audit row for every
+# stream open (Phase 4). See docs/SECURITY.md for the production posture, where
+# this tier sits behind mTLS on an isolated video VLAN.
+###############################################################################
+authMethod: internal
+authInternalUsers:
+  # Publish and playback within the platform's own network.
+  - user: any
+    pass:
+    ips: ['172.28.0.0/16', '127.0.0.1', '::1']
+    permissions:
+      - action: publish
+      - action: playback
+
+  # Browser viewing arrives from the host, not the bridge network.
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+
+  # Control API and metrics: internal tier only.
+  - user: any
+    pass:
+    ips: ['172.28.0.0/16', '127.0.0.1', '::1']
+    permissions:
+      - action: api
+      - action: metrics
+
+###############################################################################
+# Control API — the backend uses this to enumerate paths and check liveness
+###############################################################################
+api: yes
+apiAddress: :9997
+
+metrics: yes
+metricsAddress: :9998
+
+###############################################################################
+# Ingest: RTSP (what cameras and the simulator publish to)
+###############################################################################
+rtsp: yes
+rtspAddress: :8554
+rtspTransports: [tcp, udp]
+rtspAuthMethods: [basic]
+
+# RTMP and SRT are not part of the camera estate; keep the surface small.
+rtmp: no
+srt: no
+
+###############################################################################
+# Egress: WebRTC (WHEP) — primary browser path, sub-second latency
+###############################################################################
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: yes
+# Docker Desktop's NAT advertises ICE candidates the browser cannot reach.
+# MTX_WEBRTCADDITIONALHOSTS (set in docker-compose.yml) overrides this at
+# runtime with a host-reachable candidate.
+webrtcAdditionalHosts: [127.0.0.1]
+
+###############################################################################
+# Egress: HLS — fallback when WebRTC is blocked by corporate/venue networks.
+# Higher latency, but it traverses anything that allows plain HTTP.
+###############################################################################
+hls: yes
+hlsAddress: :8888
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsAllowOrigins: ['*']
+hlsAlwaysRemux: no
+
+###############################################################################
+# Paths
+#
+# Phase 0 accepts any published path so the simulator can register the fleet.
+# Phase 4 adds per-camera on-demand pull definitions generated from the
+# camera registry.
+###############################################################################
+pathDefaults:
+  # Default paths are publisher-fed: the simulator (and real edge encoders)
+  # push RTSP into the gateway. `sourceOnDemand` is meaningless for a
+  # publisher-fed path and MediaMTX rejects the combination — it belongs on
+  # pull paths, which Phase 4 generates per camera from the registry with a
+  # concrete `source:` URL.
+  source: publisher
+  # Recording is handled by the departmental VMS, which stays authoritative
+  # for its own video. We are a viewing and analytics tier, not a recorder.
+  record: no
+
+paths:
+  all_others:

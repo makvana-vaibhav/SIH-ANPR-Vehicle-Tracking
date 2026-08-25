@@ -1,0 +1,110 @@
+[project]
+name = "sentinel-gj-api"
+version = "0.1.0"
+description = "Sentinel-GJ — statewide CCTV intelligence platform, API tier"
+requires-python = ">=3.11,<3.12"
+license = { text = "Apache-2.0" }
+
+# ══════════════════════════════════════════════════════════════════════
+#  Ruff — lint + format
+# ══════════════════════════════════════════════════════════════════════
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["."]
+exclude = ["alembic/versions", ".venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # comprehensions
+    "UP",     # pyupgrade
+    "ASYNC",  # async correctness — this codebase is async end to end
+    "S",      # bandit: security. This is police infrastructure.
+    "T20",    # no print() outside scripts/ (CLAUDE.md §5)
+    "SIM",    # simplify
+    "RET",    # return consistency
+    "PTH",    # prefer pathlib
+    "TRY",    # exception antipatterns
+    "LOG",    # logging correctness
+    "RUF",
+]
+ignore = [
+    "E501",    # line length is enforced by the formatter, not the linter
+    "TRY003",  # long messages inside raise are fine and more debuggable
+    "TRY400",  # log.error vs log.exception — we pass exc_info explicitly
+    "B008",    # FastAPI Depends() in defaults is the framework idiom
+    "RUF012",  # ClassVar annotations not required on pydantic models
+    # Ambiguous-unicode rules guard against homoglyph attacks in identifiers.
+    # Our docstrings contain deliberate typography (en dashes in the RBAC
+    # matrix tables, arrows in pipeline diagrams), which is prose, not code.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert, use fixtures, and hardcode credentials against a throwaway DB.
+"tests/**/*.py" = ["S101", "S105", "S106", "S311"]
+# Seed and benchmark scripts print to a terminal by design.
+"scripts/**/*.py" = ["T20", "S311"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "contracts"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ══════════════════════════════════════════════════════════════════════
+#  mypy
+# ══════════════════════════════════════════════════════════════════════
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+check_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["geoalchemy2.*", "opensearchpy.*", "aioboto3.*", "shapely.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# ══════════════════════════════════════════════════════════════════════
+#  pytest
+# ══════════════════════════════════════════════════════════════════════
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
+markers = [
+    "integration: requires live infrastructure (postgres, redis, opensearch)",
+    "slow: takes more than a second",
+]
+filterwarnings = [
+    "error::DeprecationWarning:app.*",
+]

@@ -1,0 +1,52 @@
+# ══════════════════════════════════════════════════════════════
+#  Sentinel-GJ API — pinned dependencies (Python 3.11)
+#  Every version is exact. No ranges, no floating tags.
+# ══════════════════════════════════════════════════════════════
+
+# ── Web framework ─────────────────────────────────────────────
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20        # CSV bulk upload (Phase 2)
+websockets==14.1                # /ws/events (Phase 6)
+sse-starlette==2.2.1            # SSE fallback for realtime
+
+# ── Data / validation ─────────────────────────────────────────
+pydantic==2.10.4
+pydantic-settings==2.7.1
+email-validator==2.2.0
+
+# ── Database ──────────────────────────────────────────────────
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+geoalchemy2==0.16.0             # PostGIS column types
+psycopg2-binary==2.9.10         # Alembic autogenerate / sync tooling only
+
+# ── Auth ──────────────────────────────────────────────────────
+pyjwt==2.10.1
+argon2-cffi==23.1.0
+
+# ── Infrastructure clients ────────────────────────────────────
+redis==5.2.1                    # asyncio Streams + consumer groups
+opensearch-py==2.8.0
+aioboto3==13.3.0                # MinIO / S3 async client
+httpx==0.28.1                   # adapters + MediaMTX control API
+
+# ── Integration layer ─────────────────────────────────────────
+# ONVIF replies are XML from devices on the camera network — i.e. untrusted
+# input. defusedxml blocks entity-expansion and external-entity attacks that
+# the stdlib parser is vulnerable to.
+defusedxml==0.7.1
+
+# ── Geospatial ────────────────────────────────────────────────
+shapely==2.0.6
+geojson-pydantic==1.1.2
+
+# ── Observability ─────────────────────────────────────────────
+structlog==24.4.0
+prometheus-client==0.21.1
+
+# ── Utility ───────────────────────────────────────────────────
+python-dateutil==2.9.0.post0
+orjson==3.10.13
+tenacity==9.0.0                 # bounded retry on adapter/infra calls
