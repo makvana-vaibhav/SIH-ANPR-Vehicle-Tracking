@@ -46,9 +46,13 @@ ENV PYTHONUNBUFFERED=1 \
     TZ=UTC
 
 # libpq5 for asyncpg/psycopg2 at runtime; curl for container-level probes.
+# ffmpeg supplies ffprobe (RTSP health probing) and the simulator's stream
+# publisher. It is the one heavyweight runtime dependency we accept, because
+# probing RTSP with a TCP connect would call a dead camera healthy.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
         curl \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 sentinel \
     && useradd --uid 1001 --gid 1001 --create-home --shell /bin/bash sentinel

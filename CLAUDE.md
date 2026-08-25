@@ -32,6 +32,20 @@ AI Pipeline   Event Engine
  GIS + Command Centre ── live view, map, alerts, route replay, search, reports
 ```
 
+### Challenge compliance
+
+`docs/REQUIREMENTS.md` maps every stated requirement to where it is implemented.
+The three that constrain the architecture most:
+
+* **Model 1 (Centralised CCTV Registry & GIS Foundation) is COMPULSORY** and must
+  be combined with another model (FAQ Q12). Our Model 5 = 1 + 3 + selective 2.
+* Model 1 must provide bulk/manual/API onboarding, an **interactive GIS map with
+  layered filters**, **camera health monitoring**, **gap-analysis reports**, and
+  role-based search/audit trails (FAQ Q15).
+* The scored live test case is ~50 distributed feeds from different departments,
+  onboarded, with a **designated vehicle tracked across cameras** and its complete
+  timestamped route reported (FAQ Q26–28).
+
 ### The five judge moments
 
 Everything in this repo exists to serve these. If a change does not serve one of them, question it.
@@ -197,3 +211,6 @@ Anything that differs from the original brief goes here, with the reason.
 | 2 | PostgreSQL 16 + PostGIS 3.4 + TimescaleDB | `timescale/timescaledb-ha:pg16.14-ts2.29.2-all` | `postgis/postgis:16-3.4` is amd64-only. This image is arm64 and contains both extensions. Same capability, one container. |
 | 3 | Ultralytics YOLO at runtime | Ultralytics at **build** time only; ONNX Runtime at runtime | Cuts the AI image from ~2.5 GB to ~400 MB (protects the 5-minute demo) and keeps AGPL-3.0 code out of the shipped artifact. |
 | 4 | Self-hosted MBTiles via tileserver-gl | GeoJSON basemap, no tile server | Avoids a ~500 MB download and a container on the demo path. Chosen deliberately; MBTiles path documented for production. |
+| 5 | `services/ingest/` as a separate codebase | Ingest runs from the **API image** with a different command | The health monitor shares the ORM models and adapters. One image build instead of two protects the 5-minute demo; it is still a separate container, so probing 80,000 cameras never competes with serving operators. |
+| 6 | Simulator package named `app` | Named `simulator` | Two services sharing a PYTHONPATH cannot both own the root package `app` — `app.core` resolved to the wrong package. |
+| 7 | Command centre UI built in Phase 9 | Map, fleet health and integration screens pulled forward to Phase 3/4 | The challenge makes an "interactive GIS map with layered filters" a **mandatory** Model 1 feature (FAQ Q15), and the work needs to be reviewable in a browser as it lands. |

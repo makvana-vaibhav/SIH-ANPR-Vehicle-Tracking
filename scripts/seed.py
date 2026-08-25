@@ -74,11 +74,26 @@ DEPARTMENTS: list[dict[str, str]] = [
 #
 # credentials_ref is a POINTER into a secret store, never a credential. That is
 # enforced by convention here and documented in docs/SECURITY.md.
+# NOTE ON adapter_type IN THE DEMO
+# `vendor` records what each system really is (Milestone, Genetec, CP Plus,
+# Hikvision) and `base_url` records where it really lives — that is the
+# federation story, and it is true. But on a laptop those hosts do not exist,
+# so the demo fleet is served by the simulator and `adapter_type` says so
+# honestly rather than pointing at an endpoint that will never answer.
+#
+# Moving to production is a one-field change per row: set adapter_type back to
+# vendor_api / onvif / rtsp. Nothing else in the platform changes — which is
+# precisely the point of the adapter interface.
+#
+# "Sentinel Sandbox Grid" is the exception: it keeps its real adapter, because
+# sentinel.gujarat.gov.in is a genuine remote endpoint we federate for real.
+DEMO_ADAPTER = AdapterType.SIMULATED.value
+
 VMS_INSTANCES: list[dict[str, str]] = [
     {
         "name": "Rajkot City Command Centre",
         "vendor": VmsVendor.MILESTONE.value,
-        "adapter_type": AdapterType.VENDOR_API.value,
+        "adapter_type": DEMO_ADAPTER,   # vendor_api in production
         "base_url": "https://vms.rajkot.gujarat.gov.in/api",
         "credentials_ref": "vault://sentinel/vms/rajkot-milestone",
         "department": "MUNICIPAL",
@@ -86,7 +101,7 @@ VMS_INSTANCES: list[dict[str, str]] = [
     {
         "name": "Ahmedabad Smart City VMS",
         "vendor": VmsVendor.GENETEC.value,
-        "adapter_type": AdapterType.VENDOR_API.value,
+        "adapter_type": DEMO_ADAPTER,   # vendor_api in production
         "base_url": "https://smartcity.ahmedabad.gov.in/vms/api",
         "credentials_ref": "vault://sentinel/vms/ahmedabad-genetec",
         "department": "MUNICIPAL",
@@ -94,7 +109,7 @@ VMS_INSTANCES: list[dict[str, str]] = [
     {
         "name": "GSRTC Depot Surveillance",
         "vendor": VmsVendor.CPPLUS.value,
-        "adapter_type": AdapterType.RTSP.value,
+        "adapter_type": DEMO_ADAPTER,   # rtsp in production
         "base_url": "rtsp://depot-nvr.gsrtc.gujarat.gov.in:554",
         "credentials_ref": "vault://sentinel/vms/gsrtc-cpplus",
         "department": "GSRTC",
@@ -102,7 +117,7 @@ VMS_INSTANCES: list[dict[str, str]] = [
     {
         "name": "Gujarat Highway ANPR Grid",
         "vendor": VmsVendor.HIKVISION.value,
-        "adapter_type": AdapterType.ONVIF.value,
+        "adapter_type": DEMO_ADAPTER,   # onvif in production
         "base_url": "https://anpr.highways.gujarat.gov.in",
         "credentials_ref": "vault://sentinel/vms/highway-hikvision",
         "department": "POLICE",
@@ -241,6 +256,14 @@ async def seed_vms(department_ids: dict[str, object]) -> None:
                 select(VmsInstance).where(VmsInstance.name == spec["name"])
             )
             if existing is not None:
+                # Reconcile: a changed adapter_type or base_url must reach an
+                # already-seeded database, or re-running the seed silently
+                # leaves stale integration settings in place.
+                existing.vendor = spec["vendor"]
+                existing.adapter_type = spec["adapter_type"]
+                existing.base_url = spec["base_url"]
+                existing.credentials_ref = spec["credentials_ref"]
+                existing.department_id = department_ids.get(spec["department"])
                 continue
             session.add(
                 VmsInstance(

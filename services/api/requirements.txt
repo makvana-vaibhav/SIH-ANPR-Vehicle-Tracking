@@ -32,6 +32,12 @@ opensearch-py==2.8.0
 aioboto3==13.3.0                # MinIO / S3 async client
 httpx==0.28.1                   # adapters + MediaMTX control API
 
+# ── Integration layer ─────────────────────────────────────────
+# ONVIF replies are XML from devices on the camera network — i.e. untrusted
+# input. defusedxml blocks entity-expansion and external-entity attacks that
+# the stdlib parser is vulnerable to.
+defusedxml==0.7.1
+
 # ── Geospatial ────────────────────────────────────────────────
 shapely==2.0.6
 geojson-pydantic==1.1.2

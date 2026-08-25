@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.logging import configure_logging, get_logger, request_id_var
 from app.db.session import dispose_engine
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, cameras, health
+from app.routers import auth, cameras, fleet, health, streams
 from app.services import token_store
 
 configure_logging(service="api")
@@ -153,6 +153,8 @@ async def request_context(
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(cameras.router)
+app.include_router(fleet.router)
+app.include_router(streams.router)
 
 
 @app.get("/", tags=["meta"], summary="Service banner")

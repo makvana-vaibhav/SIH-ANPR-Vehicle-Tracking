@@ -268,6 +268,77 @@ services:
     logging: *default-logging
     networks: [sentinel]
 
+  # ── Ingest — fleet health monitor ───────────────────────────────────
+  # Runs the staggered probe loop against every camera through its VMS
+  # adapter. A separate container so probing 80,000 cameras never competes
+  # with serving operator requests, but the SAME image as the API: it shares
+  # the ORM models and adapters, and one image build protects the 5-minute
+  # demo (see CLAUDE.md section 9).
+  ingest:
+    image: sentinel-gj/api:dev
+    container_name: sentinel-ingest
+    <<: *default-restart
+    command: ["python", "-m", "app.ingest.monitor"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_dev_pw}@postgres:5432/${POSTGRES_DB:-sentinel}
+      REDIS_URL: redis://redis:6379/0
+      MEDIAMTX_API_URL: http://mediamtx:9997
+    volumes:
+      - ./services/api:/app/services/api
+      - ./scripts:/app/scripts
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # The monitor has no HTTP surface. Liveness is proven by what it is FOR:
+      # a recent row in camera_health. A process that is running but no longer
+      # probing is not healthy, and a plain process check would miss that.
+      test: ["CMD", "python", "-m", "app.ingest.healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+    networks: [sentinel]
+
+  # ── Simulator — synthetic camera fleet ──────────────────────────────
+  # Replays footage into MediaMTX as real RTSP, so the platform has live
+  # cameras without hardware. This is the same technique the challenge
+  # sandbox uses to expose its 30+ government feeds (FAQ Q39-40).
+  simulator:
+    image: sentinel-gj/api:dev
+    container_name: sentinel-simulator
+    <<: *default-restart
+    command:
+      ["uvicorn", "simulator.main:app", "--host", "0.0.0.0", "--port", "9100",
+       "--app-dir", "/app/services/simulator"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_dev_pw}@postgres:5432/${POSTGRES_DB:-sentinel}
+      SIM_VIDEO_DIR: /data/videos
+      SIM_STREAM_COUNT: ${SIM_STREAM_COUNT:-24}
+      PYTHONPATH: /app/services/simulator:/app/services/api
+    ports:
+      - "${SIMULATOR_HOST_PORT:-9100}:9100"
+    volumes:
+      - ./services/simulator:/app/services/simulator
+      - ./services/api:/app/services/api
+      - ./data/videos:/data/videos:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      mediamtx:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9100/health', timeout=4).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: *default-logging
+    networks: [sentinel]
+
 networks:
   sentinel:
     name: sentinel-net
