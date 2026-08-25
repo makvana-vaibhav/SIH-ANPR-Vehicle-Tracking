@@ -229,6 +229,8 @@ services:
       - ./services/api:/app/services/api
       - ./packages/contracts:/app/packages/contracts:ro
       - ./scripts:/app/scripts
+      # End-to-end tests run from this image against the live stack.
+      - ./tests:/app/tests
       - ./data/seed:/data/seed:ro
       # Writable: `make videos` transcodes fetched clips with the ffmpeg in
       # this image, so the host does not need ffmpeg installed.

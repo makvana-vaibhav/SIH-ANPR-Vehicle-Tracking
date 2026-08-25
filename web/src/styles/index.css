@@ -110,3 +110,73 @@
     }
   }
 }
+
+/*
+  MapLibre popup styling.
+
+  These elements are created imperatively by MapLibre, so Tailwind's content
+  scanner never sees the class names — they are styled here instead.
+*/
+@layer components {
+  .maplibregl-popup-content {
+    @apply rounded-md border border-border bg-card px-3 py-2 shadow-xl;
+    color: hsl(var(--foreground));
+  }
+  .maplibregl-popup-tip {
+    border-top-color: hsl(var(--card)) !important;
+    border-bottom-color: hsl(var(--card)) !important;
+  }
+  .district-tooltip .maplibregl-popup-content {
+    @apply px-2.5 py-1 text-xs;
+  }
+
+  .camera-tooltip .maplibregl-popup-content {
+    @apply min-w-[11rem] px-3 py-2;
+  }
+  .tt-code {
+    @apply font-mono text-xs font-semibold tracking-wider text-primary;
+  }
+  .tt-name {
+    @apply mt-0.5 text-sm leading-tight;
+  }
+  .tt-meta {
+    @apply mt-0.5 text-[11px] text-muted-foreground;
+  }
+  .tt-status {
+    @apply mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider;
+  }
+  .tt-online {
+    @apply bg-status-online/20 text-status-online;
+  }
+  .tt-offline {
+    @apply bg-status-offline/20 text-status-offline;
+  }
+  .tt-degraded {
+    @apply bg-status-degraded/20 text-status-degraded;
+  }
+  .tt-unknown {
+    @apply bg-status-unknown/20 text-status-unknown;
+  }
+
+  /* Native controls, themed to the operations palette. */
+  .maplibregl-ctrl-group {
+    @apply border border-border bg-card shadow-lg;
+  }
+  .maplibregl-ctrl-group button + button {
+    @apply border-t border-border;
+  }
+  .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+    filter: invert(0.85);
+  }
+  .maplibregl-ctrl-scale {
+    @apply border-border bg-card/80 text-[10px] text-muted-foreground;
+    border-width: 1px;
+    border-top: none;
+  }
+  .maplibregl-ctrl-attrib {
+    @apply bg-card/70 text-[10px];
+  }
+  .maplibregl-ctrl-attrib a {
+    color: hsl(var(--muted-foreground));
+  }
+}

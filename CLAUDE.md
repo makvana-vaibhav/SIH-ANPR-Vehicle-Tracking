@@ -160,9 +160,14 @@ they are constraints discovered by probing:
 - **Runtime images are torch-free.** Ultralytics (AGPL-3.0) + PyTorch is ~2.5 GB and is used *only*
   at model-fetch time in a throwaway tools image to export ONNX. The shipped `ai-worker` carries
   `onnxruntime` + OpenCV only. AGPL code never ships in the deployed artifact.
-- **Map has no tile server.** MapLibre renders Gujarat district boundaries and the NH-27 / NH-48
-  corridors from GeoJSON committed under `data/seed/`. Works on a plane, in a basement, at a venue
-  with hostile wifi. `docs/INFRASTRUCTURE.md` documents the MBTiles upgrade for production.
+- **Map: satellite when online, GeoJSON when not.** The map offers two basemaps. *Satellite* uses
+  Esri World Imagery (no API key) and is the only external dependency in the product; it is
+  optional, probed before use, and falls back automatically. *Offline* renders Gujarat district
+  boundaries from a 330 KB GeoJSON committed under `data/seed/` — no tile server, no external
+  request, identical on a plane or at a venue with hostile wifi. **The offline path must keep
+  working**; satellite is an enhancement, never a requirement.
+- **No MapLibre symbol/text layers.** They require a `glyphs` font endpoint, which would be another
+  network dependency. Every map label is HTML.
 
 ---
 
@@ -214,3 +219,4 @@ Anything that differs from the original brief goes here, with the reason.
 | 5 | `services/ingest/` as a separate codebase | Ingest runs from the **API image** with a different command | The health monitor shares the ORM models and adapters. One image build instead of two protects the 5-minute demo; it is still a separate container, so probing 80,000 cameras never competes with serving operators. |
 | 6 | Simulator package named `app` | Named `simulator` | Two services sharing a PYTHONPATH cannot both own the root package `app` — `app.core` resolved to the wrong package. |
 | 7 | Command centre UI built in Phase 9 | Map, fleet health and integration screens pulled forward to Phase 3/4 | The challenge makes an "interactive GIS map with layered filters" a **mandatory** Model 1 feature (FAQ Q15), and the work needs to be reviewable in a browser as it lands. |
+| 8 | Zero external requests, always | Esri World Imagery as an **optional** satellite basemap | Aerial imagery makes a junction recognisable as itself, which matters for an operations map. It needs no API key, is probed before use, and falls back to the offline GeoJSON basemap automatically. The offline path remains fully functional and is what the "works on a plane" claim rests on. |
