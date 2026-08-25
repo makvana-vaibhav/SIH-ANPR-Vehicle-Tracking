@@ -16,7 +16,7 @@ then continue at the first unchecked phase.
 |---|---|---|
 | 0 | Foundation & self-documentation | ✅ **complete** |
 | 1 | Auth, RBAC, audit | ✅ **complete** |
-| 2 | Camera registry + GIS + bulk onboarding | ⬜ not started |
+| 2 | Camera registry + GIS + bulk onboarding | ✅ **complete** |
 | 3 | Integration layer (adapters) + health monitoring | ⬜ not started |
 | 4 | Stream gateway | ⬜ not started |
 | 5 | AI pipeline | ⬜ not started |
@@ -214,22 +214,128 @@ Fetched the challenge site and its resource guide. Findings that changed the bui
 - `scripts/seed.py` — extend `seed_departments`/`seed_users` pattern with cameras + watchlist.
 - Migration 0001 already created `cameras` with the GiST index; no new DDL required.
 
-## Phase 2 — Camera registry + GIS + bulk onboarding
+## Phase 2 — Camera registry + GIS + bulk onboarding ✅
 
-- [ ] Alembic migration 0001: full schema; hypertables for `detections`, `camera_health`;
-      asserts `postgis` **and** `timescaledb` extensions exist
-- [ ] Camera CRUD endpoints
-- [ ] CSV bulk upload with per-row validation and an error report
-- [ ] `POST /api/v1/cameras` self-registration for other departments via API key
-- [ ] PostGIS: `/cameras/nearby?lat&lon&radius_km`, `/cameras/in-district/{name}`, `/cameras/geojson`
-- [ ] Seed: **250 cameras** on real junction/highway coordinates across Rajkot, Ahmedabad, Gondal,
-      Jetpur, Junagadh, Surat, Vadodara, Gandhinagar, Bhavnagar, Jamnagar (NH-27 / NH-48 corridors),
-      4 departments × 4 VMS vendors, + Gujarat district boundary GeoJSON
+- [x] Migration 0001 (delivered in Phase 1 — full schema, hypertables, GiST index)
+- [x] Camera CRUD with RBAC on every endpoint and audit on every mutation
+- [x] CSV bulk upload: per-row validation, row-numbered error report, `dry_run` mode
+- [x] `POST /api/v1/cameras` self-registration for the `api_client` role
+- [x] PostGIS: `/cameras/nearby`, `/cameras/in-district/{name}`, `/cameras/geojson`
+- [x] Extra: `/cameras/summary`, `/cameras/vocabularies`, `/departments`, `/vms`
+- [x] Seed: **250 cameras**, 6 departments, 5 VMS instances across 5 vendors
+- [x] Gujarat district boundary GeoJSON — 33 districts, 330 KB, committed
+- [x] 124 tests passing, ruff clean
 
-**Gate:** `make seed` then `GET /api/v1/cameras/geojson` returns 250 features; nearby query returns
-correct ordering by distance.
+**Gate — PASSED:**
 
----
+```
+$ make clean && make up && make migrate && make seed
+  departments: 6 created    users: 6 created    vms instances: 5 created
+  cameras.bulk_upload created=250 failed=0
+  cameras: 250 created, 0 updated, 0 failed
+
+$ GET /api/v1/cameras/geojson
+  ✓ FeatureCollection with 250 features
+
+$ GET /api/v1/cameras/nearby?lat=22.3039&lon=70.8022&radius_km=8
+     1.388 km  CAM-00105  Trikon Baug CCTV 20
+     1.454 km  CAM-00097  Trikon Baug CCTV 12
+     1.566 km  CAM-00173  NH-27 km 52 ANPR Gantry
+     1.748 km  CAM-00102  Kalawad Road Junction CCTV 17
+  ✓ monotonic by distance
+
+$ GET /api/v1/cameras/summary
+  total: 250 | ANPR-capable: 209
+  POLICE 131 · GSRTC 48 · MUNICIPAL 39 · PANCHAYAT 22 · HEALTH 10
+  8 districts
+
+$ pytest tests -q  →  124 passed
+$ ruff check . && ruff format --check .  →  All checks passed
+```
+
+### What a judge can now do
+Query the whole 250-camera estate: filter by department, district, status,
+vendor or ANPR capability; ask "what covered this junction?" and get cameras
+ordered by true spheroidal distance; pull the fleet as GeoJSON ready for
+MapLibre. **Judge Moment 1 is data-complete** — the map screen in Phase 9 has
+everything it needs.
+
+### Seed data design (this matters for Judge Moment 4)
+`scripts/generate_cameras.py` is deterministic (seed 20260910) and writes the
+committed `data/seed/cameras.csv`. Cameras sit on **real** coordinates: 161 at
+named city junctions across 10 cities, 89 strung along the actual NH-27 and
+NH-48 alignments, with `heading_deg` computed from the road bearing.
+
+That geographic realism is load-bearing. The demo route Rajkot → Gondal →
+Jetpur → Junagadh has 26/11/11/11 cameras within 6 km of each waypoint, and
+legs of 38.1 / 29.5 / 31.0 km — about 25 minutes apart at highway speed. Random
+coordinates would produce a "route" at impossible speeds through empty desert,
+and the correlator's plausibility scoring (Phase 7) would correctly reject it.
+
+`make seed` loads the CSV **through the same `bulk_upload` the API exposes**, so
+seeding exercises real onboarding code rather than a private shortcut that
+could silently diverge from it.
+
+### Problems hit and how they were fixed (do not re-introduce)
+
+1. **Every guarded endpoint returned `422: query.user Field required`.**
+   `app/core/rbac.py` uses `from __future__ import annotations`, so FastAPI
+   resolves dependency type hints against **module globals**. `CurrentUser` and
+   `get_current_user` were imported *inside* the factory functions, so the name
+   could not be resolved and FastAPI silently degraded the parameter into a
+   required query parameter. Fixed by hoisting those imports to module level —
+   the circular-import risk that motivated the lazy import does not actually
+   exist (`api/deps.py` does not import `rbac`, and `services/audit.py` imports
+   deps only under `TYPE_CHECKING`). **Never lazily import a name used in a
+   FastAPI dependency signature in a module using postponed annotations.**
+2. **`MissingGreenlet` on camera create/update.** After `session.flush()`,
+   server-generated columns (`created_at`/`updated_at`) are expired and
+   relationships unloaded; serialising them attempted lazy IO, which async
+   SQLAlchemy refuses. Fixed by re-reading through `get_camera()` (which
+   `selectinload`s relations) instead of `session.refresh(attribute_names=...)`.
+3. **`make demo` would fail on a fresh clone** — it ran `up` then `seed` with no
+   migration in between. `demo` now runs `up → migrate → seed`.
+4. **District boundaries: 31/33 matched.** geoBoundaries uses census spellings —
+   `Ahmadabad` (not Ahmedabad) and `Batod` (not Botad). Aliases added; now 33/33.
+   Ahmedabad missing would have blanked the state's largest camera cluster.
+5. **geoBoundaries is git-lfs backed** — `raw.githubusercontent.com` returns a
+   132-byte pointer/404. Must use `media.githubusercontent.com`. The fetch
+   script fails loudly if the download is under 100 KB rather than writing a
+   corrupt file.
+
+### Security decisions made here
+- **`stream_url` is never returned by any list or detail endpoint.** Viewing
+  URLs are issued per request as short-lived signed tokens by
+  `/cameras/{id}/stream` (Phase 4), and that issuance is audited. Returning raw
+  stream URLs in a list response would hand out unaudited access to every feed
+  in the estate. Asserted by a test.
+- **Credentials embedded in a stream URL are rejected at validation.**
+  `rtsp://admin:pw@host/stream` is how camera passwords leak into databases,
+  logs and screenshots.
+- **`credentials_ref` is never serialised**, even to admins — it points into a
+  secret store, and exposing the pointer narrows an attacker's search.
+- **Coordinates outside Gujarat are rejected**, catching the classic swapped
+  lat/lon onboarding error before it puts a camera in the Indian Ocean.
+- Every read endpoint is paginated with a hard cap (500); no route can return
+  the whole estate.
+
+### Map data
+`data/seed/gujarat_districts.geojson` — 33 districts, 330 KB, from geoBoundaries
+gbOpen ADM2 (ODbL 1.0 / CC-BY 4.0), regenerable with `scripts/fetch_geodata.sh`.
+This plus the camera GeoJSON is the entire basemap: **no tile server, no tile
+download, works offline on a plane.** Every district our cameras sit in is
+covered.
+
+### What Phase 3 needs from here
+- `app/models/registry.py` — `VmsInstance.adapter_type` is what the adapter
+  registry resolves on; `CameraHealth` is a hypertable ready for probe writes.
+- `AdapterType`/`VmsVendor` already include `SENTINEL_SANDBOX`, and the seeded
+  "Sentinel Sandbox Grid" VMS points at `https://sentinel.gujarat.gov.in`.
+- `app/services/camera.py::bulk_upload` is the reusable path for adapters that
+  sync a camera list in from a federated VMS.
+- **Sandbox adapter caveat:** the exact `/api/ingest` JSON schema is not
+  published and camera ids "can change" — parse defensively, re-sync rather
+  than assuming a fixed id set.
 
 ## Phase 3 — Integration layer (adapters) + health monitoring
 

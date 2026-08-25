@@ -33,7 +33,9 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 
+from app.api.deps import CurrentUser, get_current_user
 from app.models.enums import Role
+from app.services.audit import record_permission_denied
 
 
 class Permission(StrEnum):
@@ -145,8 +147,12 @@ def role_has(role: Role | str, permission: Permission) -> bool:
 
 # ── FastAPI dependencies ──────────────────────────────────────────────
 #
-# Imported lazily inside the functions to avoid a circular import:
-# app.core.rbac ← app.api.deps ← app.core.rbac.
+# CurrentUser and get_current_user are imported at MODULE level, not inside the
+# factories. This file uses `from __future__ import annotations`, so FastAPI
+# resolves each dependency's type hints against module globals — a name imported
+# inside the factory is invisible there, and FastAPI silently degrades the
+# parameter into a required query parameter instead. That failure mode is quiet
+# and confusing, so keep these imports at the top.
 
 
 def require_permission(*required: Permission):
@@ -156,7 +162,6 @@ def require_permission(*required: Permission):
     attempt to reach something you are not entitled to is exactly the event a
     reviewer needs to see.
     """
-    from app.api.deps import CurrentUser, get_current_user
 
     async def _check(
         request: Request,
@@ -165,8 +170,6 @@ def require_permission(*required: Permission):
         granted = permissions_for(user.role)
         missing = [p for p in required if p not in granted]
         if missing:
-            from app.services.audit import record_permission_denied
-
             await record_permission_denied(
                 request=request, user=user, missing=[p.value for p in missing]
             )
@@ -189,8 +192,6 @@ def require_role(*allowed: Role):
     *who* is granted it, and survives the addition of new roles. This exists for
     the few endpoints that are genuinely role-shaped, such as user administration.
     """
-    from app.api.deps import CurrentUser, get_current_user
-
     allowed_values = {r.value for r in allowed}
 
     async def _check(
@@ -198,8 +199,6 @@ def require_role(*allowed: Role):
         user: Annotated[CurrentUser, Depends(get_current_user)],
     ) -> CurrentUser:
         if user.role not in allowed_values:
-            from app.services.audit import record_permission_denied
-
             await record_permission_denied(
                 request=request, user=user, missing=[f"role:{'|'.join(sorted(allowed_values))}"]
             )

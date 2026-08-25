@@ -22,9 +22,14 @@ from sqlalchemy import select  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db.session import SessionLocal, dispose_engine  # noqa: E402
-from app.models.enums import Role  # noqa: E402
-from app.models.registry import Department  # noqa: E402
+from app.models.enums import AdapterType, CameraStatus, Role, VmsVendor  # noqa: E402
+from app.models.registry import Camera, Department, VmsInstance  # noqa: E402
 from app.models.security import User  # noqa: E402
+from app.services.camera import bulk_upload  # noqa: E402
+
+SEED_DIR = Path("/data/seed")
+if not SEED_DIR.exists():  # running outside the container
+    SEED_DIR = Path(__file__).resolve().parent.parent / "data" / "seed"
 
 # ── Departments ───────────────────────────────────────────────────────
 # The five departments whose live feeds the challenge sandbox exposes, plus
@@ -59,6 +64,59 @@ DEPARTMENTS: list[dict[str, str]] = [
         "code": "SCRB",
         "name": "State Crime Records Bureau",
         "contact_email": "scrb@gujarat.gov.in",
+    },
+]
+
+# ── Federated VMS instances ───────────────────────────────────────────
+# Four vendors plus the challenge's own camera grid. Each stays authoritative
+# for its own recordings; this platform holds metadata and pulls streams on
+# demand — the essence of Model 5.
+#
+# credentials_ref is a POINTER into a secret store, never a credential. That is
+# enforced by convention here and documented in docs/SECURITY.md.
+VMS_INSTANCES: list[dict[str, str]] = [
+    {
+        "name": "Rajkot City Command Centre",
+        "vendor": VmsVendor.MILESTONE.value,
+        "adapter_type": AdapterType.VENDOR_API.value,
+        "base_url": "https://vms.rajkot.gujarat.gov.in/api",
+        "credentials_ref": "vault://sentinel/vms/rajkot-milestone",
+        "department": "MUNICIPAL",
+    },
+    {
+        "name": "Ahmedabad Smart City VMS",
+        "vendor": VmsVendor.GENETEC.value,
+        "adapter_type": AdapterType.VENDOR_API.value,
+        "base_url": "https://smartcity.ahmedabad.gov.in/vms/api",
+        "credentials_ref": "vault://sentinel/vms/ahmedabad-genetec",
+        "department": "MUNICIPAL",
+    },
+    {
+        "name": "GSRTC Depot Surveillance",
+        "vendor": VmsVendor.CPPLUS.value,
+        "adapter_type": AdapterType.RTSP.value,
+        "base_url": "rtsp://depot-nvr.gsrtc.gujarat.gov.in:554",
+        "credentials_ref": "vault://sentinel/vms/gsrtc-cpplus",
+        "department": "GSRTC",
+    },
+    {
+        "name": "Gujarat Highway ANPR Grid",
+        "vendor": VmsVendor.HIKVISION.value,
+        "adapter_type": AdapterType.ONVIF.value,
+        "base_url": "https://anpr.highways.gujarat.gov.in",
+        "credentials_ref": "vault://sentinel/vms/highway-hikvision",
+        "department": "POLICE",
+    },
+    {
+        # The challenge sandbox (sentinel.gujarat.gov.in) publishes a camera
+        # catalogue at /api/ingest and serves RTSP/WHEP/HLS. Phase 3's
+        # SentinelSandboxAdapter federates it through this record.
+        "name": "Sentinel Sandbox Grid",
+        "vendor": VmsVendor.SENTINEL_SANDBOX.value,
+        "adapter_type": AdapterType.SENTINEL_SANDBOX.value,
+        "base_url": "https://sentinel.gujarat.gov.in",
+        "credentials_ref": "vault://sentinel/vms/sandbox-grid",
+        "department": "SCRB",
     },
 ]
 
@@ -174,11 +232,62 @@ async def seed_users(department_ids: dict[str, object]) -> None:
     print(f"  users: {created} created, {len(DEMO_USERS) - created} already present")
 
 
+async def seed_vms(department_ids: dict[str, object]) -> None:
+    """Register the federated VMS instances."""
+    created = 0
+    async with SessionLocal() as session:
+        for spec in VMS_INSTANCES:
+            existing = await session.scalar(
+                select(VmsInstance).where(VmsInstance.name == spec["name"])
+            )
+            if existing is not None:
+                continue
+            session.add(
+                VmsInstance(
+                    name=spec["name"],
+                    vendor=spec["vendor"],
+                    adapter_type=spec["adapter_type"],
+                    base_url=spec["base_url"],
+                    credentials_ref=spec["credentials_ref"],
+                    department_id=department_ids.get(spec["department"]),
+                    status=CameraStatus.UNKNOWN.value,
+                )
+            )
+            created += 1
+        await session.commit()
+    print(f"  vms instances: {created} created, {len(VMS_INSTANCES) - created} already present")
+
+
+async def seed_cameras() -> None:
+    """Load the 250-camera fleet from data/seed/cameras.csv.
+
+    Deliberately routed through the same `bulk_upload` the API exposes, so the
+    seed exercises real onboarding code — validation, geographic bounds checks
+    and all — rather than a private shortcut that could silently diverge.
+    """
+    csv_path = SEED_DIR / "cameras.csv"
+    if not csv_path.exists():
+        print(f"  cameras: SKIPPED — {csv_path} not found (run scripts/generate_cameras.py)")
+        return
+
+    content = csv_path.read_bytes()
+    async with SessionLocal() as session:
+        result = await bulk_upload(session, content, update_existing=True)
+        await session.commit()
+
+    print(
+        f"  cameras: {result.created} created, {result.updated} updated, "
+        f"{result.failed} failed"
+    )
+    for err in result.errors[:5]:
+        print(f"    row {err.row} ({err.camera_code}): {'; '.join(err.errors)}")
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Seed Sentinel-GJ demo data")
     parser.add_argument(
         "--only",
-        choices=["departments", "users", "all"],
+        choices=["departments", "users", "vms", "cameras", "all"],
         default="all",
         help="Seed a single dataset instead of everything",
     )
@@ -189,6 +298,10 @@ async def main() -> int:
         department_ids = await seed_departments()
         if args.only in ("users", "all"):
             await seed_users(department_ids)
+        if args.only in ("vms", "all"):
+            await seed_vms(department_ids)
+        if args.only in ("cameras", "all"):
+            await seed_cameras()
     finally:
         await dispose_engine()
 

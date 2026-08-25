@@ -133,7 +133,7 @@ logs: ## Tail logs (make logs S=api for one service)
 
 .PHONY: migrate
 migrate: ## Apply database migrations
-	@$(COMPOSE) exec -T api alembic upgrade head
+	@$(COMPOSE) exec -T -w /app/services/api api alembic upgrade head
 
 .PHONY: seed
 seed: ## Seed cameras, watchlist, and users
@@ -142,6 +142,7 @@ seed: ## Seed cameras, watchlist, and users
 .PHONY: demo
 demo: ## Full judge demo: fresh data, simulator, browser
 	@$(MAKE) --no-print-directory up
+	@$(MAKE) --no-print-directory migrate
 	@$(MAKE) --no-print-directory seed
 	@printf "\n\033[1;32mDemo ready\033[0m → $(WEB_URL)\n"
 	@command -v open >/dev/null 2>&1 && open "$(WEB_URL)" || true
