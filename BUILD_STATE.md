@@ -634,6 +634,25 @@ swappable by a test double.
 
 ---
 
+## Known gaps (honest list, as of Phase 4)
+
+Recorded so no session mistakes these for done.
+
+| Gap | Detail |
+|---|---|
+| **mypy does not pass** | 17 errors across 8 files, and `make lint` does not run it. CLAUDE.md §5 claims "Python passes mypy" — currently untrue. Fix or amend the claim. |
+| **No ANPR** | Phase 5. The whole intelligence tier is unbuilt. |
+| **Sample footage carries non-Indian plates** | Fine for detection and tracking; Gujarat-format ground truth needs `scripts/generate_synthetic_plates.py` (Phase 12) to score OCR against. |
+| **24 of 250 cameras stream** | A laptop encoding limit, not an architectural one. `SIM_STREAM_COUNT` raises it toward ~50 for the live test case. |
+| **Vendor adapters unexercised against real VMS** | The code is real and unit-tested, but no Milestone/Genetec/Hikvision server has been on the other end. Only the sandbox adapter targets a genuinely remote endpoint. |
+| **Health debounce counters are in-memory** | A monitor restart resets the consecutive-failure count, so the first post-restart sweep cannot flip a camera offline. Deliberate (it is debounce state, not a fact), but worth knowing. |
+| **Portrait source clips are pillarboxed** | `fetch_videos.sh` pads to 16:9 rather than cropping. |
+| **No rate limiting** on the API | Should exist before anything is exposed beyond localhost. |
+| **HLS fallback opens a raw .m3u8** | Browsers other than Safari will download rather than play it. Needs hls.js or an embedded player page. |
+| **Alembic downgrade untested** | One migration exists; `downgrade()` is written but never run. |
+
+---
+
 ## Definition of done
 
 A judge clones the repo, runs `make demo`, and within five minutes sees: 250 cameras on a Gujarat

@@ -230,6 +230,9 @@ services:
       - ./packages/contracts:/app/packages/contracts:ro
       - ./scripts:/app/scripts
       - ./data/seed:/data/seed:ro
+      # Writable: `make videos` transcodes fetched clips with the ffmpeg in
+      # this image, so the host does not need ffmpeg installed.
+      - ./data/videos:/data/videos
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
