@@ -22,8 +22,8 @@ from app.core.config import settings
 from app.core.logging import configure_logging, get_logger, request_id_var
 from app.db.session import dispose_engine
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, cameras, fleet, health, streams
-from app.services import token_store
+from app.routers import auth, cameras, events, fleet, health, streams
+from app.services import event_consumer, token_store
 
 configure_logging(service="api")
 log = get_logger("api")
@@ -59,9 +59,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if settings.environment == "development":
         log.debug("api.configuration", **settings.sanitised())
 
+    # Consume vehicle events from the AI workers. Started here rather than
+    # lazily on the first WebSocket connection, so detections are persisted
+    # whether or not an operator happens to be watching.
+    await event_consumer.consumer.start()
+
     yield
 
     log.info("api.stopping")
+    await event_consumer.consumer.stop()
     await token_store.close()
     await dispose_engine()
     log.info("api.stopped")
@@ -155,6 +161,7 @@ app.include_router(auth.router)
 app.include_router(cameras.router)
 app.include_router(fleet.router)
 app.include_router(streams.router)
+app.include_router(events.router)
 
 
 @app.get("/", tags=["meta"], summary="Service banner")

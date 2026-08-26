@@ -307,6 +307,60 @@ services:
     logging: *default-logging
     networks: [sentinel]
 
+  # ── AI worker — live ANPR on camera streams ─────────────────────────
+  # Pulls RTSP from MediaMTX, runs vehicle detection, tracking, plate
+  # detection, OCR and multi-frame consensus, and publishes one event per
+  # vehicle to Redis. It never writes to Postgres and never consults the
+  # watchlist: the AI tier's job ends at "here is what I saw, and how sure I
+  # am", and the API turns that into history and alerts.
+  #
+  # Cameras are split across workers by a stable hash of the camera code, so
+  # scaling out is `--scale ai-worker=N` plus AI_WORKER_COUNT — no coordinator,
+  # and two workers can never open the same stream.
+  ai-worker:
+    build:
+      context: .
+      dockerfile: services/ai-worker/Dockerfile
+    image: sentinel-gj/ai-worker:dev
+    container_name: sentinel-ai-worker
+    <<: *default-restart
+    profiles: ["ai"]
+    env_file: [.env]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      EVENT_STREAM_KEY: sentinel:events:detections
+      MEDIAMTX_API_URL: http://mediamtx:9997
+      MEDIAMTX_HOST: mediamtx
+      AI_CONFIG: stream
+      AI_MODELS_DIR: /models
+      AI_WORKER_INDEX: "0"
+      AI_WORKER_COUNT: "1"
+      # One camera per worker is what this hardware sustains; see
+      # ai-lab/PERFORMANCE.md. Raise it only after measuring on the target box.
+      AI_WORKER_MAX_CAMERAS: "2"
+      # ONNX Runtime's own default is one thread per core and is markedly
+      # slower on these small models — measured 452ms against 126ms at four.
+      AILAB_ORT_THREADS: "4"
+    volumes:
+      # Weights are fetched by a committed script and mounted, never baked into
+      # an image or committed to git.
+      - ./ai-lab/models:/models:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+    healthcheck:
+      # Healthy means "can reach the bus it publishes to". A worker with no
+      # cameras assigned is idle, not broken, and restarting it would not help.
+      test: ["CMD", "python", "-m", "ai_worker.healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging: *default-logging
+    networks: [sentinel]
+
   # ── Simulator — synthetic camera fleet ──────────────────────────────
   # Replays footage into MediaMTX as real RTSP, so the platform has live
   # cameras without hardware. This is the same technique the challenge
