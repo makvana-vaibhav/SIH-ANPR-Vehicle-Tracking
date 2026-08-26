@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinel-ailab"
+version = "0.1.0"
+description = "Standalone AI evaluation lab for the Sentinel-GJ CCTV platform"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+
+[project.scripts]
+ailab = "ailab.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ailab*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+  "B008",    # FastAPI-style defaults are not used here, but Field() defaults are
+  "RUF012",  # mutable class attributes are intentional in the registry
+  "RUF001",  # en/em dashes and arrows in prose comments are deliberate
+  "N818",    # ComponentNotFound subclasses KeyError; the Error suffix would mislead
+  "E501",    # long lines are prose comments; code is wrapped by hand where it matters
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+  "models: requires downloaded model weights",
+  "slow: processes real video",
+]

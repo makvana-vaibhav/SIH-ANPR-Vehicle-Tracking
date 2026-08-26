@@ -1,0 +1,24 @@
+# The pipeline as it behaved before the performance work, for a controlled A/B.
+#
+# Identical to `default` except for the four things that were changed, so a
+# comparison isolates their effect instead of measuring an accumulation of
+# unrelated differences. Thread count, models, outputs and OCR gating are all
+# held constant.
+extends: ../default.yaml
+name: pre_optimisation
+description: Pre-optimisation behaviour — no scheduling, 640px plates, all variants.
+
+plate:
+  imgsz: 640
+  imgsz_strategy: proportional
+  schedule:
+    enabled: false
+
+preprocess:
+  stop_on_good_read: false
+
+ocr:
+  detection_fallback_max_aspect: 3.0
+  detection_fallback_min_height: 20
+  crop_gate:
+    enabled: false

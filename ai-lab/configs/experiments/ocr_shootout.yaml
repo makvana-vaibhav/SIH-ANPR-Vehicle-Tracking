@@ -1,0 +1,12 @@
+# EasyOCR instead of RapidOCR, everything else identical.
+#
+#   ailab sweep input.mp4 --configs default,experiments/ocr_shootout
+#
+# Requires the torch profile. EasyOCR is what most YOLOv8 ANPR tutorials use,
+# which makes it the baseline worth beating — or adopting, if it wins.
+extends: ../default.yaml
+name: ocr_easyocr
+description: Identical to default except the OCR engine, to isolate OCR's contribution.
+
+ocr:
+  engine: easyocr

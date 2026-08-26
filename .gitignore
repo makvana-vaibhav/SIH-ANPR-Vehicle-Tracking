@@ -47,6 +47,15 @@ packages/contracts/generated/**/*.ts
 packages/contracts/generated/**/*.py
 !packages/contracts/generated/.gitkeep
 
+# ── AI lab (standalone evaluation environment) ────────────────
+# Weights, run outputs and mined datasets are all reproducible from the
+# committed fetch script and configs; none of them belong in git.
+ai-lab/models/*
+!ai-lab/models/.gitkeep
+ai-lab/runs/*
+!ai-lab/runs/.gitkeep
+ai-lab/datasets/
+
 # ── Benchmark / load output ───────────────────────────────────
 tests/load/results/
 benchmarks/*.json

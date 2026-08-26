@@ -1,0 +1,19 @@
+# Inference-only benchmarking.
+#
+# Same models and same decisions as `default`, with every diagnostic artifact
+# switched off: no annotated video, no crops, no HTML report. Use it to measure
+# what the *inference* pipeline costs, separately from what observing it costs.
+#
+# It still writes the CSV/JSON results, so accuracy remains measurable — a
+# benchmark that cannot be checked for correctness is not worth running.
+extends: default.yaml
+name: bench
+description: Inference and results only; no video, crops or report.
+
+output:
+  annotated_video: false
+  save_plate_crops: false
+  save_vehicle_crops: false
+  keyframes: false
+  html_report: false
+  events_jsonl: true

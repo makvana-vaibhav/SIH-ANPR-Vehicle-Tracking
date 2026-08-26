@@ -1,0 +1,40 @@
+# Fast pass — for iterating on long footage.
+#
+# Every second frame, one preprocessing variant, fewer reads per vehicle.
+# Roughly 3x faster than default and measurably less accurate; use it to find
+# the interesting minute of a two-hour recording, then re-run that minute with
+# the default config.
+extends: default.yaml
+name: fast
+description: Speed-first sweep pass — halves frames and preprocessing work.
+
+source:
+  frame_stride: 2
+
+detector:
+  confidence: 0.35
+
+plate:
+  every_n_frames: 1
+  # Aggressive scheduling rather than a blanket frame skip: a vehicle still
+  # gets several distinct looks, they are just spaced further apart.
+  schedule:
+    min_interval: 6
+    max_interval: 24
+    min_scale_change: 0.25
+    min_move_fraction: 0.45
+    min_vehicle_width: 120
+    backoff_factor: 6
+
+preprocess:
+  variants: [upscaled]
+
+ocr:
+  max_reads_per_track: 12
+  stop_when_confident: true
+  stop_min_agreeing: 3
+  stop_min_confidence: 0.80
+
+output:
+  save_all_read_crops: false
+  max_crops_per_track: 8
