@@ -50,6 +50,7 @@ class StreamStats:
     tracks_started: int = 0
     tracks_retired: int = 0
     plates_read: int = 0
+    discontinuities: int = 0
     latencies_ms: list[float] = field(default_factory=list)
     started_at: float = field(default_factory=time.perf_counter)
 
@@ -71,6 +72,7 @@ class StreamStats:
             "elapsed_s": round(self.elapsed_s, 2),
             "tracks_started": self.tracks_started,
             "tracks_retired": self.tracks_retired,
+            "discontinuities": self.discontinuities,
             "plates_read": self.plates_read,
             "events_observed": self.events_observed,
             "events_completed": self.events_completed,
@@ -116,6 +118,7 @@ class StreamRunner:
         self.stats = StreamStats()
 
         self._live: dict[int, _LiveTrack] = {}
+        self._fps = 25.0
         self._next_vehicle_id = 0
         self._reads_by_track: dict[int, int] = {}
         self._crops_saved: dict[int, int] = {}
@@ -141,6 +144,7 @@ class StreamRunner:
         # Retire a track this many frames after it was last seen. Expressed in
         # frames so it scales with the source rate rather than assuming 30fps.
         retire_after = max(5, int(reader.fps * cfg.stream.retire_after_s))
+        self._fps = reader.fps
         self.pipeline._tracker = self.pipeline._tracker or None
         from ailab.registry import create
 
@@ -197,6 +201,14 @@ class StreamRunner:
     # ─────────────────────────────────────────────────────────────────
     def _process(self, captured: Any, frame_index: int, retire_after: int) -> None:
         pipeline = self.pipeline
+        if captured.discontinuity:
+            # The recording looped or the camera restarted. Track identities,
+            # Kalman states and the scheduler's per-vehicle history all describe
+            # a scene that no longer exists; carrying them across the cut would
+            # associate vehicles from before it with vehicles after it. Vehicles
+            # in view at the cut are completed with the evidence they have.
+            self._on_discontinuity()
+
         frame = Frame(
             index=frame_index,
             t_s=captured.source_t_s,
@@ -236,6 +248,24 @@ class StreamRunner:
 
         self._emit_observed(tracks_view, captured)
         self._retire_stale(frame_index, retire_after, captured)
+
+    def _on_discontinuity(self) -> None:
+        """Rebuild all long-lived state after a scene cut."""
+        from ailab.plate.scheduler import CropGate, PlateScheduler
+        from ailab.registry import create
+
+        live = len(self._live)
+        self._retire_all()
+        self.pipeline._tracker = create(
+            "tracker", self.config.tracker.engine, self.config.tracker, self._fps
+        )
+        self.pipeline.scheduler = PlateScheduler(self.config.plate.schedule)
+        self.pipeline.crop_gate = CropGate(self.config.ocr.crop_gate)
+        self._reads_by_track.clear()
+        self._crops_saved.clear()
+        self._labels.clear()
+        self.stats.discontinuities += 1
+        log.info("scene discontinuity: completed %d in-view vehicle(s), state rebuilt", live)
 
     def _observe(self, detection: Detection, frame_index: int) -> _LiveTrack | None:
         track_id = detection.track_id
