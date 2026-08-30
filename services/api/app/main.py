@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.logging import configure_logging, get_logger, request_id_var
 from app.db.session import dispose_engine
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, cameras, events, fleet, health, streams
+from app.routers import alerts, auth, cameras, events, fleet, health, streams, watchlist
 from app.services import event_consumer, token_store
 
 configure_logging(service="api")
@@ -162,6 +162,8 @@ app.include_router(cameras.router)
 app.include_router(fleet.router)
 app.include_router(streams.router)
 app.include_router(events.router)
+app.include_router(watchlist.router)
+app.include_router(alerts.router)
 
 
 @app.get("/", tags=["meta"], summary="Service banner")

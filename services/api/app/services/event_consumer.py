@@ -22,6 +22,7 @@ offset instead of losing whatever arrived while it was down.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -35,6 +36,7 @@ from app.core.logging import get_logger
 from app.db.session import SessionLocal
 from app.models.intelligence import Detection
 from app.models.registry import Camera
+from app.services import alerts, watchlist
 from app.services.event_bus import broadcaster, parse_event
 
 log = get_logger("event_consumer")
@@ -56,6 +58,7 @@ class EventConsumer:
         self._camera_ids: dict[str, uuid.UUID | None] = {}
         self.consumed = 0
         self.persisted = 0
+        self.alerts_raised = 0
         self.failed = 0
 
     # ─────────────────────────────────────────────────────────────────
@@ -67,10 +70,10 @@ class EventConsumer:
         self._stop.set()
         if self._task is not None:
             self._task.cancel()
-            try:
+            # Cancelling is how this task is meant to end; awaiting it just
+            # lets the cancellation land before we drop the reference.
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
         if self._client is not None:
             await self._client.aclose()
@@ -219,16 +222,49 @@ class EventConsumer:
             is_validated=bool(plate.get("grammar_valid", False)),
         )
 
+        plate_normalised = detection.plate_normalised
+
         async with SessionLocal() as session:
             session.add(detection)
+
+            # Watchlist matching happens in the same transaction as the
+            # detection it came from: an alert that survives without its
+            # detection, or a detection that silently failed to raise the alert
+            # it should have, are both worse than the whole write failing.
+            alert = None
+            match = None
+            if plate_normalised:
+                match = await watchlist.index.match(plate_normalised, detection.ts)
+                if match is not None:
+                    alert = await alerts.raise_for_match(
+                        session,
+                        match=match,
+                        plate=plate_normalised,
+                        camera_id=camera_id,
+                        camera_code=camera_code,
+                        detection_id=detection.id,
+                        detection_ts=detection.ts,
+                        confidence=detection.plate_confidence,
+                    )
+
             await session.commit()
 
+            if alert is not None:
+                payload = alerts.alert_payload(alert, match)
+
         self.persisted += 1
+
+        # Broadcast after the commit, so an operator never sees an alert that a
+        # rolled-back transaction means does not exist.
+        if alert is not None:
+            self.alerts_raised += 1
+            await broadcaster.publish(payload)
 
     def stats(self) -> dict[str, Any]:
         return {
             "consumed": self.consumed,
             "persisted": self.persisted,
+            "alerts_raised": self.alerts_raised,
             "failed": self.failed,
             "running": self._task is not None and not self._task.done(),
         }
