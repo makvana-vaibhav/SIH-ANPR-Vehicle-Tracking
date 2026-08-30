@@ -35,6 +35,13 @@ class WorkerSettings(BaseSettings):
     ai_worker_count: int = Field(default=1, ge=1)
     # An explicit comma-separated list overrides discovery entirely.
     ai_worker_cameras: str = ""
+    # Where cameras come from:
+    #   "sandbox"  the organisers' grid, read from its own catalogue
+    #   "mediamtx" whatever is publishing to our gateway (simulator, RTSP pulls)
+    ai_worker_source: str = "sandbox"
+    sandbox_base_url: str = "https://live.corp8.cloud"
+    # Force a transport instead of probing. Empty means probe once at startup.
+    sandbox_transport: str = ""
     # Hard cap on concurrent streams per worker. Each stream is a decode thread
     # plus an inference loop; oversubscribing makes every camera slower rather
     # than covering more of them.

@@ -12,6 +12,10 @@ import io
 import pytest
 from httpx import AsyncClient
 
+#: Cameras created by scripts/seed.py. Federated sources add to this, so
+#: assertions use it as a floor rather than an equality.
+SEEDED_FLEET = 250
+
 pytestmark = pytest.mark.integration
 
 RAJKOT = (22.3039, 70.8022)
@@ -33,7 +37,9 @@ class TestFleetIsSeeded:
         assert response.status_code == 200
         body = response.json()
         assert body["type"] == "FeatureCollection"
-        assert len(body["features"]) == 250
+        # At least the seeded fleet. Federating a real VMS adds cameras, so an
+        # exact count would fail the moment the registry does its job.
+        assert len(body["features"]) >= SEEDED_FLEET
 
     async def test_geojson_features_are_rfc7946(self, client: AsyncClient, auth_headers) -> None:
         """MapLibre consumes this directly, so the shape must be exact."""
@@ -68,7 +74,7 @@ class TestFleetIsSeeded:
             await client.get("/api/v1/cameras/summary", headers=await auth_headers("operator"))
         ).json()
 
-        assert summary["total"] == 250
+        assert summary["total"] >= SEEDED_FLEET
         assert len(summary["by_department"]) >= 4
         assert len(summary["by_district"]) >= 5
 
@@ -79,7 +85,7 @@ class TestFleetIsSeeded:
 
         vendors = {r["vendor"] for r in rows}
         assert len(vendors) >= 4, f"expected multi-vendor federation, got {vendors}"
-        assert sum(r["camera_count"] for r in rows) == 250
+        assert sum(r["camera_count"] for r in rows) >= SEEDED_FLEET
 
     async def test_vms_never_exposes_credentials_reference(
         self, client: AsyncClient, auth_headers
@@ -218,7 +224,7 @@ class TestPagination:
         first = (await client.get("/api/v1/cameras?limit=10&offset=0", headers=headers)).json()
         second = (await client.get("/api/v1/cameras?limit=10&offset=10", headers=headers)).json()
 
-        assert first["total"] == second["total"] == 250
+        assert first["total"] == second["total"] >= SEEDED_FLEET
         assert len(first["items"]) == len(second["items"]) == 10
         assert not {c["id"] for c in first["items"]} & {c["id"] for c in second["items"]}
 

@@ -9,6 +9,9 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
+#: Cameras created by scripts/seed.py; federated sources add to this.
+SEEDED_FLEET = 250
+
 pytestmark = pytest.mark.integration
 
 
@@ -18,8 +21,8 @@ class TestFleetHealthEndpoint:
             await client.get("/api/v1/health/fleet", headers=await auth_headers("operator"))
         ).json()
 
-        assert body["total"] == 250
-        assert body["online"] + body["offline"] + body["degraded"] + body["unknown"] == 250
+        assert body["total"] >= SEEDED_FLEET
+        assert (body["online"] + body["offline"] + body["degraded"] + body["unknown"]) == body["total"]
 
     async def test_separates_integrated_from_registered(
         self, client: AsyncClient, auth_headers
@@ -44,7 +47,7 @@ class TestFleetHealthEndpoint:
         ).json()
 
         assert len(body["by_department"]) >= 4
-        assert sum(r["total"] for r in body["by_department"]) == 250
+        assert sum(r["total"] for r in body["by_department"]) >= SEEDED_FLEET
         # Multi-vendor federation is the architecture's claim; assert it holds.
         assert len({r["vendor"] for r in body["by_vendor"]}) >= 3
 
@@ -108,7 +111,7 @@ class TestGapAnalysis:
             await client.get("/api/v1/health/gaps", headers=await auth_headers("analyst"))
         ).json()
 
-        assert sum(d["cameras"] for d in body["district_coverage"]) == 250
+        assert sum(d["cameras"] for d in body["district_coverage"]) >= SEEDED_FLEET
 
 
 class TestCameraHealthHistory:

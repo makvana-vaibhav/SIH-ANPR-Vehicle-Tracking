@@ -25,7 +25,7 @@ from ailab.config import RunConfig
 from ailab.stream import SourceIdentity, StreamRunner
 
 from ai_worker.config import WorkerSettings
-from ai_worker.discovery import CameraStream, discover
+from ai_worker.discovery import CameraStream, discover, discover_sandbox
 from ai_worker.publisher import RedisEventSink
 
 log = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ class AiWorker:
             settings.redis_url, settings.event_stream_key, settings.event_stream_maxlen
         )
         self.tasks: dict[str, CameraTask] = {}
+        self._transport: str | None = None
         self._shutdown = asyncio.Event()
 
     # ─────────────────────────────────────────────────────────────────
@@ -81,15 +82,28 @@ class AiWorker:
 
     async def _reconcile(self) -> None:
         """Make the running set match the set we should be running."""
-        wanted = await discover(
-            self.settings.mediamtx_api_url,
-            self.settings.mediamtx_host,
-            self.settings.mediamtx_rtsp_port,
-            self.settings.ai_worker_index,
-            self.settings.ai_worker_count,
-            self.settings.ai_worker_cameras,
-            self.settings.ai_worker_max_cameras,
-        )
+        if self.settings.ai_worker_source == "sandbox":
+            wanted = await discover_sandbox(
+                self.settings.sandbox_base_url,
+                self.settings.ai_worker_index,
+                self.settings.ai_worker_count,
+                self.settings.ai_worker_max_cameras,
+                self.settings.sandbox_transport or self._transport,
+            )
+            # Probe once, then reuse: the answer is a property of the network,
+            # not of the camera, and re-probing every cycle is wasted latency.
+            if wanted and self._transport is None:
+                self._transport = wanted[0].transport
+        else:
+            wanted = await discover(
+                self.settings.mediamtx_api_url,
+                self.settings.mediamtx_host,
+                self.settings.mediamtx_rtsp_port,
+                self.settings.ai_worker_index,
+                self.settings.ai_worker_count,
+                self.settings.ai_worker_cameras,
+                self.settings.ai_worker_max_cameras,
+            )
         wanted_by_code = {c.camera_code: c for c in wanted}
 
         # Cameras that stopped publishing, or moved to another worker.
@@ -136,7 +150,10 @@ class AiWorker:
             stream=stream, thread=thread, stop=stop, restarts=restarts
         )
         thread.start()
-        log.info("processing %s (%s)", stream.camera_code, stream.rtsp_url)
+        log.info(
+            "processing %s [%s] over %s — %s",
+            stream.camera_code, stream.label or "unnamed", stream.transport, stream.rtsp_url,
+        )
 
     def _process(self, stream: CameraStream, stop: threading.Event) -> None:
         """One camera's inference loop. Runs on its own thread."""

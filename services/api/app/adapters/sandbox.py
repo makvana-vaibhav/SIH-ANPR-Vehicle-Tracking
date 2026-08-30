@@ -105,7 +105,7 @@ class SentinelSandboxAdapter(CameraAdapter):
             cameras.append(
                 DiscoveredCamera(
                     external_id=external_id,
-                    name=str(pick(item, "name") or f"Sandbox camera {external_id}"),
+                    name=_camera_name(item, external_id),
                     lat=lat,
                     lon=lon,
                     stream_url=rtsp,
@@ -206,6 +206,26 @@ def _extract_location(item: dict[str, Any]) -> tuple[float | None, float | None]
             # otherwise assume it too, since GeoJSON is what the array implies.
             return second, first
     return None, None
+
+
+def _camera_name(item: dict[str, Any], external_id: str) -> str:
+    """The most useful human label available.
+
+    The grid's ``name`` field is "Camera 1"; its ``location`` field is
+    "01 Chiman bhai Bridge". An operator looking at an alert needs the second.
+    Both are kept — ``location`` becomes the name and the raw payload preserves
+    everything — but the useful one is what gets displayed.
+    """
+    # Read directly rather than through pick(): "location" is not one of the
+    # generic vendor concepts, and this grid's own field name is known.
+    location = str(item.get("location") or item.get("site") or "").strip()
+    if location:
+        # The grid prefixes many locations with their own index ("01 Janpath").
+        # Harmless, but the camera code already carries the id.
+        cleaned = location.lstrip("0123456789 -_.").strip()
+        return cleaned or location
+    name = str(pick(item, "name") or "").strip()
+    return name or f"Sandbox camera {external_id}"
 
 
 def _extract_resolution(item: dict[str, Any]) -> str | None:

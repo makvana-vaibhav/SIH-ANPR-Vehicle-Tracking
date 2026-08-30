@@ -333,6 +333,10 @@ services:
       MEDIAMTX_HOST: mediamtx
       AI_CONFIG: stream
       AI_MODELS_DIR: /models
+      # The organisers' grid is the real source. Set AI_WORKER_SOURCE=mediamtx
+      # to fall back to whatever is publishing to our own gateway.
+      AI_WORKER_SOURCE: ${AI_WORKER_SOURCE:-sandbox}
+      SANDBOX_BASE_URL: ${SANDBOX_BASE_URL:-https://live.corp8.cloud}
       AI_WORKER_INDEX: "0"
       AI_WORKER_COUNT: "1"
       # One camera per worker is what this hardware sustains; see
@@ -345,6 +349,10 @@ services:
       # Weights are fetched by a committed script and mounted, never baked into
       # an image or committed to git.
       - ./ai-lab/models:/models:ro
+      # Source mounted so the vision pipeline can be changed and restarted
+      # without a rebuild — the same reason the lab does it.
+      - ./services/ai-worker/ai_worker:/srv/ai_worker
+      - ./ai-lab/ailab:/opt/ailab/ailab
     depends_on:
       redis:
         condition: service_healthy
