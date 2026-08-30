@@ -112,10 +112,39 @@ export default function StreamPlayer({
     // Safari (and iOS) play HLS natively; handing it to hls.js there is both
     // unnecessary and worse, because the native path uses hardware decoding.
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Wait for actual video before claiming to be live. Setting src and
+      // reporting success immediately is how a dead camera ends up labelled
+      // "LIVE" over a black rectangle — the worst kind of wrong, because it
+      // tells an operator a feed is healthy when nothing is arriving.
+      const onPlaying = () => {
+        cleanup()
+        setState('playing')
+        setLatencyNote(`HLS (native) in ${Math.round(performance.now() - started)} ms`)
+      }
+      const onError = () => {
+        cleanup()
+        setState('failed')
+        setError(
+          video.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+            ? 'No video is being published for this camera'
+            : `Playback error (${video.error?.message || 'unknown'})`,
+        )
+      }
+      const stall = window.setTimeout(() => {
+        cleanup()
+        setState('failed')
+        setError('No video arrived within 15 seconds — nothing is publishing this camera')
+      }, 15000)
+      const cleanup = () => {
+        window.clearTimeout(stall)
+        video.removeEventListener('playing', onPlaying)
+        video.removeEventListener('error', onError)
+      }
+
+      video.addEventListener('playing', onPlaying)
+      video.addEventListener('error', onError)
       video.src = hlsUrl
       video.play().catch(() => undefined)
-      setState('playing')
-      setLatencyNote(`HLS (native) in ${Math.round(performance.now() - started)} ms`)
       return
     }
 
@@ -139,9 +168,15 @@ export default function StreamPlayer({
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       video.play().catch(() => undefined)
+    })
+
+    // A parsed manifest is not a picture. Report live only once frames are
+    // actually rendering, for the same reason as the native path above.
+    const onPlaying = () => {
       setState('playing')
       setLatencyNote(`HLS in ${Math.round(performance.now() - started)} ms`)
-    })
+    }
+    video.addEventListener('playing', onPlaying, { once: true })
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
       if (!data.fatal) return
