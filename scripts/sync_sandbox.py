@@ -209,6 +209,10 @@ async def sync(base_url: str, dry_run: bool = False) -> int:
             fields = {
                 "camera_code": code,
                 "name": item.name,
+                # Without this the camera has no VMS, so adapter_for falls back
+                # to the generic RTSP adapter and hands the player our own
+                # gateway's URLs for a camera our gateway has never seen.
+                "vms_id": vms.id,
                 "stream_url": stream_url,
                 "sub_stream_url": hls or None,
                 "protocol": Protocol.RTSP.value,
