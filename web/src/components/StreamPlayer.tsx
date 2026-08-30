@@ -65,6 +65,21 @@ function waitForIceGathering(pc: RTCPeerConnection, timeoutMs = 2000): Promise<v
   })
 }
 
+/**
+ * Route a federated grid URL through our own origin.
+ *
+ * The organisers' HLS cannot be fetched by a browser directly: it gates video
+ * behind a session it will not grant cross-origin, redirects to http:// (mixed
+ * content), and Cloudflare rejects the request outright. nginx proxies it at
+ * /grid/, so the browser makes ordinary same-origin requests and every one of
+ * those problems disappears.
+ */
+function throughProxy(url: string | null): string | null {
+  if (!url) return url
+  const match = /^https?:\/\/live\.corp8\.cloud\/(.*)$/.exec(url)
+  return match ? `/grid/${match[1]}` : url
+}
+
 export default function StreamPlayer({
   whepUrl,
   hlsUrl,
@@ -97,7 +112,8 @@ export default function StreamPlayer({
   /** Play the HLS ladder in this element. */
   const playHls = useCallback(() => {
     const video = videoRef.current
-    if (!video || !hlsUrl) {
+    const source = throughProxy(hlsUrl)
+    if (!video || !source) {
       setError('No HLS endpoint for this camera')
       setState('failed')
       return
@@ -143,7 +159,7 @@ export default function StreamPlayer({
 
       video.addEventListener('playing', onPlaying)
       video.addEventListener('error', onError)
-      video.src = hlsUrl
+      video.src = source
       video.play().catch(() => undefined)
       return
     }
@@ -206,7 +222,7 @@ export default function StreamPlayer({
       }
     })
 
-    hls.loadSource(hlsUrl)
+    hls.loadSource(source)
     hls.attachMedia(video)
   }, [hlsUrl, teardown])
 

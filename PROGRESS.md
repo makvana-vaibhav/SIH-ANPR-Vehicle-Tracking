@@ -30,9 +30,10 @@ By the numbers: 11 containers · 48 API operations · 25,000 lines Python ·
 2,800 lines TypeScript · 267 API + 161 AI-lab + 10 worker + 11 frontend tests ·
 16 commits.
 
-**One thing is blocked and it is not on us.** The organisers' camera grid at
-`live.corp8.cloud` returns Cloudflare 502 — their origin is down. Everything
-needed to consume it is built and waiting: see *Blocked* below.
+**The organisers' grid is live and we are running on it** — 30 real cameras,
+real junction names, real video. Vehicles are detected and tracked; **no plates
+have been read yet**, and the reason is the cameras, not the pipeline. See
+*The live grid, as measured* below.
 
 ---
 
@@ -117,6 +118,41 @@ a delete.
 **Verified live:** exact hit → critical; one character off → medium possible
 match; expired BOLO → nothing; unlisted plate → nothing; repeat inside the
 window → folded into the original.
+
+---
+
+## 📡 The live grid, as measured
+
+`https://live.corp8.cloud` is up and the pipeline runs on it. What that actually
+looks like, from probing rather than from the catalogue's own claims:
+
+| | |
+|---|---|
+| cameras published | 30, all reporting `live: true` |
+| registered with a location | 25 at city precision, 5 tagged `placement:unknown` |
+| RTSP (8554) / WebRTC (8889) | **blocked** from this network; only 80/443 open |
+| transport actually used | **HLS over 443**, the fallback their guide prescribes |
+| HLS streams that opened | **3 of 8 sampled** — 6, 14, 15, 17, 22 timed out |
+| codecs | H.264 and H.265 mixed; HEVC will not play in Chrome or Firefox |
+| resolutions | 1280x720 · 1280x960 · 1920x1080 · 2560x1440 |
+| vehicles detected | yes — 131 detections, tracked across frames |
+| **plates read** | **none** |
+
+The cameras are night-time junction overview and red-light-violation units. On
+the two that opened and had traffic, vehicles measured 192-315px at their widest,
+which puts a plate at roughly 40-60px in heavy glare. The single plate-shaped
+result recorded, `MANAEC` at 0.62 confidence, is a false read the grammar
+correctly rejected.
+
+So: detection, tracking, events, persistence and the alert path all work on real
+video. Plate recognition on these particular cameras does not. Daytime footage,
+or a camera pointed down a lane rather than across a junction, is what would
+change that — the pipeline is the same either way.
+
+Their guide also warns that "each connected client receives its own copy of the
+stream" and to open only what you are processing. Some of the timeouts above may
+be self-inflicted by surveying while the worker held sessions open; worth
+re-testing one camera at a time before concluding a feed is down.
 
 ---
 
