@@ -2,7 +2,7 @@
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
-*Updated 30 Aug 2026 · 7 of 14 phases done · **11 days to the event** (10–11 Sep,
+*Updated 31 Aug 2026 · 7 of 14 phases done · **10 days to the event** (10–11 Sep,
 registration closes 7 Sep)*
 
 Detail lives in [BUILD_STATE.md](BUILD_STATE.md) (per-phase gates and every bug
@@ -15,25 +15,34 @@ fixed), [docs/STATUS.md](docs/STATUS.md) (real vs simulated, explained), and
 
 The **platform** was built first; the **intelligence** now works too. Plates are
 read off live camera streams, watchlist hits raise alerts by themselves, and an
-alert reaches a connected operator in **24 ms**. What is still missing is the
-part that ties sightings together across cameras — the correlator — and that is
-what the organisers actually score (FAQ Q26–28).
+alert reaches a connected operator in **24 ms**. The whole chain has now been
+run end to end with nothing staged — see *The ANPR demonstration* below.
+
+Two things are missing. The **correlator** ties sightings together across
+cameras, which is what the organisers actually score (FAQ Q26–28). And the
+**frontend stops at the map**: alerts and the watchlist are complete, tested
+APIs with no screen in front of them, so today the demonstration runs in a
+terminal rather than in the product.
 
 ```
 DONE      Phase 0 ──▶ 1 ──▶ 2 ──▶ 3 ──▶ 4 ──▶ 5 ──▶ 6   (platform + ANPR + alerts)
-NEXT      Phase 7 ──▶ 8                                  (routes → search)
-THEN      Phase 9 ──▶ 10 ──▶ 11 ──▶ 12                   (UI, scale proof, docs, hardening)
+NEXT      Phase 9                                        (operator frontend)
+THEN      Phase 7 ──▶ 8 ──▶ 10 ──▶ 11 ──▶ 12             (routes, search, scale, docs, hardening)
 LATER     Phase 13 ──▶ 14                                (face/person, government DBs)
 ```
 
+Phase 9 comes before 7 because the alerting backend is finished and invisible.
+Building the correlator first would add a second capability with no screen.
+
 By the numbers: 11 containers · 48 API operations · 25,000 lines Python ·
-2,800 lines TypeScript · 267 API + 161 AI-lab + 10 worker + 11 frontend tests ·
-16 commits.
+2,800 lines TypeScript · 276 API + 172 AI-lab + 10 worker + 11 frontend tests ·
+22 commits.
 
 **The organisers' grid is live and we are running on it** — 30 real cameras,
 real junction names, real video. Vehicles are detected and tracked; **no plates
-have been read yet**, and the reason is the cameras, not the pipeline. See
-*The live grid, as measured* below.
+have been read from it**, and the reason is the cameras, not the pipeline. See
+*The live grid, as measured* below. Plates *are* read, at 0.95–1.00 confidence,
+from footage shot close enough to the traffic to resolve them.
 
 ---
 
@@ -156,25 +165,66 @@ re-testing one camera at a time before concluding a feed is down.
 
 ---
 
-## 🚧 Blocked
+## 🎬 The ANPR demonstration
 
-**The organisers' camera grid is down.** `https://live.corp8.cloud` returns
-Cloudflare **502** at both `/` and `/api/ingest` — their origin, not our network.
-The host is not published publicly; it sits behind the login at
-`sentinel.gujarat.gov.in/login`.
+`scripts/demo_anpr.py` runs the production chain end to end with nothing staged:
 
-Everything to consume it exists and is waiting:
+```
+simulator → RTSP into MediaMTX → ai-worker decodes → YOLO → ByteTrack →
+plate detect → OCR → consensus → Redis Stream → API consumer →
+watchlist match → alert → /ws/events
+```
 
-* `SentinelSandboxAdapter` reads the catalogue and extracts coordinates in all
-  three shapes the field uses (flat `lat`/`lon`, nested object, GeoJSON pair).
-* `scripts/sync_sandbox.py --base-url https://live.corp8.cloud --dry-run` prints
-  every camera with its coordinates, codec and resolution; without `--dry-run`
-  it loads them into the registry and onto the map.
-* The stream reader already obeys their integration guide (§ Phase 5).
+The script's only privileges are reading the database to report what happened
+and putting a plate on the watchlist. It does not publish detections, does not
+write alerts, and is never told which plates are in the footage — it reads back
+what the live pipeline wrote. If the pipeline cannot read the plate, no alert
+appears and the demo fails, which is the point of running it.
 
-**Camera locations come from their catalogue and nowhere else.** Entries without
-coordinates are registered and watchable but kept off the map — placing a camera
-at a guessed location is worse than admitting we do not know where it is.
+```bash
+make videos                              # fetches and cuts anpr_demo.mp4, once
+docker compose --profile ai run -d --rm \
+    -e AI_WORKER_SOURCE=mediamtx -e AI_WORKER_CAMERAS=cam-00001 \
+    -e AI_CONFIG=stream_demo --name sentinel-ai-demo ai-worker
+docker compose exec -e SENTINEL_API_URL=http://api:8000 api \
+    python /app/scripts/demo_anpr.py --plate NA13NRU
+```
+
+**Measured on this machine:**
+
+| | |
+|---|---|
+| plates read from the 15s clip | **13**, of which 12 resolve to a valid format |
+| best read | `NA13NRU` at **0.95–1.00** |
+| repairs the grammar made | `GX150GJ`→`GX15OGJ`, `EYG1NBG`→`EY61NBG`, `KHD5ZZK`→`KH05ZZK`, `MY5IVSU`→`MY51VSU` |
+| alert after arming the watchlist | **33–99 s** — how long until the car came round again, *not* pipeline latency |
+| detection → alert | 24 ms, measured separately in the Phase 6 gate |
+
+The annotated video draws the magnified plate crop and its transcription above
+each vehicle, so the reading is visible frame by frame rather than only in a
+log.
+
+**The demonstration footage carries UK plates.** It is the only clip available
+with legible plates; the organisers' cameras cannot resolve one (above). Plate
+grammar is therefore region-aware: `configs/demo.yaml` and `stream_demo.yaml`
+accept UK formats, and a Gujarat deployment runs `stream`, which is
+Indian-only. Grading a correct read as invalid because it is not a Gujarat
+plate would be the tool being wrong about right output — but **do not ship a
+config that accepts GB.**
+
+### Three bugs this surfaced
+
+All three were invisible to a suite of 267 passing tests, because nothing
+exercised the endpoints over HTTP.
+
+| Bug | Effect |
+|---|---|
+| Handlers annotated the user as `CurrentUser`, the bare model, instead of the `Annotated[…, Depends(…)]` alias | FastAPI expected the user in the request body, so **every mutating watchlist and alert endpoint returned 422**. The entire Phase 6 write surface was unusable |
+| `watchlist` and `alerts` mounted at the root, every other router under `/api/v1` | Both **unreachable through the web container's nginx** |
+| `detection_id` read before flush, where a Python-side column default assigns it | **Every watchlist alert recorded `detection_id=None`** and lost its link to the evidence that raised it |
+
+`services/api/tests/test_watchlist_api.py` now covers the HTTP surface and
+asserts the prefix; both were verified to fail against the reverted bugs.
 
 ---
 
@@ -182,9 +232,10 @@ at a guessed location is worse than admitting we do not know where it is.
 
 | Phase | Delivers | Why it matters |
 |---|---|---|
+| **9 · Operator frontend** ← next | Live ANPR overlay on the grid feeds, alerts triage, watchlist manager, dashboard, video wall | **Judge Moment 3.** The APIs are done; without screens they are performed in a terminal |
 | **7 · Correlator** | Cross-camera route reconstruction, plausibility scoring, convoy detection | **Judge Moment 4** — and the organisers' scored live test case (FAQ Q26–28) |
 | **8 · Search** | OpenSearch partial/fuzzy plate search, pg_trgm fallback | Partial plate → ranked results in <300ms |
-| **9 · Remaining UI** | Dashboard, video wall, alerts triage, vehicle profile with animated route, watchlist manager, admin, architecture page | Where the five judge moments are actually performed |
+| **9b · Remaining UI** | Vehicle profile with animated route, admin, architecture page | Follows Phase 7 and Phase 10, whose output they display |
 | **10 · Scale proof** | Redpanda, 3 AI workers, 80k-camera load test, k6, Grafana | **Judge Moment 5** — measured numbers, not claims |
 | **11 · Documentation** | HLD, INFRASTRUCTURE, SECURITY, API, DEMO_SCRIPT | A required submission artifact |
 | **12 · Demo hardening** | `make demo` full path, 500k synthetic detections, e2e test, PANIC.md | Protects the live demo |
@@ -199,8 +250,11 @@ Real, verified, and not to be mistaken for done.
 
 | Issue | Severity | Note |
 |---|---|---|
-| **Accuracy measured on generated plates** | **High** | None of the sample footage has a legible plate, so ANPR accuracy comes from rendered plates and **is optimistic by construction**. Real labelled Gujarat footage is the single most valuable thing that could be added |
-| **Sandbox grid unreachable** | **High** | `live.corp8.cloud` → Cloudflare 502. Consumption path is built; nothing has run against a real feed yet |
+| **No screen for alerts or the watchlist** | **High** | Both APIs are complete and tested; `web/src/pages/` has only Map, Fleet Health, Integration and Login. The judge moments for alerting happen in a terminal today. **This is the next phase of work** |
+| **Accuracy measured on generated plates** | **High** | The *measured* accuracy figure still comes from rendered plates and is optimistic by construction. The pipeline now also runs on real footage with legible plates (12 of 13 resolving to a valid format), but that clip has no ground truth, so those are model-confidence numbers. Real labelled **Gujarat** footage is still the single most valuable thing that could be added |
+| **The grid's cameras cannot resolve a plate** | **High** | The grid is reachable and detection, tracking, health and events all work on it. But its cameras are night-time junction overviews — plates 40–60 px in glare — and **zero plates have been read from any of them**. Needs a camera pointed down a lane |
+| Demonstration footage carries UK plates | Medium | The only clip available with legible plates. Handled by region-aware grammar; `stream` stays Indian-only. Do not let a GB-accepting config reach a deployment |
+| Live reads converge less than offline ones | Medium | Streaming emits `vehicle.observed` incrementally, so an early event can carry a partial read (`FJ4ZHY` before `FJ14ZHY`). The final `vehicle.completed` is correct; consumers acting on the first event see the rougher answer |
 | **mypy fails — 17 errors, 8 files** | Medium | `make lint` never ran it. CLAUDE.md §5 claims "Python passes mypy" — **currently false**. Fix or amend the claim |
 | Plate detector weights are AGPL-3.0 | Medium | Ultralytics export. Fine for evaluation, must be replaced before production — see ai-lab/README.md |
 | One OCR error survives consensus | Medium | `GJ35K5714` → `GJ35X5714`. Both letters in a letter slot, so grammar cannot repair it and every frame agreed. Needs a better recogniser or a fine-tune |
@@ -208,7 +262,6 @@ Real, verified, and not to be mistaken for done.
 | Evidence crops not in MinIO | Medium | The worker records crop keys; upload to object storage is not wired. `Detection.crop_key` expects a MinIO key |
 | GPU path never executed | Medium | Provider selection is one function and the CUDA branch is written, but this machine has no CUDA. **No GPU figure is claimed anywhere** |
 | ~1 camera per CPU worker | Medium | 4.4 fps at 720p, 2.8 at 4K. Reaching many cameras is a GPU and node-count question this hardware cannot answer |
-| HLS fallback opens a raw `.m3u8` | Low | Non-Safari browsers download instead of playing. Needs hls.js or an embedded page |
 | No API rate limiting | Low | Required before anything is exposed beyond localhost |
 | Health debounce counters in-memory | Low | Monitor restart resets the failure count. Deliberate, but know it |
 | Alembic `downgrade()` never run | Low | Written, untested |
@@ -218,7 +271,31 @@ Real, verified, and not to be mistaken for done.
 
 ## ▶ Next steps, in order
 
-### 1. Phase 7 — the correlator ← **start here**
+### 1. Phase 9 (brought forward) — the operator frontend ← **start here**
+Everything below already works over the API and has no screen. Until it does,
+three of the five judge moments can only be performed in a terminal.
+
+- **Live ANPR overlay on the camera feeds.** Multiple real cameras from the
+  organisers' grid, plates and vehicle boxes drawn over the video as the worker
+  reads them, driven off `/ws/events` rather than re-running inference in the
+  browser
+- **Alerts screen.** Priority-sorted, red critical banner with the plate crop,
+  camera, time and confidence; acknowledge / dispatch / close / false-positive
+  with keyboard shortcuts for triage
+- **Watchlist manager.** Add, amend, retire; case reference and validity window;
+  the audit trail visible
+- **Dashboard.** KPI strip, event ticker, alert feed, mini map
+- **Video wall.** 2×2 / 3×3 / 4×4, drag to place
+
+The APIs are done and tested — `/api/v1/watchlist`, `/api/v1/alerts` with the
+full lifecycle, `/ws/events` for the live push. This is frontend work against a
+finished contract.
+
+*Gate:* a plate typed into the watchlist in the browser, a vehicle passing on a
+live feed, and the alert appearing on screen with its evidence — the terminal
+demo, performed in the product.
+
+### 2. Phase 7 — the correlator
 The organisers' scored live test case (FAQ Q26–28): a designated vehicle tracked
 across cameras with a complete timestamped route. Everything it needs now
 exists — detections carry plate, camera and timestamp, and one physical vehicle
@@ -238,32 +315,28 @@ produces one event.
 *Gate:* a seeded plate yields Rajkot → Gondal → Jetpur → Junagadh with sane
 implied speeds, as valid GeoJSON.
 
-### 2. Phase 8 — search
+### 3. Phase 8 — search
 OpenSearch edge-ngram + fuzzy for partial plates, `pg_trgm` fallback chosen at
 runtime so the demo survives a dead container. Every search audited.
 *Gate:* partial-plate search under 300 ms over 500k detections.
 
-### 3. Phase 9 — the remaining UI
-Alerts triage, vehicle profile with animated route playback, watchlist manager,
-video wall, dashboard, architecture page. This is where the judge moments are
-actually performed — the backend for moments 3 and 4 now exists but has no
-screen.
-
 ### 4. Then
-Phase 10 load test → Phase 11 docs → Phase 12 hardening.
+Phase 10 load test → Phase 11 docs → Phase 12 hardening. The vehicle profile
+with animated route playback belongs with Phase 7's output, and the architecture
+page with Phase 10's numbers.
 
-### The moment the sandbox comes back
-1. `scripts/sync_sandbox.py --base-url https://live.corp8.cloud --dry-run`
-2. Drop `--dry-run` to load real cameras and coordinates
-3. Point the worker at them and confirm plates off a real feed
-
-That last step is the one that turns "measured on generated plates" into a real
-accuracy number, so do it the same day the grid is reachable.
+### Getting a real accuracy number
+The grid's cameras cannot resolve a plate, so the "measured on generated plates"
+debt cannot be cleared with them. What would clear it: **daytime footage from a
+camera pointed down a lane**, with plates transcribed by hand as ground truth.
+Even 200 labelled frames from one Gujarat camera would turn a confidence number
+into a measured one. Ask the organisers whether an ANPR-class feed exists on the
+grid that was not in the published catalogue.
 
 ### Do before submission (not urgent, but not optional)
 - Clear the mypy debt and add it to `make lint`
 - Replace the AGPL plate weights
-- Wire evidence crops into MinIO
+- Wire evidence crops into MinIO — the alerts screen wants the plate crop
 - Raise `SIM_STREAM_COUNT` toward 50 and confirm the laptop holds
 - `docs/DEMO_SCRIPT.md` — the 8-minute walkthrough with fallbacks
 
@@ -275,23 +348,32 @@ accuracy number, so do it the same day the grid is reachable.
 make demo        # up + migrate + seed + open browser
 make videos      # fetch real traffic footage (one time)
 make status      # dependency readiness
-make test        # 267 API + 11 frontend tests
+make test        # 276 API + 11 frontend tests
 make logs S=api  # tail one service
 
 cd ai-lab
 make doctor      # AI models and engines
-make test        # 161 AI-lab tests
+make test        # 172 AI-lab tests
 make validate    # end-to-end ANPR against known plates
 ```
 
-Watch a plate become an alert:
+Watch a plate become an alert — the whole chain, nothing staged:
 
 ```bash
-# 1. put a plate on the watchlist (or use the seeded GJ03AB1234)
-# 2. connect to the live feed
+# One camera carrying the ANPR footage, one worker reading it
+docker compose --profile ai run -d --rm \
+    -e AI_WORKER_SOURCE=mediamtx -e AI_WORKER_CAMERAS=cam-00001 \
+    -e AI_CONFIG=stream_demo --name sentinel-ai-demo ai-worker
+
+docker compose exec -e SENTINEL_API_URL=http://api:8000 api \
+    python /app/scripts/demo_anpr.py --plate NA13NRU
+```
+
+Or watch the events go past directly:
+
+```bash
 wscat -c "ws://localhost:8000/ws/events?token=$TOKEN"
-# 3. the ai-worker reads plates off the camera streams; a watchlist hit
-#    arrives as alert.raised within ~25 ms of the detection landing
+# a watchlist hit arrives as alert.raised within ~25 ms of the detection landing
 ```
 
 | Surface | URL |
