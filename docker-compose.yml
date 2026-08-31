@@ -353,6 +353,9 @@ services:
       # without a rebuild — the same reason the lab does it.
       - ./services/ai-worker/ai_worker:/srv/ai_worker
       - ./ai-lab/ailab:/opt/ailab/ailab
+      # Mounted for the same reason as the source: a pipeline config is a
+      # tuning decision, and retuning should not need an image rebuild.
+      - ./ai-lab/configs:/opt/ailab/configs:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -385,6 +388,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_dev_pw}@postgres:5432/${POSTGRES_DB:-sentinel}
       SIM_VIDEO_DIR: /data/videos
       SIM_STREAM_COUNT: ${SIM_STREAM_COUNT:-24}
+      SIM_CAMERA_VIDEOS: ${SIM_CAMERA_VIDEOS:-CAM-00001=anpr_demo.mp4}
       PYTHONPATH: /app/services/simulator:/app/services/api
     ports:
       - "${SIMULATOR_HOST_PORT:-9100}:9100"

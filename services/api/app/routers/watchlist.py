@@ -14,7 +14,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUserDep, DbSession
 from app.core.logging import get_logger
 from app.core.rbac import Permission, require_permission
 from app.models.intelligence import Watchlist
@@ -22,7 +22,7 @@ from app.schemas.intelligence import WatchlistCreate, WatchlistOut, WatchlistUpd
 from app.services import audit
 from app.services import watchlist as watchlist_service
 
-router = APIRouter(prefix="/watchlist", tags=["watchlist"])
+router = APIRouter(prefix="/api/v1/watchlist", tags=["watchlist"])
 log = get_logger(__name__)
 
 
@@ -59,7 +59,7 @@ async def list_entries(
 async def create_entry(
     payload: WatchlistCreate,
     session: DbSession,
-    user: CurrentUser,
+    user: CurrentUserDep,
     request: Request,
 ) -> Watchlist:
     existing = (
@@ -111,7 +111,7 @@ async def update_entry(
     entry_id: uuid.UUID,
     payload: WatchlistUpdate,
     session: DbSession,
-    user: CurrentUser,
+    user: CurrentUserDep,
     request: Request,
 ) -> Watchlist:
     entry = (
@@ -143,7 +143,7 @@ async def update_entry(
 async def delete_entry(
     entry_id: uuid.UUID,
     session: DbSession,
-    user: CurrentUser,
+    user: CurrentUserDep,
     request: Request,
 ) -> Response:
     entry = (

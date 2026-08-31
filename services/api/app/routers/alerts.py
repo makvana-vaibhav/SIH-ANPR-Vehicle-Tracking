@@ -13,7 +13,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUserDep, DbSession
 from app.core.logging import get_logger
 from app.core.rbac import Permission, permissions_for, require_permission
 from app.models.enums import AlertStatus
@@ -22,7 +22,7 @@ from app.schemas.intelligence import AlertOut, AlertPage, AlertTransition
 from app.services import alerts as alert_service
 from app.services import audit
 
-router = APIRouter(prefix="/alerts", tags=["alerts"])
+router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 log = get_logger(__name__)
 
 #: Which permission each transition needs. Acknowledging is routine; dispatching
@@ -103,7 +103,7 @@ async def transition_alert(
     alert_id: uuid.UUID,
     payload: AlertTransition,
     session: DbSession,
-    user: CurrentUser,
+    user: CurrentUserDep,
     request: Request,
 ) -> Alert:
     alert = await alert_service.get_alert(session, alert_id)

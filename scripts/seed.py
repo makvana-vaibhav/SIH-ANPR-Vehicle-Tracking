@@ -23,7 +23,7 @@ from app.core.config import settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db.session import SessionLocal, dispose_engine  # noqa: E402
 from app.models.enums import AdapterType, CameraStatus, Role, VmsVendor  # noqa: E402
-from app.models.registry import Camera, Department, VmsInstance  # noqa: E402
+from app.models.registry import Department, VmsInstance  # noqa: E402
 from app.models.security import User  # noqa: E402
 from app.services.camera import bulk_upload  # noqa: E402
 

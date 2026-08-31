@@ -56,6 +56,11 @@ class TrackLabel:
     confidence: float = 0.0
     reads: int = 0
     uncertain: bool = False
+    # The best plate crop seen for this vehicle, drawn as an inset above it.
+    # Reading a 40px plate off a 4K frame is impossible for a human watching
+    # the video, so the overlay has to show what the model actually saw —
+    # otherwise the viewer is asked to take the text on trust.
+    crop: np.ndarray | None = None
 
 
 @dataclass(slots=True)
@@ -133,7 +138,12 @@ class Annotator:
                 plate_colour = UNCERTAIN_COLOUR if label.uncertain else PLATE_COLOUR
                 mark = "?" if label.uncertain else ""
                 body = f"{label.text}{mark} {label.confidence:.2f} ({label.reads})"
-                self._label(canvas, body, (x1, y1 - 18), plate_colour, scale=0.5, thickness=1)
+                inset_bottom = y1 - 18
+                if label.crop is not None and label.crop.size:
+                    inset_bottom = self._draw_plate_inset(
+                        canvas, label.crop, label.text, plate_colour, (x1, y1)
+                    )
+                self._label(canvas, body, (x1, inset_bottom), plate_colour, scale=0.5, thickness=1)
 
         for plate in plates:
             self._box(canvas, plate.bbox, PLATE_COLOUR, 2)
@@ -146,6 +156,55 @@ class Annotator:
         if hud:
             self._draw_hud(canvas, hud)
         return canvas
+
+    @staticmethod
+    def _draw_plate_inset(
+        canvas: np.ndarray,
+        crop: np.ndarray,
+        text: str,
+        colour: tuple[int, int, int],
+        anchor: tuple[int, int],
+        width: int = 210,
+    ) -> int:
+        """Draw the plate crop, magnified, above the vehicle with its reading.
+
+        This is the part that makes the video self-evidencing: the viewer sees
+        the actual pixels the OCR was given next to what it made of them, and
+        can judge the result rather than trusting a label.
+
+        Returns the y coordinate where the caller may put further text.
+        """
+        crop_h, crop_w = crop.shape[:2]
+        if crop_w < 4 or crop_h < 4:
+            return anchor[1] - 18
+
+        scale = width / crop_w
+        height = max(1, int(round(crop_h * scale)))
+        enlarged = cv2.resize(crop, (width, height), interpolation=cv2.INTER_CUBIC)
+
+        band = 30                       # the transcription strip above the crop
+        x = max(0, min(anchor[0], canvas.shape[1] - width))
+        bottom = max(band + height, anchor[1] - 6)
+        top = bottom - height - band
+        if top < 0:
+            # Not enough headroom above the vehicle: put the inset below it.
+            top = min(canvas.shape[0] - height - band - 1, anchor[1] + 6)
+            bottom = top + height + band
+        if top < 0:
+            return anchor[1] - 18
+
+        canvas[top + band : top + band + height, x : x + width] = enlarged
+
+        # White transcription strip, echoing how ANPR consoles present a read.
+        cv2.rectangle(canvas, (x, top), (x + width, top + band), (255, 255, 255), -1)
+        (tw, th), _ = cv2.getTextSize(text, FONT, 0.62, 2)
+        cv2.putText(
+            canvas, text,
+            (x + max(4, (width - tw) // 2), top + (band + th) // 2),
+            FONT, 0.62, (16, 16, 16), 2, cv2.LINE_AA,
+        )
+        cv2.rectangle(canvas, (x, top), (x + width, bottom), colour, 2)
+        return top - 4
 
     def _update_trails(self, tracked: list[Detection]) -> None:
         live = set()

@@ -41,7 +41,34 @@ CLIPS=(
 "road_cctv|Public domain|Jilin Tonghua rear-end collision, road CCTV (Wikimedia Commons)|https://upload.wikimedia.org/wikipedia/commons/3/36/Jilin_Tonghua_car_rear-end_collision_accident%2C_2025-03-11.webm"
 )
 
+# The ANPR demonstration clip. The four Wikimedia clips above are real road
+# scenes but were shot too far from the traffic for any plate to be legible —
+# useful for tracking and health, useless for showing OCR. This one is the
+# sample published with the reference ANPR project (Muhammad-Zeerak-Khan,
+# Automatic-License-Plate-Recognition-using-YOLOv8): 4K, close to the traffic,
+# plates readable. It carries UK plates, which is why `configs/demo.yaml`
+# accepts UK grammar. Hosted on Google Drive, so it is fetched separately and
+# a failure here is not fatal — the rest of the fleet still works.
+ANPR_CLIP_ID="1JbwLyqpFCXmftaJY1oap8Sa6KfjoWJta"
+# 15 seconds is enough to see a dozen plates read and keeps the file small
+# enough to loop as a camera without hogging the disk cache.
+DEMO_SECONDS=15
+
 have_ffmpeg() { command -v ffmpeg >/dev/null 2>&1; }
+
+# Google Drive interposes a virus-scan interstitial on large files; the confirm
+# token has to be read back out of it.
+fetch_from_drive() {
+    local id="$1" dst="$2" cookies="${WORK_DIR}/drive.cookies"
+    local confirm
+    confirm=$(curl -sL -c "${cookies}" -A "${UA}" \
+        "https://drive.usercontent.google.com/download?id=${id}&export=download" \
+        | grep -o 'name="confirm" value="[^"]*"' | head -1 | cut -d'"' -f4)
+    curl -sL -b "${cookies}" -A "${UA}" --max-time 900 --retry 2 -o "${dst}" \
+        "https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=${confirm:-t}"
+    rm -f "${cookies}"
+    [ -s "${dst}" ] && [ "$(wc -c < "${dst}")" -gt 1000000 ]
+}
 
 # ffmpeg lives in the api image; use it when it is not on the host.
 transcode() {
@@ -112,6 +139,51 @@ for entry in "${CLIPS[@]}"; do
     fetched=$((fetched + 1))
 done
 
+# ── The ANPR demonstration clip ──────────────────────────────────────────────
+anpr_sample="${VIDEO_DIR}/anpr_sample.mp4"
+anpr_demo="${VIDEO_DIR}/anpr_demo.mp4"
+
+if [ -f "${anpr_demo}" ] && [ -z "${FORCE:-}" ]; then
+    printf '  \033[2m%-20s already present\033[0m\n' "anpr_demo"
+    skipped=$((skipped + 1))
+else
+    if [ ! -f "${anpr_sample}" ] || [ -n "${FORCE:-}" ]; then
+        printf '  %-20s downloading… ' "anpr_sample"
+        if fetch_from_drive "${ANPR_CLIP_ID}" "${anpr_sample}"; then
+            printf '\033[32m✓\033[0m %s MB\n' "$(( $(wc -c < "${anpr_sample}") / 1000000 ))"
+        else
+            rm -f "${anpr_sample}"
+            printf '\033[33mfailed — ANPR demo clip unavailable\033[0m\n'
+            printf '     \033[2mGet it manually from https://drive.google.com/file/d/%s/view\033[0m\n' "${ANPR_CLIP_ID}"
+            printf '     \033[2mand save it as data/videos/anpr_sample.mp4, or use\033[0m\n'
+            printf '     \033[2mscripts/generate_synthetic_plates.py for Gujarat plates with ground truth.\033[0m\n'
+        fi
+    fi
+
+    if [ -f "${anpr_sample}" ]; then
+        # The source is 4K/60 — far more than the pipeline needs and slow to
+        # loop. Cut a 15 s window at 1080p/15fps, which is what a decent
+        # municipal camera actually delivers.
+        printf '  %-20s transcoding… ' "anpr_demo"
+        if have_ffmpeg; then
+            ffmpeg -hide_banner -loglevel error -y -t "${DEMO_SECONDS}" -i "${anpr_sample}" \
+                -vf "scale=1920:1080" -r 15 -c:v libx264 -preset veryfast -crf 24 \
+                -pix_fmt yuv420p -an "${anpr_demo}" 2>/dev/null
+        else
+            docker compose exec -T api ffmpeg -hide_banner -loglevel error -y \
+                -t "${DEMO_SECONDS}" -i "/data/videos/anpr_sample.mp4" \
+                -vf "scale=1920:1080" -r 15 -c:v libx264 -preset veryfast -crf 24 \
+                -pix_fmt yuv420p -an "/data/videos/anpr_demo.mp4" 2>/dev/null
+        fi
+        if [ -s "${anpr_demo}" ]; then
+            printf '\033[32m✓\033[0m %s MB\n' "$(( $(wc -c < "${anpr_demo}") / 1000000 ))"
+            fetched=$((fetched + 1))
+        else
+            printf '\033[33mfailed\033[0m\n'
+        fi
+    fi
+fi
+
 # Attribution is a licence obligation for CC BY-SA material, not a nicety.
 {
     printf '# Sample footage — sources and licences\n\n'
@@ -122,12 +194,17 @@ done
         IFS='|' read -r name licence attribution url <<< "${entry}"
         printf '| `%s.mp4` | %s | %s |\n' "${name}" "${licence}" "${attribution}"
     done
-    printf '\nAll clips are re-encoded to %sx%s H.264 at %s fps for replay.\n' \
+    printf '| `anpr_sample.mp4` | see source | Sample published with the reference ANPR project |\n'
+    printf '| `anpr_demo.mp4` | see source | 15 s 1080p cut of `anpr_sample.mp4`, pinned to CAM-00001 |\n'
+    printf '\nAll clips are re-encoded to %sx%s H.264 at %s fps for replay, except\n' \
         "${TARGET_WIDTH}" "${TARGET_HEIGHT}" "${TARGET_FPS}"
-    printf '\nNote: these are real road scenes, but the vehicles carry non-Indian\n'
-    printf 'plates. Gujarat-format plates for ANPR accuracy measurement are\n'
-    printf 'produced by `scripts/generate_synthetic_plates.py`, which gives exact\n'
-    printf 'ground truth to score against.\n'
+    printf 'the ANPR clip, kept at 1080p because plate legibility is its whole point.\n'
+    printf '\nNote on plates: the four Wikimedia clips were shot too far from the\n'
+    printf 'traffic for any plate to be legible — they exercise detection, tracking\n'
+    printf 'and camera health, not OCR. `anpr_demo.mp4` is the clip where plates are\n'
+    printf 'actually readable, and they are UK plates, which is why `configs/demo.yaml`\n'
+    printf 'accepts UK grammar. Gujarat-format plates with exact ground truth to\n'
+    printf 'score against come from `scripts/generate_synthetic_plates.py`.\n'
 } > "${VIDEO_DIR}/ATTRIBUTION.md"
 
 printf '\n\033[32m%s fetched, %s already present\033[0m → %s\n' \

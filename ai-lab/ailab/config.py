@@ -261,6 +261,11 @@ class ConsensusConfig(BaseModel):
     # Runner-up within this margin of the winner ⇒ flagged ambiguous rather
     # than silently reported as fact.
     ambiguity_margin: float = Field(default=0.15, ge=0.0, le=1.0)
+    # Which national plate formats count as valid. The platform deploys with
+    # ("IN",); evaluation footage from elsewhere needs its own format accepted,
+    # otherwise a perfectly correct read is graded "invalid" and — worse — the
+    # repair step tries to bend it into an Indian plate.
+    plate_regions: tuple[str, ...] = ("IN",)
     apply_confusion_correction: bool = True
     require_grammar: bool = False   # when True, invalid strings can't win
     emit_min_confidence: float = Field(default=0.0, ge=0.0, le=1.0)

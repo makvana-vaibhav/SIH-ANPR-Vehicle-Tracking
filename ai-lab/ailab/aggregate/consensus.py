@@ -68,7 +68,7 @@ def consensus(reads: list[PlateRead], config: ConsensusConfig) -> PlateConsensus
                 text=text,
                 score=weight / total_weight,
                 support=support[text],
-                grammar_valid=grammar.validate(text).valid,
+                grammar_valid=grammar.validate(text, config.plate_regions).valid,
             )
             for text, weight in by_text.items()
         ),
@@ -104,7 +104,7 @@ def consensus(reads: list[PlateRead], config: ConsensusConfig) -> PlateConsensus
     # ── Position-aware repair ──
     corrected_from: str | None = None
     if config.apply_confusion_correction:
-        repaired, _template, changed = grammar.coerce(text)
+        repaired, _template, changed = grammar.coerce(text, config.plate_regions)
         if repaired != text:
             corrected_from = text
             # A repaired character is less certain than one the models agreed
@@ -116,14 +116,14 @@ def consensus(reads: list[PlateRead], config: ConsensusConfig) -> PlateConsensus
                     vote_shares[position] *= 0.85
             text = repaired
 
-    check = grammar.validate(text)
+    check = grammar.validate(text, config.plate_regions)
 
     # ── Grammar gate: prefer a valid runner-up when asked to ──
     if config.require_grammar and not check.valid:
         valid_alternative = next((c for c in candidates if c.grammar_valid), None)
         if valid_alternative:
             text = valid_alternative.text
-            check = grammar.validate(text)
+            check = grammar.validate(text, config.plate_regions)
             method = "grammar_fallback"
             char_confidences = [valid_alternative.score] * len(text)
             vote_shares = [valid_alternative.score] * len(text)
@@ -162,6 +162,7 @@ def consensus(reads: list[PlateRead], config: ConsensusConfig) -> PlateConsensus
         char_confidences=[round(float(c), 4) for c in char_confidences],
         grammar_valid=check.valid,
         grammar_note=check.note,
+        grammar_format=check.fmt,
         corrected_from=corrected_from,
         ambiguous=ambiguous,
         disagreement=round(1.0 - top, 4),

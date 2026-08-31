@@ -412,6 +412,10 @@ class PlateConsensus:
     char_confidences: list[float] = field(default_factory=list)
     grammar_valid: bool = False
     grammar_note: str = ""
+    # Which format matched, decided once by consensus against the configured
+    # regions. Consumers read it rather than re-validating, so a run cannot
+    # report grammar_valid=true and format="invalid" in the same breath.
+    grammar_format: str = "invalid"
     corrected_from: str | None = None   # pre-confusion-correction string
     ambiguous: bool = False             # runner-up too close to call
     disagreement: float = 0.0           # 0 = unanimous, 1 = total disagreement
@@ -430,6 +434,7 @@ class PlateConsensus:
             "agreement": round(self.agreement, 4),
             "grammar_valid": self.grammar_valid,
             "grammar_note": self.grammar_note,
+            "grammar_format": self.grammar_format,
             "corrected_from": self.corrected_from,
             "ambiguous": self.ambiguous,
             "disagreement": round(self.disagreement, 4),

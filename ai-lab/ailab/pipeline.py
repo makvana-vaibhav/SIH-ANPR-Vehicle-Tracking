@@ -98,6 +98,7 @@ class Pipeline:
         self.plate_bearing = {c.lower() for c in config.detector.plate_bearing_classes}
         self._duplicate_plates = 0
         self._reattributed_plates = 0
+        self._best_inset: dict[int, float] = {}
         self._tracker = None  # built per run, since it needs the source frame rate
 
     @staticmethod
@@ -635,11 +636,21 @@ class Pipeline:
         current = consensus(track.plate_reads, cfg.consensus)
         self.timer.add("consensus_incremental", time.perf_counter() - t0)
         track.result = current
+        # Keep the sharpest crop seen for this vehicle rather than the latest:
+        # the inset should show the best evidence the pipeline had, which is
+        # also the frame consensus weighted most heavily.
+        previous = labels.get(track_id)
+        inset = previous.crop if previous is not None else None
+        if inset is None or best_read.quality.sharpness >= self._best_inset.get(track_id, 0.0):
+            inset = crop.copy()
+            self._best_inset[track_id] = best_read.quality.sharpness
+
         labels[track_id] = TrackLabel(
             text=current.text,
             confidence=current.confidence,
             reads=current.reads_total,
             uncertain=current.ambiguous or not current.grammar_valid,
+            crop=inset,
         )
 
     def _save_vehicle_crops(

@@ -13,7 +13,6 @@ import pytest
 
 from app.models.enums import AlertType, Priority
 from app.services.watchlist import (
-    Match,
     WatchlistEntry,
     WatchlistIndex,
     _deletion_variants,

@@ -28,6 +28,16 @@ STANDARD = re.compile(r"^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$")
 BH_SERIES = re.compile(r"^[0-9]{2}BH[0-9]{4}[A-Z]{1,2}$")
 LEGACY = re.compile(r"^[A-Z]{3}[0-9]{4}$")
 
+#: UK current-style plates: two area letters, a two-digit age identifier, three
+#: random letters — NA13NRU, BG65USJ. Present because the reference ANPR
+#: footage the pipeline is validated against is British, and grading a correct
+#: read as "invalid" because it is not Indian is a worse error than the read.
+UK_CURRENT = re.compile(r"^[A-Z]{2}[0-9]{2}[A-Z]{3}$")
+
+#: Which formats to accept. "IN" is what the platform deploys with; "GB" exists
+#: so foreign footage can be evaluated honestly rather than mangled.
+REGIONS = ("IN", "GB")
+
 # Every current state/UT registration prefix. A read starting with something
 # else is almost certainly an OCR error on the first two characters.
 STATE_CODES = frozenset({
@@ -65,6 +75,10 @@ VISUALLY_SIMILAR = frozenset(
     )
 )
 
+#: The most characters a "correction" may change. Beyond this it is no longer
+#: repairing a misread — it is proposing a different plate.
+MAX_CORRECTIONS = 2
+
 # Recognisers frequently emit the country marker embossed on newer plates, and
 # separators that carry no information.
 _NOISE_PREFIX = re.compile(r"^(IND|IIND|1ND|INO)")
@@ -87,14 +101,20 @@ def normalise(text: str) -> str:
     return cleaned
 
 
-def validate(plate: str) -> GrammarCheck:
-    """Classify a normalised plate string."""
+def validate(plate: str, regions: tuple[str, ...] = ("IN",)) -> GrammarCheck:
+    """Classify a normalised plate string against the accepted formats."""
     if not plate:
         return GrammarCheck(False, "invalid", "empty")
     if len(plate) < 6:
         return GrammarCheck(False, "invalid", f"too short ({len(plate)} chars)")
     if len(plate) > 11:
         return GrammarCheck(False, "invalid", f"too long ({len(plate)} chars)")
+
+    if "GB" in regions and UK_CURRENT.match(plate):
+        return GrammarCheck(True, "uk_current", "")
+
+    if "IN" not in regions:
+        return GrammarCheck(False, "invalid", "matches no accepted plate format")
 
     if BH_SERIES.match(plate):
         return GrammarCheck(True, "bh_series", "")
@@ -117,7 +137,7 @@ def validate(plate: str) -> GrammarCheck:
     return GrammarCheck(False, "invalid", "matches no known Indian plate format")
 
 
-def slot_templates(length: int) -> list[str]:
+def slot_templates(length: int, regions: tuple[str, ...] = ("IN",)) -> list[str]:
     """Every plausible letter/digit layout for a plate of this length.
 
     'A' means the slot must be a letter, 'N' a digit. A 10-character string
@@ -125,6 +145,13 @@ def slot_templates(length: int) -> list[str]:
     generated and the one that best fits the observed characters wins.
     """
     templates: list[str] = []
+
+    if "GB" in regions and length == 7:
+        # AA99AAA
+        templates.append("AANNAAA")
+
+    if "IN" not in regions:
+        return templates
 
     # standard: 2 letters + 1-2 digits + 1-3 letters + 4 digits
     for district in (1, 2):
@@ -152,7 +179,7 @@ def _fit_score(text: str, template: str) -> int:
     )
 
 
-def coerce(text: str) -> tuple[str, str, list[int]]:
+def coerce(text: str, regions: tuple[str, ...] = ("IN",)) -> tuple[str, str, list[int]]:
     """Repair a near-miss using position-aware confusion correction.
 
     Returns (corrected, template_used, corrected_positions). When no template
@@ -163,7 +190,7 @@ def coerce(text: str) -> tuple[str, str, list[int]]:
     if not plate:
         return plate, "", []
 
-    templates = slot_templates(len(plate))
+    templates = slot_templates(len(plate), regions)
     if not templates:
         return plate, "", []
 
@@ -174,15 +201,28 @@ def coerce(text: str) -> tuple[str, str, list[int]]:
     best: tuple[tuple[int, int, int], str, str, list[int]] | None = None
     for template in templates:
         corrected, changed = _apply_template(plate, template)
-        score = (
-            1 if validate(corrected).valid else 0,
-            _fit_score(plate, template),
-            -len(changed),
-        )
-        if best is None or score > best[0]:
-            best = (score, corrected, template, changed)
+        # Only a correction that actually reaches a valid plate counts. Repair
+        # means "this is a known format with a misread character"; if no
+        # template yields a valid plate, whatever we produced is speculation.
+        if not validate(corrected, regions).valid:
+            continue
+        # And repair is a small edit. Rewriting four of seven characters is not
+        # fixing a misread, it is inventing a different plate — measured case:
+        # the British plate GX15OGJ was being turned into "GXI5063" and marked
+        # valid, which is precisely the confident wrongness this pipeline exists
+        # to avoid.
+        if len(changed) > MAX_CORRECTIONS:
+            continue
+        score = (_fit_score(plate, template), -len(changed))
+        if best is None or score > best[0][:2]:
+            best = ((*score, 0), corrected, template, changed)
 
-    assert best is not None
+    if best is None:
+        # Nothing valid was reachable. Return the reading untouched: a plate we
+        # cannot parse is evidence, and corrupting it into something we can is
+        # worse than admitting the format is unknown to us.
+        return plate, "", []
+
     _, corrected, template, changed = best
     return corrected, template, changed
 
@@ -225,9 +265,9 @@ def confusable(a: str, b: str) -> bool:
     return frozenset((a, b)) in VISUALLY_SIMILAR
 
 
-def describe_plate(plate: str) -> dict[str, str]:
+def describe_plate(plate: str, regions: tuple[str, ...] = ("IN",)) -> dict[str, str]:
     """Break a valid plate into its parts, for display and for search."""
-    check = validate(plate)
+    check = validate(plate, regions)
     if not check.valid:
         return {"format": check.fmt, "note": check.note}
     if check.fmt == "standard":
@@ -239,6 +279,15 @@ def describe_plate(plate: str) -> dict[str, str]:
                 "rto": m.group(2),
                 "series": m.group(3),
                 "number": m.group(4),
+            }
+    if check.fmt == "uk_current":
+        m = re.match(r"^([A-Z]{2})([0-9]{2})([A-Z]{3})$", plate)
+        if m:
+            return {
+                "format": "uk_current",
+                "area": m.group(1),
+                "age": m.group(2),
+                "series": m.group(3),
             }
     if check.fmt == "bh_series":
         m = re.match(r"^([0-9]{2})(BH)([0-9]{4})([A-Z]{1,2})$", plate)

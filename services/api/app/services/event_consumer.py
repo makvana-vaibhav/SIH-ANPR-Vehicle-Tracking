@@ -226,6 +226,11 @@ class EventConsumer:
 
         async with SessionLocal() as session:
             session.add(detection)
+            # Flush before matching. The primary key comes from a Python-side
+            # column default, which is applied at flush, so without this the
+            # alert below would record detection_id=None and the hit would lose
+            # its link to the evidence that raised it.
+            await session.flush()
 
             # Watchlist matching happens in the same transaction as the
             # detection it came from: an alert that survives without its

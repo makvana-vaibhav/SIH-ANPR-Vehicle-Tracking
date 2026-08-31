@@ -743,15 +743,49 @@ swappable by a test double.
 
 ---
 
-## Known gaps (honest list, as of Phase 6)
+## The ANPR demonstration
+
+`scripts/demo_anpr.py` — run it inside the api container, which has the dependencies:
+
+```
+docker compose exec -e SENTINEL_API_URL=http://api:8000 api \
+    python /app/scripts/demo_anpr.py --plate NA13NRU
+```
+
+Prerequisites: `make videos` (fetches and cuts `anpr_demo.mp4`), the simulator publishing
+`CAM-00001` (pinned by `SIM_CAMERA_VIDEOS` in compose), and a worker on it:
+
+```
+docker compose --profile ai run -d --rm \
+    -e AI_WORKER_SOURCE=mediamtx -e AI_WORKER_CAMERAS=cam-00001 \
+    -e AI_CONFIG=stream_demo --name sentinel-ai-demo ai-worker
+```
+
+What it proves, and why each step is not staged:
+
+1. It reads back what the **live pipeline** has written to `detections` — it is never told which
+   plates are in the footage.
+2. It puts one on the watchlist **over the API** as `supervisor`, so RBAC is checked, an audit row
+   is written, and the in-memory matcher is invalidated at once.
+3. It waits. Nothing is injected. The clip loops; when the car passes again the pipeline reads it
+   afresh.
+4. The alert is whatever the platform raised by itself.
+
+Measured on this machine: `NA13NRU` at confidence 0.99–1.00, alert raised 33–99 s after arming
+(that interval is how long until the car came round again, **not** pipeline latency — detection to
+alert is measured in the Phase 6 tests).
+
+---
+
+## Known gaps (honest list, as of Phase 6 + the ANPR demonstration)
 
 Recorded so no session mistakes these for done.
 
 | Gap | Detail |
 |---|---|
 | **mypy does not pass** | 17 errors across 8 files, and `make lint` does not run it. CLAUDE.md §5 claims "Python passes mypy" — currently untrue. Fix or amend the claim. |
-| **ANPR accuracy is measured on generated plates** | None of the sample footage has a legible plate, so the 100% exact-match figure comes from rendered plates and **is optimistic by construction** — no embossing, no dirt, no motion blur, no regional fonts. Real labelled Gujarat footage is the single most valuable thing that could be added. |
-| **The organisers' camera grid has never been reached** | `live.corp8.cloud` returns Cloudflare 502; the host is behind their login and is not published publicly. The consumption path is built and contract-compliant, but nothing has run against a real feed. |
+| **ANPR accuracy is measured on generated plates** | Still true for the *measured* accuracy figure. The pipeline now also runs on real footage with legible plates (`anpr_demo.mp4`, 12 of 13 plates resolving to a valid format), but that clip has no ground truth, so those are model-confidence numbers, not measured accuracy. Real labelled **Gujarat** footage remains the single most valuable thing that could be added. |
+| **The organisers' grid yields no readable plates** | The grid is reachable now (HLS only, through the web container's `/grid/` proxy; 8554 and 8889 are blocked). Its cameras are night-time junction/RLVD overviews: vehicles 80–315 px, plates 40–60 px in headlight glare, and **zero plates were read from any of them**. Detection, tracking and health all work against it. ANPR needs a camera pointed at a lane, not at a junction. |
 | **Plate detector weights are AGPL-3.0** | An Ultralytics export. Acceptable for evaluation — the lab is a development tool and does not ship — but must be replaced before production. |
 | **One OCR error survives consensus** | `GJ35K5714` read as `GJ35X5714`. Both are letters in a letter slot, so grammar cannot repair it, and every frame agreed. A genuine recognition error needing a better model or a fine-tune, not a consensus failure. |
 | **Evidence crops are not in MinIO** | `Detection.crop_key` expects an object key; the worker currently records a path. Upload is unwired. |
@@ -764,6 +798,9 @@ Recorded so no session mistakes these for done.
 | **No rate limiting** on the API | Should exist before anything is exposed beyond localhost. |
 | **HLS fallback opens a raw .m3u8** | Browsers other than Safari will download rather than play it. Needs hls.js or an embedded player page. |
 | **Alembic downgrade untested** | One migration exists; `downgrade()` is written but never run. |
+| **The demonstration footage carries UK plates** | `anpr_demo.mp4` is the only clip available with legible plates. `configs/demo.yaml` and `configs/stream_demo.yaml` accept UK grammar for it; a Gujarat deployment runs `stream`, which is Indian-only. Do not ship a config that accepts GB. |
+| **Live reads converge less than offline ones** | Streaming emits `vehicle.observed` incrementally, so an early event can carry a partial read (`FJ4ZHY` before `FJ14ZHY`). The final `vehicle.completed` is right; consumers that act on the first event see the rougher answer. |
+| **No frontend for alerts or the watchlist** | Both APIs are complete and tested over HTTP, but `web/src/pages/` has only Map, Fleet Health, Integration and Login. The demonstration is a terminal script, not a screen. |
 
 ---
 

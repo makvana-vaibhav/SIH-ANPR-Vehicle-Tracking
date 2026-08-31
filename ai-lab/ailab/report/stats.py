@@ -16,7 +16,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
-from ailab.aggregate.grammar import describe_plate
+from ailab.aggregate.grammar import REGIONS, describe_plate
 from ailab.config import RunConfig
 from ailab.pipeline import RunResult
 from ailab.stream.events import SourceIdentity, vehicle_event
@@ -66,7 +66,7 @@ def _histogram(values: list[float], buckets: int = 10) -> dict[str, int]:
 def vehicle_row(track: Track) -> dict[str, Any]:
     """One line per tracked object: the answer plus how it was reached."""
     result = track.result
-    parts = describe_plate(result.text) if result and result.text else {}
+    parts = describe_plate(result.text, REGIONS) if result and result.text else {}
     return {
         "track_id": track.track_id,
         "class_name": track.class_name,
@@ -300,7 +300,7 @@ def build_summary(result: RunResult, config: RunConfig) -> dict[str, Any]:
             "distinct_plates": sorted({t.result.text for t in resolved if t.result}),
             "state_codes": dict(
                 Counter(
-                    describe_plate(t.result.text).get("state", "?")
+                    describe_plate(t.result.text, REGIONS).get("state", "?")
                     for t in valid if t.result
                 ).most_common()
             ),

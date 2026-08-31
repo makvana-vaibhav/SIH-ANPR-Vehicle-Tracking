@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from itertools import pairwise
 from pathlib import Path
 
 import cv2
@@ -229,7 +230,7 @@ class TestSentinelIntegrationRules:
         # Read as fast as possible, so wall-clock spacing is far smaller than
         # the stream's own 1/30s cadence. If timing came from arrival, the
         # deltas would collapse toward zero.
-        deltas = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
+        deltas = [b - a for a, b in pairwise(stamps)]
         assert max(deltas) > 0.0, "timestamps did not advance with the stream"
 
     def test_backoff_grows_and_is_capped(self) -> None:
@@ -244,7 +245,7 @@ class TestSentinelIntegrationRules:
         assert delays[0] == 2.0
         assert delays[1] == 4.0
         assert delays[-1] == 30.0, "backoff must cap, not grow without bound"
-        assert all(b >= a for a, b in zip(delays, delays[1:], strict=False))
+        assert all(b >= a for a, b in pairwise(delays))
 
     def test_a_backwards_pts_jump_is_reported_as_a_discontinuity(self) -> None:
         """The recording loops; the scene cuts. Long-lived state must rebuild."""

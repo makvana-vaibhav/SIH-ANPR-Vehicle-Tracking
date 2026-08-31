@@ -57,12 +57,19 @@ class SourceIdentity:
         return payload
 
 
+#: Which region set explains a given decided format, so the parts breakdown is
+#: computed under the same rules that accepted the plate in the first place.
+_REGIONS_BY_FORMAT = {"uk_current": ("IN", "GB")}
+
+
 def _plate_block(vehicle: Vehicle | Track) -> dict[str, Any]:
     result = vehicle.result
     if result is None or not result.text:
         return {"text": "", "confidence": 0.0, "readable": False}
 
-    parts = describe_plate(result.text)
+    # Split into parts using the format consensus already settled on, so the
+    # event cannot disagree with itself about whether the plate is valid.
+    parts = describe_plate(result.text, _REGIONS_BY_FORMAT.get(result.grammar_format, ("IN",)))
     return {
         "text": result.text,
         "confidence": round(result.confidence, 4),
@@ -71,7 +78,7 @@ def _plate_block(vehicle: Vehicle | Track) -> dict[str, Any]:
         "grammar_note": result.grammar_note,
         "ambiguous": result.ambiguous,
         "corrected_from": result.corrected_from,
-        "format": parts.get("format", ""),
+        "format": result.grammar_format,
         "state": parts.get("state", ""),
         "rto": parts.get("rto", ""),
         # Alternatives are carried so the platform can widen a watchlist match

@@ -20,7 +20,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, true
 
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
@@ -33,6 +33,11 @@ configure_logging(service="simulator")
 log = get_logger("simulator")
 
 VIDEO_DIR = Path(os.environ.get("SIM_VIDEO_DIR", "/data/videos"))
+# Pin particular footage to particular cameras: "CAM-00001=anpr_demo.mp4,...".
+# Without this, clips are dealt round-robin and which camera shows what changes
+# with the fleet size — fine for load, useless for a demonstration that has to
+# say *which* junction a vehicle passed.
+PINNED_VIDEOS = os.environ.get("SIM_CAMERA_VIDEOS", "")
 STREAM_COUNT = int(os.environ.get("SIM_STREAM_COUNT", "6"))
 RTSP_BASE = f"rtsp://{settings.mediamtx_host}:{settings.mediamtx_rtsp_port}"
 
@@ -62,7 +67,25 @@ async def select_cameras(limit: int) -> list[Camera]:
     )
 
     async with SessionLocal() as session:
-        preferred = list(
+        # A camera with footage pinned to it is published first, whatever the
+        # limit. Pinning a clip to a camera the simulator then declines to
+        # stream would be a silent no-op.
+        pinned_codes = list(pinned_videos())
+        pinned_cameras = list(
+            (
+                await session.scalars(
+                    select(Camera)
+                    .where(
+                        Camera.camera_code.in_(pinned_codes),
+                        Camera.vms_id.in_(simulated_vms),
+                    )
+                    .order_by(Camera.camera_code)
+                )
+            ).all()
+        ) if pinned_codes else []
+
+        preferred = list(pinned_cameras)
+        preferred += list(
             (
                 await session.scalars(
                     select(Camera)
@@ -70,6 +93,8 @@ async def select_cameras(limit: int) -> list[Camera]:
                         Camera.anpr_enabled.is_(True),
                         Camera.vms_id.in_(simulated_vms),
                         Camera.city.in_(DEMO_ROUTE_CITIES),
+                        Camera.id.not_in([c.id for c in pinned_cameras])
+                        if pinned_cameras else true(),
                     )
                     .order_by(Camera.camera_code)
                     .limit(limit)
@@ -95,11 +120,29 @@ async def select_cameras(limit: int) -> list[Camera]:
     return preferred + extra
 
 
+def pinned_videos() -> dict[str, Path]:
+    """Camera code → clip, from SIM_CAMERA_VIDEOS. Unreadable entries are skipped."""
+    pinned: dict[str, Path] = {}
+    for pair in PINNED_VIDEOS.split(","):
+        code, _, filename = pair.partition("=")
+        if not code.strip() or not filename.strip():
+            continue
+        path = VIDEO_DIR / filename.strip()
+        if not path.is_file():
+            log.warning("simulator.pinned_video_missing", camera=code.strip(), path=str(path))
+            continue
+        pinned[code.strip().upper()] = path
+    return pinned
+
+
 def build_specs(cameras: list[Camera], videos: list[Path]) -> list[StreamSpec]:
     """Pair cameras with source clips, cycling if there are fewer clips."""
+    pinned = pinned_videos()
     specs: list[StreamSpec] = []
     for index, camera in enumerate(cameras):
-        source = videos[index % len(videos)] if videos else None
+        source = pinned.get(camera.camera_code)
+        if source is None:
+            source = videos[index % len(videos)] if videos else None
         specs.append(
             StreamSpec(
                 camera_code=camera.camera_code,
