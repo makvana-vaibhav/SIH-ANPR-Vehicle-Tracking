@@ -53,8 +53,19 @@ _supervisor_task: asyncio.Task[None] | None = None
 async def select_cameras(limit: int) -> list[Camera]:
     """Choose which registered cameras become live streams.
 
-    Route cities first, then any other ANPR camera, so the limited number of
-    streams a laptop can encode land where the demo needs them.
+    By default this is *only* the cameras with footage explicitly pinned to
+    them — in practice the one demonstration camera.
+
+    That default changed deliberately. The simulator used to replay clips into
+    24 registered cameras, which made a synthetic feed indistinguishable from a
+    federated one: a judge clicking "Kalawad Road Junction ANPR 01" saw a
+    Wikimedia clip of a road in Israel. The platform federates real cameras;
+    inventing video for the ones it cannot reach misrepresents exactly the
+    capability being demonstrated.
+
+    An unreachable camera should look unreachable. Set `SIM_STREAM_COUNT`
+    above zero to restore fleet-wide replay for load testing, where synthetic
+    video is the point rather than a pretence.
     """
     # Only stream cameras whose VMS is served by the simulator. A camera
     # belonging to the real sandbox grid must be probed against the real
@@ -71,20 +82,28 @@ async def select_cameras(limit: int) -> list[Camera]:
         # limit. Pinning a clip to a camera the simulator then declines to
         # stream would be a silent no-op.
         pinned_codes = list(pinned_videos())
-        pinned_cameras = list(
-            (
-                await session.scalars(
-                    select(Camera)
-                    .where(
-                        Camera.camera_code.in_(pinned_codes),
-                        Camera.vms_id.in_(simulated_vms),
+        pinned_cameras = (
+            list(
+                (
+                    await session.scalars(
+                        select(Camera)
+                        .where(
+                            Camera.camera_code.in_(pinned_codes),
+                            Camera.vms_id.in_(simulated_vms),
+                        )
+                        .order_by(Camera.camera_code)
                     )
-                    .order_by(Camera.camera_code)
-                )
-            ).all()
-        ) if pinned_codes else []
+                ).all()
+            )
+            if pinned_codes
+            else []
+        )
 
         preferred = list(pinned_cameras)
+        if limit <= 0:
+            # The honest default: only cameras with real footage attached.
+            return preferred
+
         preferred += list(
             (
                 await session.scalars(
@@ -94,7 +113,8 @@ async def select_cameras(limit: int) -> list[Camera]:
                         Camera.vms_id.in_(simulated_vms),
                         Camera.city.in_(DEMO_ROUTE_CITIES),
                         Camera.id.not_in([c.id for c in pinned_cameras])
-                        if pinned_cameras else true(),
+                        if pinned_cameras
+                        else true(),
                     )
                     .order_by(Camera.camera_code)
                     .limit(limit)
@@ -114,7 +134,11 @@ async def select_cameras(limit: int) -> list[Camera]:
         if chosen_ids:
             stmt = stmt.where(Camera.id.not_in(chosen_ids))
         extra = list(
-            (await session.scalars(stmt.order_by(Camera.camera_code).limit(remaining))).all()
+            (
+                await session.scalars(
+                    stmt.order_by(Camera.camera_code).limit(remaining)
+                )
+            ).all()
         )
 
     return preferred + extra
@@ -129,7 +153,9 @@ def pinned_videos() -> dict[str, Path]:
             continue
         path = VIDEO_DIR / filename.strip()
         if not path.is_file():
-            log.warning("simulator.pinned_video_missing", camera=code.strip(), path=str(path))
+            log.warning(
+                "simulator.pinned_video_missing", camera=code.strip(), path=str(path)
+            )
             continue
         pinned[code.strip().upper()] = path
     return pinned
@@ -282,9 +308,7 @@ async def start_stream(camera_code: str) -> dict[str, Any]:
         return {"camera_code": code, "started": False, "detail": "Already publishing"}
 
     async with SessionLocal() as session:
-        camera = await session.scalar(
-            select(Camera).where(Camera.camera_code == code)
-        )
+        camera = await session.scalar(select(Camera).where(Camera.camera_code == code))
     if camera is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"{code} is not registered"

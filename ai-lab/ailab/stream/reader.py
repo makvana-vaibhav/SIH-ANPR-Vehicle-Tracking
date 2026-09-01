@@ -48,6 +48,17 @@ from ailab.logging import get_logger
 log = get_logger(__name__)
 
 
+class StreamUnavailable(RuntimeError):
+    """The source could not be opened at all.
+
+    Distinct from a stream that opens and then fails, because for a federated
+    camera it is the *expected* state whenever the far end is down. A caller
+    supervising many cameras wants to log this as a fact about one camera, not
+    as an exception with a traceback — thirty unreachable cameras would
+    otherwise bury every real fault in the log.
+    """
+
+
 @dataclass(slots=True)
 class CapturedFrame:
     """A frame plus when it was actually captured, for latency accounting."""
@@ -211,7 +222,7 @@ class StreamReader:
 
     def start(self) -> StreamReader:
         if not self._open():
-            raise RuntimeError(f"could not open stream: {self.source}")
+            raise StreamUnavailable(f"could not open stream: {self.source}")
         self._thread = threading.Thread(target=self._run, name="stream-reader", daemon=True)
         self._thread.start()
         return self

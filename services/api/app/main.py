@@ -33,7 +33,7 @@ from app.routers import (
     streams,
     watchlist,
 )
-from app.services import event_consumer, token_store
+from app.services import event_consumer, fleet_roster, token_store
 
 configure_logging(service="api")
 log = get_logger("api")
@@ -73,10 +73,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # lazily on the first WebSocket connection, so detections are persisted
     # whether or not an operator happens to be watching.
     await event_consumer.consumer.start()
+    fleet_roster.publisher.start()
 
     yield
 
     log.info("api.stopping")
+    await fleet_roster.publisher.stop()
     await event_consumer.consumer.stop()
     await token_store.close()
     await dispose_engine()

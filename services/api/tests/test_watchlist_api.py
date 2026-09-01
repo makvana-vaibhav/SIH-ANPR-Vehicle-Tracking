@@ -19,8 +19,14 @@ pytestmark = pytest.mark.asyncio
 
 
 def a_plate() -> str:
-    """A plate no other test is using."""
-    return f"GJ01ZZ{uuid.uuid4().int % 10000:04d}"
+    """A plate no other test — and no earlier run — is using.
+
+    The database is not reset between runs, so a small random space collides
+    with a row left behind by a previous run and the "adding twice conflicts"
+    test fails on its *first* insert. 10 hex characters makes that vanishingly
+    unlikely without exceeding the 24-character column.
+    """
+    return f"GJ01{uuid.uuid4().hex[:10].upper()}"
 
 
 class TestWatchlistWrites:

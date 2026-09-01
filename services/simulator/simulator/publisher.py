@@ -37,7 +37,7 @@ class StreamSpec:
     """One simulated camera stream."""
 
     camera_code: str
-    source: Path | None          # None → generated test pattern
+    source: Path | None  # None → generated test pattern
     label: str = ""
     fps: int = 15
     width: int = 1280
@@ -63,7 +63,8 @@ def find_videos(directory: Path) -> list[Path]:
     if not directory.is_dir():
         return []
     return sorted(
-        p for p in directory.iterdir()
+        p
+        for p in directory.iterdir()
         if p.is_file() and p.suffix.lower() in VIDEO_SUFFIXES
     )
 
@@ -79,21 +80,32 @@ def build_command(spec: StreamSpec, rtsp_base: str) -> list[str]:
     if spec.source is not None:
         return [
             "ffmpeg",
-            "-hide_banner", "-loglevel", "error",
+            "-hide_banner",
+            "-loglevel",
+            "error",
             # -re paces output at the source frame rate. Without it ffmpeg
             # pushes the whole file as fast as it can and the "live" stream is
             # over in seconds.
             "-re",
-            "-stream_loop", "-1",
-            "-i", str(spec.source),
-            "-an",                       # audio is irrelevant to ANPR
-            "-c:v", "libx264",
-            "-preset", "ultrafast",      # CPU-only host; latency over quality
-            "-tune", "zerolatency",
-            "-g", str(spec.fps * 2),     # keyframe every 2s, for fast WebRTC join
-            "-pix_fmt", "yuv420p",
-            "-f", "rtsp",
-            "-rtsp_transport", "tcp",
+            "-stream_loop",
+            "-1",
+            "-i",
+            str(spec.source),
+            "-an",  # audio is irrelevant to ANPR
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",  # CPU-only host; latency over quality
+            "-tune",
+            "zerolatency",
+            "-g",
+            str(spec.fps * 2),  # keyframe every 2s, for fast WebRTC join
+            "-pix_fmt",
+            "yuv420p",
+            "-f",
+            "rtsp",
+            "-rtsp_transport",
+            "tcp",
             target,
         ]
 
@@ -101,22 +113,34 @@ def build_command(spec: StreamSpec, rtsp_base: str) -> list[str]:
     # stream is visibly live rather than a frozen frame.
     return [
         "ffmpeg",
-        "-hide_banner", "-loglevel", "error",
+        "-hide_banner",
+        "-loglevel",
+        "error",
         "-re",
-        "-f", "lavfi",
-        "-i", f"testsrc=size={spec.width}x{spec.height}:rate={spec.fps}",
-        "-vf", (
+        "-f",
+        "lavfi",
+        "-i",
+        f"testsrc=size={spec.width}x{spec.height}:rate={spec.fps}",
+        "-vf",
+        (
             f"drawtext=text='{spec.label or spec.camera_code}':"
             "fontcolor=white:fontsize=28:x=20:y=20:box=1:boxcolor=black@0.5"
         ),
         "-an",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
-        "-g", str(spec.fps * 2),
-        "-pix_fmt", "yuv420p",
-        "-f", "rtsp",
-        "-rtsp_transport", "tcp",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-g",
+        str(spec.fps * 2),
+        "-pix_fmt",
+        "yuv420p",
+        "-f",
+        "rtsp",
+        "-rtsp_transport",
+        "tcp",
         target,
     ]
 
@@ -150,7 +174,9 @@ class StreamPublisher:
         except OSError as exc:
             log.error(
                 "simulator.spawn_failed",
-                camera_code=spec.camera_code, error=str(exc), exc_info=True,
+                camera_code=spec.camera_code,
+                error=str(exc),
+                exc_info=True,
             )
             return False
 

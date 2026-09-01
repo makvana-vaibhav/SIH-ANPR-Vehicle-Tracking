@@ -36,16 +36,27 @@ class WorkerSettings(BaseSettings):
     # An explicit comma-separated list overrides discovery entirely.
     ai_worker_cameras: str = ""
     # Where cameras come from:
+    #   "registry" the ANPR fleet as the API publishes it — federated grid
+    #              cameras and our own alike, and the only source that still
+    #              lists a federated camera while its gateway is down
     #   "sandbox"  the organisers' grid, read from its own catalogue
     #   "mediamtx" whatever is publishing to our gateway (simulator, RTSP pulls)
-    ai_worker_source: str = "sandbox"
+    ai_worker_source: str = "registry"
     sandbox_base_url: str = "https://live.corp8.cloud"
     # Force a transport instead of probing. Empty means probe once at startup.
     sandbox_transport: str = ""
-    # Hard cap on concurrent streams per worker. Each stream is a decode thread
-    # plus an inference loop; oversubscribing makes every camera slower rather
-    # than covering more of them.
+    # Concurrent streams per worker. Each is a decode thread plus an inference
+    # loop; oversubscribing makes every camera slower rather than covering more
+    # of them. Measured at roughly one camera per spare core.
     ai_worker_max_cameras: int = Field(default=4, ge=1)
+    # How long a camera holds a slot before yielding it to one that is waiting.
+    # Cameras beyond the slot count are rotated rather than dropped, so the
+    # fleet is covered partially in time instead of not at all in space.
+    # 0 disables rotation: the first N cameras run and the rest never do.
+    ai_worker_slice_seconds: float = Field(default=45.0, ge=0.0)
+    # Cameras that never yield their slot — the demonstration feed, or a
+    # junction under active investigation. Comma-separated codes.
+    ai_worker_pinned: str = ""
 
     # ── pipeline ──
     ai_config: str = "stream"

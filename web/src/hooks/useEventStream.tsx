@@ -195,10 +195,13 @@ export function useCameraEvents(cameraCode: string | null): LiveVehicleEvent[] {
   const [events, setEvents] = useState<LiveVehicleEvent[]>([])
 
   useEffect(() => {
-    if (!cameraCode) {
-      setEvents([])
-      return
-    }
+    // Clear on every change of camera, not just on clearing the selection.
+    // Without this, switching cameras leaves the previous camera's plates on
+    // screen attributed to the new one — which for a camera that reads nothing
+    // is the worst possible failure: it invents results for a dead feed.
+    setEvents([])
+    if (!cameraCode) return
+
     const wanted = cameraCode.toLowerCase()
     return subscribe((event) => {
       if (!isVehicle(event)) return

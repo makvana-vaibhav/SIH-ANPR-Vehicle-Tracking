@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -31,6 +32,11 @@ class CameraStream:
     rtsp_url: str
     transport: str = "rtsp"
     label: str = ""
+    #: National plate formats this camera is expected to see. Applied per
+    #: camera rather than per worker, because a fleet can span regions and
+    #: accepting a format a camera never sees invites the repair step to
+    #: invent one.
+    plate_regions: tuple[str, ...] = ("IN",)
 
 
 def shard_of(camera_code: str, shards: int) -> int:
@@ -92,12 +98,17 @@ async def discover(
         log.warning(
             "%d cameras assigned to worker %d but the cap is %d; "
             "processing the first %d. Add workers to cover the rest.",
-            len(codes), index, limit, limit,
+            len(codes),
+            index,
+            limit,
+            limit,
         )
         codes = codes[:limit]
 
     return [
-        CameraStream(camera_code=code, rtsp_url=f"rtsp://{rtsp_host}:{rtsp_port}/{code}")
+        CameraStream(
+            camera_code=code, rtsp_url=f"rtsp://{rtsp_host}:{rtsp_port}/{code}"
+        )
         for code in codes
     ]
 
@@ -135,7 +146,10 @@ async def reachable_transport(base_url: str, sample: dict, timeout: float = 8.0)
     second timeouts on every camera, probe once and tell the operator which
     path was chosen.
     """
-    host = urlparse(base_url if "://" in base_url else f"//{base_url}").hostname or base_url
+    host = (
+        urlparse(base_url if "://" in base_url else f"//{base_url}").hostname
+        or base_url
+    )
 
     # RTSP first: lower latency, and what the guide recommends for inference.
     try:
@@ -153,7 +167,9 @@ async def reachable_transport(base_url: str, sample: dict, timeout: float = 8.0)
     if hls:
         url = hls if hls.startswith("http") else f"{base_url.rstrip('/')}{hls}"
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True
+            ) as client:
                 response = await client.get(url)
             if response.status_code == 200 and "#EXTM3U" in response.text:
                 log.info("falling back to HLS over HTTPS, as the guide advises")
@@ -174,7 +190,9 @@ async def discover_sandbox(
         return []
 
     live = [c for c in cameras if c.get("live")]
-    chosen = transport or await reachable_transport(base_url, live[0] if live else cameras[0])
+    chosen = transport or await reachable_transport(
+        base_url, live[0] if live else cameras[0]
+    )
     if chosen == "none":
         return []
 
@@ -190,7 +208,10 @@ async def discover_sandbox(
             continue
 
         if chosen == "rtsp":
-            url = camera.get("rtsp_url") or f"rtsp://{urlparse(base_url).hostname}:8554/stream/{external_id}"
+            url = (
+                camera.get("rtsp_url")
+                or f"rtsp://{urlparse(base_url).hostname}:8554/stream/{external_id}"
+            )
         else:
             hls = camera.get("hls_live_url") or f"/live/stream/{external_id}/index.m3u8"
             url = hls if hls.startswith("http") else f"{base_url.rstrip('/')}{hls}"
@@ -205,7 +226,137 @@ async def discover_sandbox(
         log.warning(
             "%d sandbox cameras assigned to worker %d but the cap is %d; "
             "processing the first %d. Add workers to cover the rest.",
-            len(streams), index, limit, limit,
+            len(streams),
+            index,
+            limit,
+            limit,
         )
         streams = streams[:limit]
+    return streams
+
+
+# ─────────────────────────────────────────────────────────────────────
+# The registry roster
+# ─────────────────────────────────────────────────────────────────────
+#: Where the API publishes the ANPR fleet. See app/services/fleet_roster.py for
+#: why the roster travels through Redis rather than the database or the API.
+ROSTER_KEY = "sentinel:fleet:anpr"
+
+
+async def rtsp_reachable(host: str, port: int = 8554, timeout: float = 4.0) -> bool:
+    """Can this worker open RTSP to that host at all?
+
+    Probed per host and cached by the caller. The organisers' guide anticipates
+    the answer being no — "if port 8554 is blocked on your network, use the HLS
+    endpoint instead" — and finding out by opening thirty streams that each
+    time out is far more expensive than one connect.
+    """
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except (OSError, asyncio.TimeoutError):
+        return False
+
+
+async def discover_registry(
+    redis_url: str,
+    index: int,
+    count: int,
+    timeout: float = 5.0,
+    rtsp_probe: dict[str, bool] | None = None,
+) -> list[CameraStream]:
+    """Every ANPR camera this worker owns, from the registry roster.
+
+    Unlike MediaMTX discovery, this includes federated cameras whose video
+    lives on somebody else's gateway, and it keeps including them while that
+    gateway is down. A camera that cannot be reached is a camera with a
+    problem, and reporting that is the platform's job; pretending it left the
+    fleet is not.
+
+    No cap is applied here. How many cameras a worker can analyse at once is a
+    hardware question, answered by the rotation in `worker.py`, not a question
+    of which cameras exist.
+    """
+    import redis.asyncio as aioredis  # imported lazily: only this path needs it
+
+    client = aioredis.from_url(redis_url, decode_responses=True)
+    try:
+        raw = await asyncio.wait_for(client.get(ROSTER_KEY), timeout=timeout)
+    except (asyncio.TimeoutError, OSError, ValueError) as exc:
+        log.warning("could not read the fleet roster: %s", exc)
+        return []
+    finally:
+        await client.aclose()
+
+    if not raw:
+        log.warning(
+            "the fleet roster is empty or expired — is the API running? "
+            "It publishes %s every 30s.",
+            ROSTER_KEY,
+        )
+        return []
+
+    try:
+        cameras = json.loads(raw).get("cameras", [])
+    except ValueError as exc:
+        log.warning("the fleet roster is not valid JSON: %s", exc)
+        return []
+
+    probe = rtsp_probe if rtsp_probe is not None else {}
+    streams: list[CameraStream] = []
+    unusable: list[str] = []
+
+    for entry in cameras:
+        code = str(entry.get("camera_code") or "")
+        if not code or not owns(code, index, count):
+            continue
+
+        rtsp = str(entry.get("rtsp_url") or "")
+        hls = str(entry.get("hls_url") or "")
+
+        url, transport = "", "none"
+        if rtsp:
+            host = urlparse(rtsp).hostname or ""
+            if host not in probe:
+                probe[host] = await rtsp_reachable(host)
+                log.info(
+                    "RTSP to %s is %sreachable from this worker",
+                    host,
+                    "" if probe[host] else "not ",
+                )
+            if probe[host]:
+                url, transport = rtsp, "rtsp"
+        if not url and hls:
+            url, transport = hls, "hls"
+
+        # A camera with no usable URL is real but cannot be analysed. It is
+        # named in the log rather than silently dropped: "we are not watching
+        # this camera" is something an operator needs told.
+        if not url:
+            unusable.append(code)
+            continue
+
+        regions = entry.get("plate_regions") or ["IN"]
+        streams.append(
+            CameraStream(
+                camera_code=code,
+                rtsp_url=url,
+                transport=transport,
+                label=str(entry.get("label") or code),
+                plate_regions=tuple(str(r) for r in regions),
+            )
+        )
+
+    if unusable:
+        log.warning(
+            "%d camera(s) have no reachable stream and are not being analysed: %s",
+            len(unusable),
+            ", ".join(sorted(unusable)[:10]),
+        )
+
+    streams.sort(key=lambda s: s.camera_code)
     return streams

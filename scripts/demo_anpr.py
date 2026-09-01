@@ -41,7 +41,9 @@ BOLD, DIM, RESET = "\033[1m", "\033[2m", "\033[0m"
 GREEN, RED, YELLOW, CYAN = "\033[32m", "\033[31m", "\033[33m", "\033[36m"
 
 #: The camera the ANPR footage is pinned to, via SIM_CAMERA_VIDEOS in compose.
-DEMO_CAMERA = "CAM-00001"
+#: It is the one camera in the fleet carrying recorded video; every other
+#: camera is a live feed from the organisers' grid.
+DEMO_CAMERA = "CAM-DEMO"
 #: The watchlist entry is made the way an officer makes one: an authenticated
 #: request to the API. Writing straight to the table would skip RBAC, skip the
 #: audit row, and leave the API's in-memory matcher unaware of the new plate
@@ -73,12 +75,20 @@ async def recent_plates(camera_code: str, since: datetime) -> list[dict]:
     never told.
     """
     async with SessionLocal() as session:
-        rows = (await session.execute(
-            select(Detection)
-            .where(Detection.plate_normalised.isnot(None), Detection.ts >= since)
-            .order_by(Detection.ts.desc())
-            .limit(500)
-        )).scalars().all()
+        rows = (
+            (
+                await session.execute(
+                    select(Detection)
+                    .where(
+                        Detection.plate_normalised.isnot(None), Detection.ts >= since
+                    )
+                    .order_by(Detection.ts.desc())
+                    .limit(500)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     best: dict[str, dict] = {}
     for row in rows:
@@ -103,27 +113,41 @@ async def watch_for(plate: str, case_ref: str) -> str:
     its refresh interval.
     """
     async with httpx.AsyncClient(base_url=API_URL, timeout=15.0) as client:
-        auth = await client.post("/auth/login",
-                                 json={"username": DEMO_USER, "password": DEMO_PASSWORD})
+        auth = await client.post(
+            "/auth/login", json={"username": DEMO_USER, "password": DEMO_PASSWORD}
+        )
         auth.raise_for_status()
         headers = {"Authorization": f"Bearer {auth.json()['access_token']}"}
 
-        created = await client.post("/watchlist", headers=headers, json={
-            "plate": plate, "category": "stolen", "priority": "critical",
-            "case_ref": case_ref, "remarks": "Added by the ANPR demonstration",
-        })
+        created = await client.post(
+            "/watchlist",
+            headers=headers,
+            json={
+                "plate": plate,
+                "category": "stolen",
+                "priority": "critical",
+                "case_ref": case_ref,
+                "remarks": "Added by the ANPR demonstration",
+            },
+        )
         if created.status_code == 409:
             # Already watched from an earlier run — make sure it is active and
             # at the priority this demonstration claims.
-            existing = await client.get("/watchlist", headers=headers,
-                                        params={"plate": plate})
+            existing = await client.get(
+                "/watchlist", headers=headers, params={"plate": plate}
+            )
             existing.raise_for_status()
             items = existing.json().get("items", [])
             if items:
                 patched = await client.patch(
-                    f"/watchlist/{items[0]['id']}", headers=headers,
-                    json={"category": "stolen", "priority": "critical",
-                          "case_ref": case_ref, "active": True},
+                    f"/watchlist/{items[0]['id']}",
+                    headers=headers,
+                    json={
+                        "category": "stolen",
+                        "priority": "critical",
+                        "case_ref": case_ref,
+                        "active": True,
+                    },
                 )
                 patched.raise_for_status()
         else:
@@ -131,30 +155,40 @@ async def watch_for(plate: str, case_ref: str) -> str:
     return plate
 
 
-async def wait_for_alert(plate: str, camera_code: str, after: datetime,
-                         timeout_s: float) -> Alert | None:
+async def wait_for_alert(
+    plate: str, camera_code: str, after: datetime, timeout_s: float
+) -> Alert | None:
     """Poll for an alert the platform raised by itself."""
     deadline = time.perf_counter() + timeout_s
     spinner, tick = "|/-\\", 0
     interactive = sys.stdout.isatty()
     while time.perf_counter() < deadline:
         async with SessionLocal() as session:
-            alert = (await session.execute(
-                select(Alert)
-                .where(Alert.plate_normalised == plate, Alert.created_at >= after)
-                .order_by(Alert.created_at.asc()).limit(1)
-            )).scalar_one_or_none()
+            alert = (
+                await session.execute(
+                    select(Alert)
+                    .where(Alert.plate_normalised == plate, Alert.created_at >= after)
+                    .order_by(Alert.created_at.asc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
         if alert is not None:
             if interactive:
                 print(f"\r   {' ' * 60}\r", end="")
             return alert
         waited = int(timeout_s - (deadline - time.perf_counter()))
         if interactive:
-            print(f"\r   {spinner[tick % 4]} waiting for {plate} to pass "
-                  f"{camera_code}… {waited}s", end="", flush=True)
+            print(
+                f"\r   {spinner[tick % 4]} waiting for {plate} to pass "
+                f"{camera_code}… {waited}s",
+                end="",
+                flush=True,
+            )
         elif tick % 20 == 0:
-            print(f"   … waiting for {plate} to pass {camera_code} ({waited}s)",
-                  flush=True)
+            print(
+                f"   … waiting for {plate} to pass {camera_code} ({waited}s)",
+                flush=True,
+            )
         tick += 1
         await asyncio.sleep(0.5)
     if interactive:
@@ -164,12 +198,22 @@ async def wait_for_alert(plate: str, camera_code: str, after: datetime,
 
 async def main() -> int:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--camera", default=DEMO_CAMERA,
-                        help=f"camera carrying the ANPR footage (default {DEMO_CAMERA})")
-    parser.add_argument("--plate", help="plate to watch for (default: the best-read one)")
-    parser.add_argument("--timeout", type=float, default=PASS_TIMEOUT_S,
-                        help="seconds to wait for the vehicle to come round again")
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--camera",
+        default=DEMO_CAMERA,
+        help=f"camera carrying the ANPR footage (default {DEMO_CAMERA})",
+    )
+    parser.add_argument(
+        "--plate", help="plate to watch for (default: the best-read one)"
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=PASS_TIMEOUT_S,
+        help="seconds to wait for the vehicle to come round again",
+    )
     args = parser.parse_args()
     camera_code = args.camera.upper()
 
@@ -179,20 +223,25 @@ async def main() -> int:
     # ── 1 ────────────────────────────────────────────────────────────────────
     step(1, f"What the live pipeline is reading from {camera_code}")
     async with SessionLocal() as session:
-        row = (await session.execute(
-            # The position is a PostGIS *geography* column — metres-accurate
-            # distance maths, but ST_X/ST_Y are geometry functions, so it is
-            # cast the same way app/services/camera.py does it.
-            select(Camera,
-                   func.ST_Y(Camera.location.cast(Geometry)),
-                   func.ST_X(Camera.location.cast(Geometry)))
-            .where(Camera.camera_code == camera_code)
-        )).first()
+        row = (
+            await session.execute(
+                # The position is a PostGIS *geography* column — metres-accurate
+                # distance maths, but ST_X/ST_Y are geometry functions, so it is
+                # cast the same way app/services/camera.py does it.
+                select(
+                    Camera,
+                    func.ST_Y(Camera.location.cast(Geometry)),
+                    func.ST_X(Camera.location.cast(Geometry)),
+                ).where(Camera.camera_code == camera_code)
+            )
+        ).first()
     camera, cam_lat, cam_lon = row if row else (None, None, None)
     if camera is None:
         return fail(f"{camera_code} is not in the registry.", "Run: make seed")
-    print(f"   {camera.camera_code} — {camera.name}"
-          f"{f', {camera.city}' if camera.city else ''}")
+    print(
+        f"   {camera.camera_code} — {camera.name}"
+        f"{f', {camera.city}' if camera.city else ''}"
+    )
 
     window_start = datetime.now(UTC) - timedelta(minutes=10)
     found = await recent_plates(camera_code, window_start)
@@ -205,32 +254,44 @@ async def main() -> int:
             "Check it is seeing the stream:  docker compose logs -f ai-worker",
         )
     for p in found[:8]:
-        print(f"   {CYAN}{p['plate']:10}{RESET} confidence {p['confidence']:.2f}"
-              f"   {p['vehicle']:10} last seen {p['at']:%H:%M:%S} UTC")
+        print(
+            f"   {CYAN}{p['plate']:10}{RESET} confidence {p['confidence']:.2f}"
+            f"   {p['vehicle']:10} last seen {p['at']:%H:%M:%S} UTC"
+        )
     if len(found) > 8:
         print(f"   {DIM}… and {len(found) - 8} more{RESET}")
 
     target = (args.plate or found[0]["plate"]).upper()
     if target not in {p["plate"] for p in found}:
-        print(f"   {YELLOW}note: {target} has not been read yet; "
-              f"waiting for it anyway{RESET}")
+        print(
+            f"   {YELLOW}note: {target} has not been read yet; "
+            f"waiting for it anyway{RESET}"
+        )
 
     # ── 2 ────────────────────────────────────────────────────────────────────
     case_ref = f"FIR/2026/DEMO/{datetime.now(UTC):%H%M%S}"
     step(2, f"An officer puts {target} on the watchlist")
     await watch_for(target, case_ref)
-    print(f"   category {BOLD}stolen{RESET}   priority {RED}{BOLD}critical{RESET}"
-          f"   case {case_ref}")
-    print(f"   {DIM}The plate was chosen from what the AI read — it was not "
-          f"planted in the footage.{RESET}")
+    print(
+        f"   category {BOLD}stolen{RESET}   priority {RED}{BOLD}critical{RESET}"
+        f"   case {case_ref}"
+    )
+    print(
+        f"   {DIM}The plate was chosen from what the AI read — it was not "
+        f"planted in the footage.{RESET}"
+    )
 
     # ── 3 ────────────────────────────────────────────────────────────────────
     armed_at = datetime.now(UTC)
     step(3, f"The vehicle comes round again on {camera_code}")
-    print(f"   {DIM}Nothing is injected. The clip loops; when that car passes the"
-          f" camera again{RESET}")
-    print(f"   {DIM}the pipeline reads it afresh and the platform decides for "
-          f"itself.{RESET}\n")
+    print(
+        f"   {DIM}Nothing is injected. The clip loops; when that car passes the"
+        f" camera again{RESET}"
+    )
+    print(
+        f"   {DIM}the pipeline reads it afresh and the platform decides for "
+        f"itself.{RESET}\n"
+    )
 
     started = time.perf_counter()
     alert = await wait_for_alert(target, camera_code, armed_at, args.timeout)
@@ -245,12 +306,20 @@ async def main() -> int:
     # ── 4 ────────────────────────────────────────────────────────────────────
     step(4, "Alert")
     async with SessionLocal() as session:
-        entry = (await session.execute(
-            select(Watchlist).where(Watchlist.id == alert.watchlist_id)
-        )).scalar_one_or_none()
-        detection = (await session.execute(
-            select(Detection).where(Detection.id == alert.detection_id)
-        )).scalar_one_or_none() if alert.detection_id else None
+        entry = (
+            await session.execute(
+                select(Watchlist).where(Watchlist.id == alert.watchlist_id)
+            )
+        ).scalar_one_or_none()
+        detection = (
+            (
+                await session.execute(
+                    select(Detection).where(Detection.id == alert.detection_id)
+                )
+            ).scalar_one_or_none()
+            if alert.detection_id
+            else None
+        )
 
     colour = RED if alert.priority == "critical" else YELLOW
     label = alert.alert_type.upper().replace("_", " ")
@@ -263,36 +332,52 @@ async def main() -> int:
     print(f"   priority    {colour}{BOLD}{alert.priority}{RESET}")
     print(f"   camera      {camera.camera_code} — {camera.name}")
     if cam_lat is not None and cam_lon is not None:
-        print(f"   location    {cam_lat:.5f}, {cam_lon:.5f}"
-              f"{f'  ({camera.district})' if camera.district else ''}")
+        print(
+            f"   location    {cam_lat:.5f}, {cam_lon:.5f}"
+            f"{f'  ({camera.district})' if camera.district else ''}"
+        )
     if entry is not None:
         print(f"   reason      {entry.category}, case {entry.case_ref}")
     print(f"   confidence  {alert.confidence:.2f}")
     print(f"   raised      {alert.created_at:%H:%M:%S} UTC   status {alert.status}")
     if detection is not None:
-        print(f"   evidence    detection {str(detection.id)[:8]} "
-              f"read at {detection.ts:%H:%M:%S} UTC")
+        print(
+            f"   evidence    detection {str(detection.id)[:8]} "
+            f"read at {detection.ts:%H:%M:%S} UTC"
+        )
         if detection.crop_key:
             print(f"   crop        {detection.crop_key}")
         raw = detection.ocr_raw or {}
         ev = raw.get("evidence", {})
         if ev.get("reads_total"):
-            print(f"   read from   {ev['reads_total']} frames, "
-                  f"{ev.get('agreement', 0) * 100:.0f}% agreement "
-                  f"({ev.get('method', 'consensus')})")
+            print(
+                f"   read from   {ev['reads_total']} frames, "
+                f"{ev.get('agreement', 0) * 100:.0f}% agreement "
+                f"({ev.get('method', 'consensus')})"
+            )
         if raw.get("corrected_from"):
             print(f"   corrected   {raw['corrected_from']} → {alert.plate_normalised}")
 
-    print(f"\n   {GREEN}The vehicle passed and the alert fired "
-          f"{elapsed:.1f}s after the watchlist entry was made.{RESET}")
-    print(f"   {DIM}That interval is how long until the car came round again, not "
-          f"pipeline latency;{RESET}")
-    print(f"   {DIM}detection-to-alert is measured separately in the Phase 6 "
-          f"tests.{RESET}")
+    print(
+        f"\n   {GREEN}The vehicle passed and the alert fired "
+        f"{elapsed:.1f}s after the watchlist entry was made.{RESET}"
+    )
+    print(
+        f"   {DIM}That interval is how long until the car came round again, not "
+        f"pipeline latency;{RESET}"
+    )
+    print(
+        f"   {DIM}detection-to-alert is measured separately in the Phase 6 "
+        f"tests.{RESET}"
+    )
 
-    print(f"\n{DIM}   Operators get this on /ws/events the moment it is raised, and "
-          f"can acknowledge,{RESET}")
-    print(f"{DIM}   dispatch or mark it a false positive from the Alerts screen.{RESET}")
+    print(
+        f"\n{DIM}   Operators get this on /ws/events the moment it is raised, and "
+        f"can acknowledge,{RESET}"
+    )
+    print(
+        f"{DIM}   dispatch or mark it a false positive from the Alerts screen.{RESET}"
+    )
     return 0
 
 

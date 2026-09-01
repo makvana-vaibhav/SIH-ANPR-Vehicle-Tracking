@@ -228,6 +228,11 @@ services:
       # Live reload during development; the image is self-contained without it.
       - ./services/api:/app/services/api
       - ./packages/contracts:/app/packages/contracts:ro
+      # The AI worker's own image is deliberately minimal and carries no test
+      # runner, so its tests run from here. They cover scheduling and
+      # discovery, which need neither a model nor a camera.
+      - ./services/ai-worker:/app/services/ai-worker
+      - ./services/simulator:/app/services/simulator
       - ./scripts:/app/scripts
       # End-to-end tests run from this image against the live stack.
       - ./tests:/app/tests
@@ -333,15 +338,24 @@ services:
       MEDIAMTX_HOST: mediamtx
       AI_CONFIG: stream
       AI_MODELS_DIR: /models
-      # The organisers' grid is the real source. Set AI_WORKER_SOURCE=mediamtx
-      # to fall back to whatever is publishing to our own gateway.
-      AI_WORKER_SOURCE: ${AI_WORKER_SOURCE:-sandbox}
+      # The registry is the source of truth for which cameras exist: it lists
+      # the organisers' federated grid and our own cameras alike, and keeps
+      # listing a federated camera while its gateway is down. "sandbox" reads
+      # the grid's catalogue directly; "mediamtx" only sees our own gateway.
+      AI_WORKER_SOURCE: ${AI_WORKER_SOURCE:-registry}
       SANDBOX_BASE_URL: ${SANDBOX_BASE_URL:-https://live.corp8.cloud}
       AI_WORKER_INDEX: "0"
       AI_WORKER_COUNT: "1"
-      # One camera per worker is what this hardware sustains; see
-      # ai-lab/PERFORMANCE.md. Raise it only after measuring on the target box.
-      AI_WORKER_MAX_CAMERAS: "2"
+      # Concurrent inference slots. Measured at ~one camera per spare core
+      # (ai-lab/PERFORMANCE.md); raise it only after measuring on the target
+      # box. Cameras beyond this are rotated through the slots, not dropped.
+      AI_WORKER_MAX_CAMERAS: ${AI_WORKER_MAX_CAMERAS:-3}
+      # How long a camera holds a slot before yielding to one that is waiting.
+      AI_WORKER_SLICE_SECONDS: ${AI_WORKER_SLICE_SECONDS:-45}
+      # The demonstration feed never yields its slot: it is the camera a judge
+      # is most likely to be watching, and the only one guaranteed to have
+      # legible plates.
+      AI_WORKER_PINNED: ${AI_WORKER_PINNED:-CAM-DEMO}
       # ONNX Runtime's own default is one thread per core and is markedly
       # slower on these small models — measured 452ms against 126ms at four.
       AILAB_ORT_THREADS: "4"
@@ -387,8 +401,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_dev_pw}@postgres:5432/${POSTGRES_DB:-sentinel}
       SIM_VIDEO_DIR: /data/videos
-      SIM_STREAM_COUNT: ${SIM_STREAM_COUNT:-24}
-      SIM_CAMERA_VIDEOS: ${SIM_CAMERA_VIDEOS:-CAM-00001=anpr_demo.mp4}
+      # 0 = publish only the cameras with footage pinned below. Raise it to
+      # replay clips across the fleet for load testing, where synthetic video
+      # is the point rather than a pretence at a live feed.
+      SIM_STREAM_COUNT: ${SIM_STREAM_COUNT:-0}
+      SIM_CAMERA_VIDEOS: ${SIM_CAMERA_VIDEOS:-CAM-DEMO=anpr_demo.mp4}
       PYTHONPATH: /app/services/simulator:/app/services/api
     ports:
       - "${SIMULATOR_HOST_PORT:-9100}:9100"

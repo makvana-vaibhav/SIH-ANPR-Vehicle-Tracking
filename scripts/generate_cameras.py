@@ -32,52 +32,155 @@ class City:
     district: str
     lat: float
     lon: float
-    weight: int          # relative share of the urban camera budget
+    weight: int  # relative share of the urban camera budget
     junctions: tuple[str, ...]
 
 
 # Real coordinates. Gujarat's major urban centres, weighted roughly by
 # population and policing load.
 CITIES: tuple[City, ...] = (
-    City("Ahmedabad", "Ahmedabad", 23.0225, 72.5714, 34, (
-        "Ashram Road Circle", "SG Highway Thaltej", "CG Road Panchvati",
-        "Iskcon Crossroads", "Naroda Patiya", "Kalupur Station Circle",
-        "Sarkhej Circle", "Vastrapur Lake Junction", "Maninagar Char Rasta",
-        "Paldi Crossroads", "Gota Circle", "Nikol Junction",
-    )),
-    City("Surat", "Surat", 21.1702, 72.8311, 22, (
-        "Adajan Patiya", "Varachha Char Rasta", "Ring Road Junction",
-        "Udhna Darwaja", "Katargam Junction", "Dumas Road Circle",
-        "Sarthana Jakatnaka", "Piplod Circle",
-    )),
-    City("Vadodara", "Vadodara", 22.3072, 73.1812, 16, (
-        "Alkapuri Circle", "Fatehgunj Junction", "Akota Bridge",
-        "Sayajigunj Crossroads", "Waghodia Road Junction", "Gotri Circle",
-    )),
-    City("Rajkot", "Rajkot", 22.3039, 70.8022, 20, (
-        "Kalawad Road Junction", "150 Feet Ring Road", "Gondal Road Chowk",
-        "Trikon Baug", "Yagnik Road Circle", "Race Course Ring Road",
-        "Bhaktinagar Circle", "Aji Dam Chokdi",
-    )),
-    City("Bhavnagar", "Bhavnagar", 21.7645, 72.1519, 8, (
-        "Ghogha Circle", "Waghawadi Road Junction", "Kalanala Chowk",
-    )),
-    City("Jamnagar", "Jamnagar", 22.4707, 70.0577, 8, (
-        "Bedi Gate Circle", "Lal Bungalow Junction", "Hapa Road Chowk",
-    )),
-    City("Gandhinagar", "Gandhinagar", 23.2156, 72.6369, 10, (
-        "Sector 21 Circle", "Ch-0 Junction", "Infocity Crossroads",
-        "Sachivalaya Gate", "Adalaj Circle",
-    )),
-    City("Junagadh", "Junagadh", 21.5222, 70.4579, 8, (
-        "Kalwa Chowk", "Zanzarda Road Junction", "Majevadi Gate",
-    )),
-    City("Gondal", "Rajkot", 21.9614, 70.8027, 6, (
-        "Gondal Bus Station Circle", "Kailash Baug Junction",
-    )),
-    City("Jetpur", "Rajkot", 21.7549, 70.6236, 6, (
-        "Jetpur Highway Chowk", "Kagvad Road Junction",
-    )),
+    City(
+        "Ahmedabad",
+        "Ahmedabad",
+        23.0225,
+        72.5714,
+        34,
+        (
+            "Ashram Road Circle",
+            "SG Highway Thaltej",
+            "CG Road Panchvati",
+            "Iskcon Crossroads",
+            "Naroda Patiya",
+            "Kalupur Station Circle",
+            "Sarkhej Circle",
+            "Vastrapur Lake Junction",
+            "Maninagar Char Rasta",
+            "Paldi Crossroads",
+            "Gota Circle",
+            "Nikol Junction",
+        ),
+    ),
+    City(
+        "Surat",
+        "Surat",
+        21.1702,
+        72.8311,
+        22,
+        (
+            "Adajan Patiya",
+            "Varachha Char Rasta",
+            "Ring Road Junction",
+            "Udhna Darwaja",
+            "Katargam Junction",
+            "Dumas Road Circle",
+            "Sarthana Jakatnaka",
+            "Piplod Circle",
+        ),
+    ),
+    City(
+        "Vadodara",
+        "Vadodara",
+        22.3072,
+        73.1812,
+        16,
+        (
+            "Alkapuri Circle",
+            "Fatehgunj Junction",
+            "Akota Bridge",
+            "Sayajigunj Crossroads",
+            "Waghodia Road Junction",
+            "Gotri Circle",
+        ),
+    ),
+    City(
+        "Rajkot",
+        "Rajkot",
+        22.3039,
+        70.8022,
+        20,
+        (
+            "Kalawad Road Junction",
+            "150 Feet Ring Road",
+            "Gondal Road Chowk",
+            "Trikon Baug",
+            "Yagnik Road Circle",
+            "Race Course Ring Road",
+            "Bhaktinagar Circle",
+            "Aji Dam Chokdi",
+        ),
+    ),
+    City(
+        "Bhavnagar",
+        "Bhavnagar",
+        21.7645,
+        72.1519,
+        8,
+        (
+            "Ghogha Circle",
+            "Waghawadi Road Junction",
+            "Kalanala Chowk",
+        ),
+    ),
+    City(
+        "Jamnagar",
+        "Jamnagar",
+        22.4707,
+        70.0577,
+        8,
+        (
+            "Bedi Gate Circle",
+            "Lal Bungalow Junction",
+            "Hapa Road Chowk",
+        ),
+    ),
+    City(
+        "Gandhinagar",
+        "Gandhinagar",
+        23.2156,
+        72.6369,
+        10,
+        (
+            "Sector 21 Circle",
+            "Ch-0 Junction",
+            "Infocity Crossroads",
+            "Sachivalaya Gate",
+            "Adalaj Circle",
+        ),
+    ),
+    City(
+        "Junagadh",
+        "Junagadh",
+        21.5222,
+        70.4579,
+        8,
+        (
+            "Kalwa Chowk",
+            "Zanzarda Road Junction",
+            "Majevadi Gate",
+        ),
+    ),
+    City(
+        "Gondal",
+        "Rajkot",
+        21.9614,
+        70.8027,
+        6,
+        (
+            "Gondal Bus Station Circle",
+            "Kailash Baug Junction",
+        ),
+    ),
+    City(
+        "Jetpur",
+        "Rajkot",
+        21.7549,
+        70.6236,
+        6,
+        (
+            "Jetpur Highway Chowk",
+            "Kagvad Road Junction",
+        ),
+    ),
 )
 
 # National highway alignments as ordered waypoints. Cameras are placed along
@@ -109,11 +212,11 @@ DEPARTMENTS = ("POLICE", "MUNICIPAL", "GSRTC", "PANCHAYAT", "HEALTH")
 DEPARTMENT_WEIGHTS = (46, 26, 14, 8, 6)
 
 VMS_INSTANCES = (
-    "Rajkot City Command Centre",       # milestone
-    "Ahmedabad Smart City VMS",         # genetec
-    "GSRTC Depot Surveillance",         # cpplus
-    "Gujarat Highway ANPR Grid",        # hikvision
-    "Sentinel Sandbox Grid",            # the challenge's own camera grid
+    "Rajkot City Command Centre",  # milestone
+    "Ahmedabad Smart City VMS",  # genetec
+    "GSRTC Depot Surveillance",  # cpplus
+    "Gujarat Highway ANPR Grid",  # hikvision
+    "Sentinel Sandbox Grid",  # the challenge's own camera grid
 )
 
 CAMERA_TYPES = ("fixed", "anpr", "ptz", "dome")
@@ -143,7 +246,9 @@ def bearing(a: tuple[float, float], b: tuple[float, float]) -> int:
     lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
     dlon = lon2 - lon1
     y = math.sin(dlon) * math.cos(lat2)
-    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(
+        dlon
+    )
     return int(round((math.degrees(math.atan2(y, x)) + 360) % 360))
 
 
@@ -178,7 +283,9 @@ def build_rows() -> list[dict[str, object]]:
                 {
                     "camera_code": next_code(),
                     "name": f"{junction} {'ANPR' if camera_type == 'anpr' else 'CCTV'} {i + 1:02d}",
-                    "department_code": rng.choices(DEPARTMENTS, weights=DEPARTMENT_WEIGHTS)[0],
+                    "department_code": rng.choices(
+                        DEPARTMENTS, weights=DEPARTMENT_WEIGHTS
+                    )[0],
                     "vms_name": rng.choice(VMS_INSTANCES),
                     "district": city.district,
                     "city": city.name,
@@ -189,7 +296,9 @@ def build_rows() -> list[dict[str, object]]:
                     "heading_deg": rng.randrange(0, 360, 15),
                     "camera_type": camera_type,
                     "protocol": "rtsp",
-                    "resolution": rng.choices(RESOLUTIONS, weights=RESOLUTION_WEIGHTS)[0],
+                    "resolution": rng.choices(RESOLUTIONS, weights=RESOLUTION_WEIGHTS)[
+                        0
+                    ],
                     "fps": rng.choice((15, 20, 25, 25, 30)),
                     "anpr_enabled": camera_type in ("anpr", "fixed"),
                     "tags": "urban|junction",
@@ -224,9 +333,7 @@ def build_rows() -> list[dict[str, object]]:
             if i % 2:
                 heading = (heading + 180) % 360
 
-            nearest = min(
-                CITIES, key=lambda c: (c.lat - lat) ** 2 + (c.lon - lon) ** 2
-            )
+            nearest = min(CITIES, key=lambda c: (c.lat - lat) ** 2 + (c.lon - lon) ** 2)
             km_marker = round(position * 42 + 8)
 
             rows.append(
@@ -273,9 +380,24 @@ def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 
     fieldnames = [
-        "camera_code", "name", "department_code", "vms_name", "district", "city",
-        "junction", "address", "lat", "lon", "heading_deg", "camera_type",
-        "protocol", "resolution", "fps", "anpr_enabled", "installed_on", "tags",
+        "camera_code",
+        "name",
+        "department_code",
+        "vms_name",
+        "district",
+        "city",
+        "junction",
+        "address",
+        "lat",
+        "lon",
+        "heading_deg",
+        "camera_type",
+        "protocol",
+        "resolution",
+        "fps",
+        "anpr_enabled",
+        "installed_on",
+        "tags",
     ]
 
     with OUTPUT.open("w", newline="", encoding="utf-8") as handle:
@@ -287,7 +409,9 @@ def main() -> int:
     anpr = sum(1 for r in rows if r["anpr_enabled"])
     highway = sum(1 for r in rows if "highway" in str(r["tags"]))
 
-    print(f"Wrote {len(rows)} cameras to {OUTPUT.relative_to(OUTPUT.parent.parent.parent)}")
+    print(
+        f"Wrote {len(rows)} cameras to {OUTPUT.relative_to(OUTPUT.parent.parent.parent)}"
+    )
     print(f"  districts : {len(districts)} ({', '.join(districts)})")
     print(f"  ANPR      : {anpr}")
     print(f"  highway   : {highway}   urban: {len(rows) - highway}")

@@ -36,7 +36,9 @@ from app.models.registry import Camera, VmsInstance  # noqa: E402
 
 VMS_NAME = "Sentinel Sandbox Grid"
 CODE_PREFIX = "SBX"
-GAZETTEER = Path(__file__).resolve().parent.parent / "data" / "seed" / "gujarat_places.csv"
+GAZETTEER = (
+    Path(__file__).resolve().parent.parent / "data" / "seed" / "gujarat_places.csv"
+)
 
 #: `cameras.location` is NOT NULL, so a camera we cannot place still needs a
 #: point. It gets the state centroid and the tag `placement:unknown` — the tag
@@ -123,15 +125,19 @@ async def sync(base_url: str, dry_run: bool = False) -> int:
         print("    the adapter needs the credential wired through")
         return 1
     if not discovered:
-        print("catalogue returned no cameras — check the host and that you are authorised")
+        print(
+            "catalogue returned no cameras — check the host and that you are authorised"
+        )
         return 1
 
     gazetteer = load_gazetteer()
     transport = await reachable_transport(base_url, discovered)
     print(f"  usable transport from this network: {transport}")
     if transport == "none":
-        print("  neither RTSP (8554) nor HLS is reachable — cameras will register "
-              "but cannot be watched from here")
+        print(
+            "  neither RTSP (8554) nor HLS is reachable — cameras will register "
+            "but cannot be watched from here"
+        )
 
     with_location = [c for c in discovered if c.lat is not None and c.lon is not None]
     live = [c for c in discovered if c.is_live]
@@ -155,7 +161,9 @@ async def sync(base_url: str, dry_run: bool = False) -> int:
     created = updated = skipped = from_gazetteer = 0
     async with SessionLocal() as session:
         vms = (
-            await session.execute(select(VmsInstance).where(VmsInstance.name == VMS_NAME))
+            await session.execute(
+                select(VmsInstance).where(VmsInstance.name == VMS_NAME)
+            )
         ).scalar_one_or_none()
         if vms is None:
             vms = VmsInstance(
@@ -203,7 +211,9 @@ async def sync(base_url: str, dry_run: bool = False) -> int:
             hls = item.raw.get("_hls") or ""
             if hls and not hls.startswith("http"):
                 hls = f"{base_url.rstrip('/')}{hls}"
-            stream_url = item.stream_url if transport != "hls" else (hls or item.stream_url)
+            stream_url = (
+                item.stream_url if transport != "hls" else (hls or item.stream_url)
+            )
 
             raw_location = str(item.raw.get("location") or "").strip()
             fields = {
@@ -220,7 +230,9 @@ async def sync(base_url: str, dry_run: bool = False) -> int:
                 "resolution": item.resolution,
                 "fps": item.fps,
                 "status": (
-                    CameraStatus.ONLINE.value if item.is_live else CameraStatus.UNKNOWN.value
+                    CameraStatus.ONLINE.value
+                    if item.is_live
+                    else CameraStatus.UNKNOWN.value
                 ),
                 # The grid's location string is the junction the camera watches;
                 # the gazetteer supplies the settlement it sits in. Keeping both
@@ -280,12 +292,19 @@ def _placement_note(item, precision: str | None, transport: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--base-url", required=True,
-                        help="sandbox host, e.g. https://<host> (no /api/ingest)")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="show what the catalogue returns without writing")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--base-url",
+        required=True,
+        help="sandbox host, e.g. https://<host> (no /api/ingest)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show what the catalogue returns without writing",
+    )
     args = parser.parse_args()
     return asyncio.run(sync(args.base_url, args.dry_run))
 

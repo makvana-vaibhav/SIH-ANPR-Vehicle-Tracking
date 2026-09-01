@@ -7,10 +7,15 @@
  * by a few seconds (see AnprOverlay) — the feed never lies about the reading
  * itself, so the two together are honest in a way either alone would not be.
  *
- * The camera list is the real fleet: the organisers' grid alongside our own
- * simulated cameras. Which is which is shown rather than hidden, because a
- * judge is entitled to know whether they are looking at a government feed or a
- * replayed clip.
+ * The camera list is the ANPR fleet: the organisers' federated grid, plus one
+ * clearly marked demonstration feed carrying recorded footage. Which is which
+ * is labelled rather than hidden — a judge is entitled to know whether they
+ * are looking at a government camera or a replayed clip, and a platform that
+ * blurred the two would be misrepresenting the capability being demonstrated.
+ *
+ * Analysis does not depend on this screen. The worker reads every camera in
+ * the fleet in the background, rotating them through its inference slots;
+ * opening a camera here shows what it found, it does not cause it to look.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -24,6 +29,28 @@ import type { Camera, Detection, StreamGrant } from '@/lib/types'
 
 /** Cameras with recorded ANPR activity float to the top of the picker. */
 const RECENT_WINDOW_HOURS = 6
+
+/**
+ * A camera carrying recorded footage rather than a live feed.
+ *
+ * Read from the registry's own tags, not guessed from the name: the tag is set
+ * by `scripts/shape_fleet.py` and is the single place that decides what counts
+ * as demonstration footage.
+ */
+function isDemoFeed(camera: Camera): boolean {
+  return (camera.tags ?? []).includes('demo')
+}
+
+/**
+ * A camera whose video comes from somebody else's gateway.
+ *
+ * The ANPR fleet is exactly the federated grid plus the demonstration feed —
+ * `shape_fleet.py` enforces that, and it is why this is a negation rather than
+ * a vendor check. A camera with no real source is not in this list at all.
+ */
+function isFederated(camera: Camera): boolean {
+  return !isDemoFeed(camera)
+}
 
 export default function LiveAnpr() {
   const { status: streamStatus } = useEventStream()
@@ -116,7 +143,9 @@ export default function LiveAnpr() {
         <div>
           <h1 className="text-xl font-semibold">Live ANPR</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Plates read off the stream by the AI worker, as they happen.
+            Every camera in the fleet is analysed in the background. Opening one
+            shows what it found — {cameras.length} cameras,{' '}
+            {cameras.filter(isFederated).length} from the organisers' grid.
           </p>
         </div>
         <span
@@ -179,11 +208,24 @@ export default function LiveAnpr() {
                 <p className="truncate text-[10px] text-muted-foreground">
                   {camera.name}
                 </p>
-                {activeCodes.has(camera.camera_code) && (
-                  <span className="mt-0.5 inline-block rounded bg-status-online/15 px-1 text-[9px] text-status-online">
-                    reading plates
-                  </span>
-                )}
+                <div className="mt-0.5 flex flex-wrap gap-1">
+                  {/* Provenance, always. A viewer should never have to wonder
+                      whether a feed is a government camera or a clip. */}
+                  {isDemoFeed(camera) ? (
+                    <span className="rounded bg-amber-500/15 px-1 text-[9px] text-amber-400">
+                      recorded demo
+                    </span>
+                  ) : (
+                    <span className="rounded bg-primary/15 px-1 text-[9px] text-primary">
+                      grid feed
+                    </span>
+                  )}
+                  {activeCodes.has(camera.camera_code) && (
+                    <span className="rounded bg-status-online/15 px-1 text-[9px] text-status-online">
+                      reading plates
+                    </span>
+                  )}
+                </div>
               </button>
             )
           })}
@@ -219,6 +261,24 @@ export default function LiveAnpr() {
                   plate boxes
                 </label>
               </div>
+              {isDemoFeed(selected) ? (
+                <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] leading-relaxed text-amber-300">
+                  <strong>Recorded footage, not a live camera.</strong> This is
+                  the one feed in the fleet that replays a file, so the
+                  pipeline can be demonstrated end to end on traffic close
+                  enough for plates to be legible. Every other camera here is a
+                  live feed from the organisers' grid.
+                </p>
+              ) : (
+                <p className="rounded border border-border px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+                  <strong className="text-foreground">Live federated feed</strong>{' '}
+                  from the organisers' grid, pulled on demand. These cameras are
+                  night-time junction overviews: vehicles are detected and
+                  tracked, but plates are typically 40–60&nbsp;px in glare and
+                  frequently unreadable. Nothing is invented when a plate cannot
+                  be read — the feed simply stays empty.
+                </p>
+              )}
               <p className="text-[10px] leading-relaxed text-muted-foreground">
                 Boxes mark where a vehicle was when it was read, and carry their
                 own age. Inference runs on the worker, so a read lands a second

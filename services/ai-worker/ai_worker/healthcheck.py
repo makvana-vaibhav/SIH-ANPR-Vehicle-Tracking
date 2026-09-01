@@ -21,7 +21,10 @@ def main() -> int:
         client.ping()
         client.close()
     except redis.RedisError as exc:
-        print(f"unhealthy: cannot reach redis at {settings.redis_url}: {exc}", file=sys.stderr)
+        print(
+            f"unhealthy: cannot reach redis at {settings.redis_url}: {exc}",
+            file=sys.stderr,
+        )
         return 1
     print("ok")
     return 0

@@ -93,7 +93,7 @@ VMS_INSTANCES: list[dict[str, str]] = [
     {
         "name": "Rajkot City Command Centre",
         "vendor": VmsVendor.MILESTONE.value,
-        "adapter_type": DEMO_ADAPTER,   # vendor_api in production
+        "adapter_type": DEMO_ADAPTER,  # vendor_api in production
         "base_url": "https://vms.rajkot.gujarat.gov.in/api",
         "credentials_ref": "vault://sentinel/vms/rajkot-milestone",
         "department": "MUNICIPAL",
@@ -101,7 +101,7 @@ VMS_INSTANCES: list[dict[str, str]] = [
     {
         "name": "Ahmedabad Smart City VMS",
         "vendor": VmsVendor.GENETEC.value,
-        "adapter_type": DEMO_ADAPTER,   # vendor_api in production
+        "adapter_type": DEMO_ADAPTER,  # vendor_api in production
         "base_url": "https://smartcity.ahmedabad.gov.in/vms/api",
         "credentials_ref": "vault://sentinel/vms/ahmedabad-genetec",
         "department": "MUNICIPAL",
@@ -109,7 +109,7 @@ VMS_INSTANCES: list[dict[str, str]] = [
     {
         "name": "GSRTC Depot Surveillance",
         "vendor": VmsVendor.CPPLUS.value,
-        "adapter_type": DEMO_ADAPTER,   # rtsp in production
+        "adapter_type": DEMO_ADAPTER,  # rtsp in production
         "base_url": "rtsp://depot-nvr.gsrtc.gujarat.gov.in:554",
         "credentials_ref": "vault://sentinel/vms/gsrtc-cpplus",
         "department": "GSRTC",
@@ -117,7 +117,7 @@ VMS_INSTANCES: list[dict[str, str]] = [
     {
         "name": "Gujarat Highway ANPR Grid",
         "vendor": VmsVendor.HIKVISION.value,
-        "adapter_type": DEMO_ADAPTER,   # onvif in production
+        "adapter_type": DEMO_ADAPTER,  # onvif in production
         "base_url": "https://anpr.highways.gujarat.gov.in",
         "credentials_ref": "vault://sentinel/vms/highway-hikvision",
         "department": "POLICE",
@@ -206,7 +206,9 @@ async def seed_departments() -> dict[str, object]:
                 ids[spec["code"]] = existing.id
         await session.commit()
 
-    print(f"  departments: {created} created, {len(DEPARTMENTS) - created} already present")
+    print(
+        f"  departments: {created} created, {len(DEPARTMENTS) - created} already present"
+    )
     return ids
 
 
@@ -278,7 +280,9 @@ async def seed_vms(department_ids: dict[str, object]) -> None:
             )
             created += 1
         await session.commit()
-    print(f"  vms instances: {created} created, {len(VMS_INSTANCES) - created} already present")
+    print(
+        f"  vms instances: {created} created, {len(VMS_INSTANCES) - created} already present"
+    )
 
 
 async def seed_cameras() -> None:
@@ -290,7 +294,9 @@ async def seed_cameras() -> None:
     """
     csv_path = SEED_DIR / "cameras.csv"
     if not csv_path.exists():
-        print(f"  cameras: SKIPPED — {csv_path} not found (run scripts/generate_cameras.py)")
+        print(
+            f"  cameras: SKIPPED — {csv_path} not found (run scripts/generate_cameras.py)"
+        )
         return
 
     content = csv_path.read_bytes()

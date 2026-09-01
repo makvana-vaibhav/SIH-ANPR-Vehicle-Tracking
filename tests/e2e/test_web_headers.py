@@ -109,7 +109,14 @@ class TestContentSecurityPolicy:
 class TestOfflineBasemapAsset:
     def test_district_geojson_is_served_locally(self) -> None:
         """The offline basemap must come from our own origin, not a CDN."""
-        response = httpx.get(f"{WEB_URL}/data/gujarat_districts.geojson", timeout=15)
+        # Guarded like every other test here: an unreachable web tier is a
+        # missing precondition, not a failing assertion. Without this the test
+        # passes from the host and fails inside a container, which says
+        # nothing about the basemap.
+        try:
+            response = httpx.get(f"{WEB_URL}/data/gujarat_districts.geojson", timeout=15)
+        except httpx.HTTPError as exc:
+            pytest.skip(f"web tier not reachable at {WEB_URL}: {exc}")
 
         assert response.status_code == 200
         body = response.json()

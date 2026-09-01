@@ -56,10 +56,15 @@ class RedisEventSink:
             # being watched, the events for the outage window are lost, and the
             # loss is counted rather than hidden.
             self.publish_failures += 1
-            if self.publish_failures in (1, 10, 100) or self.publish_failures % 1000 == 0:
+            if (
+                self.publish_failures in (1, 10, 100)
+                or self.publish_failures % 1000 == 0
+            ):
                 log.warning(
                     "failed to publish event to %s (%d failures so far): %s",
-                    self._stream_key, self.publish_failures, exc,
+                    self._stream_key,
+                    self.publish_failures,
+                    exc,
                 )
 
     def close(self) -> None:

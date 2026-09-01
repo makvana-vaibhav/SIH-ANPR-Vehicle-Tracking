@@ -65,7 +65,7 @@ class TestRedisEventSink:
         sink = RedisEventSink("redis://x", "k")
 
         for _ in range(5):
-            sink.emit(event())      # must not raise
+            sink.emit(event())  # must not raise
 
         assert sink.publish_failures == 5
         assert sink.written == 5, "losses must still be counted, not hidden"

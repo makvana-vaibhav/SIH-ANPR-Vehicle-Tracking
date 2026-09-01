@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from ai_worker.discovery import owns, shard_of
+from ai_worker.discovery import discover_sandbox, owns, shard_of
 
 
 class TestSharding:
@@ -53,22 +53,32 @@ class TestSharding:
 # ─────────────────────────────────────────────────────────────────────
 # Sentinel sandbox grid
 # ─────────────────────────────────────────────────────────────────────
-import pytest
-
-from ai_worker.discovery import discover_sandbox
-
-
 CATALOGUE = {
     "cameras": [
-        {"id": "1", "name": "Camera 1", "location": "01 Chiman bhai Bridge", "live": True,
-         "rtsp_url": "rtsp://live.corp8.cloud:8554/stream/1",
-         "hls_live_url": "/live/stream/1/index.m3u8"},
-        {"id": "2", "name": "Camera 2", "location": "02 Janpath", "live": True,
-         "rtsp_url": "rtsp://live.corp8.cloud:8554/stream/2",
-         "hls_live_url": "/live/stream/2/index.m3u8"},
-        {"id": "3", "name": "Camera 3", "location": "03 Offline one", "live": False,
-         "rtsp_url": "rtsp://live.corp8.cloud:8554/stream/3",
-         "hls_live_url": "/live/stream/3/index.m3u8"},
+        {
+            "id": "1",
+            "name": "Camera 1",
+            "location": "01 Chiman bhai Bridge",
+            "live": True,
+            "rtsp_url": "rtsp://live.corp8.cloud:8554/stream/1",
+            "hls_live_url": "/live/stream/1/index.m3u8",
+        },
+        {
+            "id": "2",
+            "name": "Camera 2",
+            "location": "02 Janpath",
+            "live": True,
+            "rtsp_url": "rtsp://live.corp8.cloud:8554/stream/2",
+            "hls_live_url": "/live/stream/2/index.m3u8",
+        },
+        {
+            "id": "3",
+            "name": "Camera 3",
+            "location": "03 Offline one",
+            "live": False,
+            "rtsp_url": "rtsp://live.corp8.cloud:8554/stream/3",
+            "hls_live_url": "/live/stream/3/index.m3u8",
+        },
     ]
 }
 
@@ -91,6 +101,7 @@ async def test_sandbox_falls_back_to_hls_when_rtsp_is_blocked(monkeypatch) -> No
     On a network where 8554 is filtered, assuming RTSP means a 30-second
     timeout per camera and no video at all.
     """
+
     async def fake_catalogue(_base, timeout=15.0):
         return CATALOGUE["cameras"]
 
@@ -107,12 +118,15 @@ async def test_cameras_not_publishing_are_skipped(monkeypatch) -> None:
 
     monkeypatch.setattr("ai_worker.discovery.sandbox_catalogue", fake_catalogue)
     streams = await discover_sandbox("https://live.corp8.cloud", 0, 1, transport="hls")
-    assert "SBX-00003" not in [s.camera_code for s in streams], "offline camera was opened"
+    assert "SBX-00003" not in [
+        s.camera_code for s in streams
+    ], "offline camera was opened"
 
 
 @pytest.mark.asyncio
 async def test_the_location_name_travels_with_the_stream(monkeypatch) -> None:
     """An operator reading a log needs the junction, not 'Camera 1'."""
+
     async def fake_catalogue(_base, timeout=15.0):
         return CATALOGUE["cameras"]
 
@@ -127,8 +141,14 @@ async def test_workers_split_the_grid_without_overlap(monkeypatch) -> None:
         return CATALOGUE["cameras"]
 
     monkeypatch.setattr("ai_worker.discovery.sandbox_catalogue", fake_catalogue)
-    a = {s.camera_code for s in await discover_sandbox("https://x", 0, 2, transport="hls")}
-    b = {s.camera_code for s in await discover_sandbox("https://x", 1, 2, transport="hls")}
+    a = {
+        s.camera_code
+        for s in await discover_sandbox("https://x", 0, 2, transport="hls")
+    }
+    b = {
+        s.camera_code
+        for s in await discover_sandbox("https://x", 1, 2, transport="hls")
+    }
     assert not (a & b), "two workers would open the same stream"
     assert a | b == {"SBX-00001", "SBX-00002"}
 

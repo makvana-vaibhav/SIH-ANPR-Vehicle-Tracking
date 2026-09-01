@@ -167,8 +167,13 @@ contracts: ## Regenerate Pydantic + TypeScript types from JSON Schema
 
 .PHONY: test
 test: ## Run backend and frontend test suites
-	@printf "\033[1mBackend tests\033[0m\n"
-	@$(COMPOSE) exec -T api python -m pytest tests -v
+	@printf "\033[1mAPI tests\033[0m\n"
+	@$(COMPOSE) exec -T -w /app/services/api api python -m pytest tests -q
+	@printf "\n\033[1mAI worker tests\033[0m\n"
+	@$(COMPOSE) exec -T -e PYTHONPATH=/app/services/ai-worker api \
+		python -m pytest /app/services/ai-worker/tests -q
+	@printf "\n\033[1mEnd-to-end tests\033[0m\n"
+	@$(COMPOSE) exec -T -e WEB_URL=http://web api python -m pytest /app/tests -q
 	@printf "\n\033[1mFrontend tests\033[0m\n"
 	@cd web && npm run test
 
@@ -177,6 +182,8 @@ lint: ## Lint and type-check everything
 	@printf "\033[1mPython\033[0m\n"
 	@$(COMPOSE) exec -T -w /app/services/api api ruff check .
 	@$(COMPOSE) exec -T -w /app/services/api api ruff format --check .
+	@$(COMPOSE) exec -T -w /app -e RUFF_CACHE_DIR=/tmp/ruff api ruff check services/ai-worker services/simulator scripts
+	@$(COMPOSE) exec -T -w /app -e RUFF_CACHE_DIR=/tmp/ruff api ruff format --check services/ai-worker services/simulator scripts
 	@printf "\n\033[1mTypeScript\033[0m\n"
 	@cd web && npm run typecheck
 
@@ -184,6 +191,8 @@ lint: ## Lint and type-check everything
 format: ## Auto-format Python sources
 	@$(COMPOSE) exec -T -w /app/services/api api ruff format .
 	@$(COMPOSE) exec -T -w /app/services/api api ruff check --fix .
+	@$(COMPOSE) exec -T -w /app -e RUFF_CACHE_DIR=/tmp/ruff api ruff format services/ai-worker services/simulator scripts
+	@$(COMPOSE) exec -T -w /app -e RUFF_CACHE_DIR=/tmp/ruff api ruff check --fix services/ai-worker services/simulator scripts
 
 # ── Profiles ──────────────────────────────────────────────────────────
 

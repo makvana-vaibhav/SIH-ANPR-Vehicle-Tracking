@@ -36,8 +36,12 @@ def _load_config() -> RunConfig:
     config = RunConfig.load(settings.ai_config)
     # Model paths are baked into the image at a known location, so a config
     # written for the lab's layout still resolves here.
-    config.detector.weights = f"{settings.ai_models_dir}/{config.detector.weights.split('/')[-1]}"
-    config.plate.weights = f"{settings.ai_models_dir}/{config.plate.weights.split('/')[-1]}"
+    config.detector.weights = (
+        f"{settings.ai_models_dir}/{config.detector.weights.split('/')[-1]}"
+    )
+    config.plate.weights = (
+        f"{settings.ai_models_dir}/{config.plate.weights.split('/')[-1]}"
+    )
     return config
 
 
