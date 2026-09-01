@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.enums import AlertStatus, Priority
 
 
-def _normalise_plate(value: str) -> str:
+def normalise_plate(value: str) -> str:
     """Uppercase and strip separators.
 
     Watchlist entries are matched against normalised detections, so an entry
@@ -34,7 +34,7 @@ class WatchlistCreate(BaseModel):
     @field_validator("plate")
     @classmethod
     def normalise(cls, value: str) -> str:
-        plate = _normalise_plate(value)
+        plate = normalise_plate(value)
         if len(plate) < 4:
             raise ValueError("plate has too few alphanumeric characters to match on")
         return plate

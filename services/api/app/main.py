@@ -31,6 +31,7 @@ from app.routers import (
     fleet,
     health,
     streams,
+    vehicles,
     watchlist,
 )
 from app.services import event_consumer, fleet_roster, token_store
@@ -175,6 +176,7 @@ app.include_router(fleet.router)
 app.include_router(streams.router)
 app.include_router(events.router)
 app.include_router(detections.router)
+app.include_router(vehicles.router)
 app.include_router(watchlist.router)
 app.include_router(alerts.router)
 

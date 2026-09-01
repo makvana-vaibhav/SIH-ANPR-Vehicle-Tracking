@@ -29,9 +29,9 @@ record what was measured and why the defaults are what they are.
 | 4 | Stream gateway | ✅ **complete** |
 | 5 | AI pipeline | ✅ **complete** |
 | 6 | Event engine, watchlist, alerts | ✅ **complete** |
-| 7 | Correlator: cross-camera tracking & routes | ⬜ not started |
+| 7 | Correlator: cross-camera tracking & routes | 🟡 **built and tested; gate blocked on data** |
 | 8 | Search | ⬜ not started |
-| 9 | Command centre UI | ⬜ not started |
+| 9 | Command centre UI | 🟡 **operator screens complete**, rest pending |
 | 10 | Scale profile & 80,000-camera proof | ⬜ not started |
 | 11 | Documentation & submission artifacts | ⬜ not started |
 | 12 | Demo hardening | ⬜ not started |
@@ -591,20 +591,62 @@ Verified live against the running stack:
 
 ---
 
-## Phase 7 — Correlator: cross-camera tracking & route reconstruction
+## Phase 7 — Correlator: cross-camera tracking & route reconstruction 🟡
 
-- [ ] Fetch detections by plate + window, ordered by ts
-- [ ] Cluster into hops, merging same-camera sightings within a dwell window
-- [ ] Great-circle distance + elapsed time → implied speed per consecutive pair
-- [ ] Plausibility scoring: > 150 km/h, or < 2 km/h over a long gap, or `heading_deg` contradicting
-      direction of travel → **marked low-confidence, not dropped**
-- [ ] Persist to `vehicle_tracks`; `GET /api/v1/vehicles/{plate}/route?from&to` → GeoJSON + hop table
-- [ ] Straight-line segments explicitly labelled as such
-- [ ] Convoy detection (2 plates co-occurring across ≥ 3 cameras in a tight window)
-- [ ] First-sighting / ANPR-gap analysis
+`app/services/correlator.py` + `app/routers/vehicles.py`. **50 tests** (35 unit on the
+pure logic, 15 over HTTP).
 
-**Gate:** seeded `GJ03AB1234` produces Rajkot → Gondal → Jetpur → Junagadh with sane implied speeds,
-rendered as valid GeoJSON.
+- [x] Fetch detections by plate + window, ordered by ts, camera position joined
+- [x] Cluster into hops, merging same-camera sightings within a 5-minute dwell window
+- [x] Great-circle distance + elapsed time → implied speed per consecutive pair
+- [x] Plausibility scoring — **marked, never dropped**
+- [x] `GET /api/v1/vehicles/{plate}/route?since&until&format=json|geojson`
+- [x] Straight-line segments explicitly labelled in the GeoJSON properties
+- [x] Convoy detection (`/convoy`, thresholds are the caller's to set)
+- [x] Unobserved-gap analysis (`unobserved_gap` flag)
+- [x] `/routable` — which plates have enough sightings to have a route at all
+- [x] `persist_route()` writes to `vehicle_tracks`
+- [ ] **Gate not run:** needs a plate seen on several *separated* cameras
+
+### The one argument this phase rests on
+
+Distance is great-circle, not road distance. A road is never shorter than the straight
+line between its endpoints, so **implied speed is a lower bound on the speed driven**.
+That asymmetry is load-bearing:
+
+* if the lower bound already exceeds what a car can do, the leg is **impossible** — the
+  cloned-plate and misread signature, and the most useful thing the correlator finds;
+* a leg that looks fine has only passed a weak test.
+
+So `implausible` is a finding and `plausible` is merely the absence of one. The API does
+not present them as symmetric, and the note travels in every response.
+
+### Flags, and what each means
+
+| Flag | Meaning | Makes the route implausible? |
+|---|---|---|
+| `implausible_speed` | Lower-bound speed exceeds 150 km/h | **Yes** |
+| `impossible_simultaneous` | Same plate at two separated cameras at one instant | **Yes** |
+| `co_located` | Cameras < 50 m apart; speed would be position error | No |
+| `unobserved_gap` | Over an hour between sightings — the vehicle went somewhere unwatched | No |
+| `heading_conflict` | Camera faces more than 100° away from the direction of travel | No |
+
+### Why the gate has not been run
+
+The gate wants `GJ03AB1234` walking Rajkot → Gondal → Jetpur → Junagadh. That needs one
+plate read on four separated cameras, and **no such data exists**: the organisers' grid
+is returning 502, and when it is up its cameras cannot resolve a plate at all. The only
+camera producing plates is the single demonstration feed.
+
+Verified instead against the real detections that do exist — `NA13NRU` across
+`CAM-00001` and `CAM-DEMO`: 4 hops clustered from 170 sightings, `co_located`,
+`unobserved_gap` and `heading_conflict` all raised correctly, valid GeoJSON with
+`[lon, lat]` ordering over Gujarat.
+
+**To close this gate, one of:** the grid comes back *and* an ANPR-class camera is
+available on it; or a second demonstration feed is added; or Phase 12's backfill lands,
+in which case the seeded detections **must be labelled synthetic** wherever the route is
+displayed.
 
 ---
 
@@ -623,26 +665,72 @@ fallback path proven by stopping the OpenSearch container mid-test.
 
 ---
 
-## Phase 9 — Command centre UI
+## Phase 9 — Command centre UI 🟡
 
-- [ ] Dark operations-centre theme, IST timestamps everywhere, Gujarati + English primary nav
-- [ ] Login (role-based)
-- [ ] Live Dashboard: fleet KPI strip, live event ticker, alert feed, mini map
-- [ ] GIS Map: clustered status-coloured markers, district choropleth, filters, popup →
-      [View Camera] [Analytics] [Events]
-- [ ] Camera Detail: WebRTC player, live detection overlay, health sparklines, recent events
-- [ ] Video Wall: 2×2 / 3×3 / 4×4, drag cameras in
-- [ ] Alerts: priority-sorted, red critical banner with plate crop, ack/dispatch/close
-- [ ] Vehicle Search + Vehicle Profile: sightings, thumbnail strip, route map with animated
-      playback, timeline scrubber
-- [ ] Watchlist Manager: CRUD, CSV import, category/priority, per-entry audit trail
-- [ ] Camera Onboarding: single form + CSV upload with row-level error display
-- [ ] Admin: users, roles, VMS instances, audit log viewer, system health
-- [ ] Architecture: HLD + scaling diagram + **live numbers from the load test**
-- [ ] Skeletons (never block on a slow request), WS reconnect with backoff, CSV/PDF export,
-      keyboard shortcuts for alert triage
+Brought forward ahead of Phase 7: the alerting backend was complete and had no
+screen, so three judge moments could only be performed in a terminal.
 
-**Gate:** full click-through of the five judge moments with no console errors.
+- [x] Dark operations-centre theme, IST timestamps everywhere, Gujarati + English primary nav
+- [x] Login (role-based)
+- [x] GIS Map: clustered status-coloured markers, district choropleth, filters
+- [x] **Live ANPR**: camera picker with provenance, video with plate overlay, live plate
+      feed with per-read evidence, prior sightings for the camera
+- [x] **Alerts**: priority-sorted, critical banner, live socket merged with the stored
+      list, ack / dispatch / close / false-positive
+- [x] **Watchlist Manager**: add with case reference and reason, amend priority, retire
+- [x] WS reconnect with backoff and a visible feed status
+- [ ] Live Dashboard: fleet KPI strip, event ticker, mini map
+- [ ] Video Wall: 2×2 / 3×3 / 4×4
+- [ ] Vehicle Search + Vehicle Profile with animated route playback — needs Phase 7/8
+- [ ] Camera Onboarding form + CSV with row-level errors
+- [ ] Admin: users, VMS, audit viewer
+- [ ] Architecture page — needs Phase 10's measured numbers
+- [ ] CSV/PDF export, keyboard shortcuts for alert triage
+
+**Verified in a browser:** login → 31 ANPR cameras listed with provenance badges →
+event feed live → plate cards streaming with evidence → overlay boxes rendering →
+watchlist add returns a correct 409 on a duplicate → alerts listed with criticals
+banner. Zero console errors, zero failed requests.
+
+### Bugs this surfaced
+
+All were invisible to a passing suite, because nothing exercised the paths.
+
+| Bug | Effect |
+|---|---|
+| Handlers annotated the user as `CurrentUser` (the bare model) instead of the `Annotated[…, Depends(…)]` alias | FastAPI expected it in the request body: **every mutating watchlist and alert endpoint returned 422** |
+| `watchlist` and `alerts` mounted at the root, every other router under `/api/v1` | Both **unreachable through the web container's nginx** |
+| `detection_id` read before flush, where a Python-side default assigns it | **Every watchlist alert recorded `detection_id=None`**, losing its link to the evidence |
+| nginx forwarded `/api/` with a trailing slash, stripping the prefix | Split-origin dev hid it; a same-origin deployment would 404 on every call |
+| `useCameraEvents` never cleared on camera change | The previous camera's plates showed under the new camera's name — for an unreachable feed, invented results |
+
+---
+
+## The fleet: real feeds only ✅
+
+The ANPR fleet is the organisers' 30 grid cameras plus one clearly labelled
+demonstration feed. Nothing else has video attached.
+
+- [x] `scripts/shape_fleet.py` — idempotent. Creates `CAM-DEMO`, moves seeded cameras
+      off the federated VMS they were never part of, and restricts `anpr_enabled` to
+      cameras with a real source
+- [x] Simulator publishes **only** cameras with footage pinned to them
+      (`SIM_STREAM_COUNT=0` by default)
+- [x] `app/services/fleet_roster.py` — the API publishes the fleet to Redis; the worker
+      reads it. No ORM in the minimal worker image, no service credential, and a
+      federated camera stays in the fleet while its gateway is down
+- [x] `ai_worker/rotation.py` — cameras beyond the slot count are **rotated, not
+      dropped**, and the coverage is stated rather than implied
+- [x] Plate formats are a property of the camera (`plate-region:GB`), not a worker-wide
+      setting
+- [x] RTSP vs HLS probed once per host by the worker
+
+**Measured:** all 30 grid cameras attempted and reported unreachable while the grid
+returns 502; `CAM-DEMO` read 572 plates in 20 minutes of which 406 are grammar-valid;
+coverage reported as *"31 cameras across 3 slots, each watched 45s every 11.2 min"*.
+
+**Gate for the rest of Phase 9:** full click-through of the five judge moments with no
+console errors.
 
 ---
 
