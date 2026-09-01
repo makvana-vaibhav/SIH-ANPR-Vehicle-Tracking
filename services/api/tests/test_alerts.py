@@ -104,21 +104,31 @@ class TestLifecycle:
                 return None
 
         with pytest.raises(InvalidTransition):
-            await transition(FakeSession(), alert, to=AlertStatus.DISPATCHED.value,
-                             user_id=uuid.uuid4())
+            await transition(
+                FakeSession(), alert, to=AlertStatus.DISPATCHED.value, user_id=uuid.uuid4()
+            )
 
     @pytest.mark.asyncio
     async def test_notes_accumulate_rather_than_overwrite(self) -> None:
         """The handling history is the point; each step must survive."""
-        alert = Alert(status=AlertStatus.NEW.value, alert_type="watchlist_hit",
-                      priority="high", notes="raised automatically")
+        alert = Alert(
+            status=AlertStatus.NEW.value,
+            alert_type="watchlist_hit",
+            priority="high",
+            notes="raised automatically",
+        )
 
         class FakeSession:
             async def flush(self) -> None:
                 return None
 
-        await transition(FakeSession(), alert, to=AlertStatus.ACKNOWLEDGED.value,
-                         user_id=uuid.uuid4(), notes="operator confirmed plate")
+        await transition(
+            FakeSession(),
+            alert,
+            to=AlertStatus.ACKNOWLEDGED.value,
+            user_id=uuid.uuid4(),
+            notes="operator confirmed plate",
+        )
         assert "raised automatically" in alert.notes
         assert "operator confirmed plate" in alert.notes
 

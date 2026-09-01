@@ -102,8 +102,15 @@ def vehicle_event(
     kind: str = "vehicle.completed",
     latency_ms: float | None = None,
     run_id: str = "",
+    frame_size: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
-    """One vehicle, shaped for the platform."""
+    """One vehicle, shaped for the platform.
+
+    `frame_size` is (width, height) of the frame the boxes were measured in.
+    Every bbox in this payload is in source-frame pixels, and a consumer that
+    draws them — an overlay on a video element, say — cannot scale them without
+    knowing that space. Omitting it makes the coordinates unusable.
+    """
     best_read = max(vehicle.reads, key=lambda r: r.vote_weight, default=None)
     last_detection = vehicle.plate_detections[-1] if vehicle.plate_detections else None
 
@@ -112,6 +119,11 @@ def vehicle_event(
         "event": kind,
         "event_time": datetime.now(UTC).isoformat(),
         "source": source.to_dict(),
+        "frame": (
+            {"width": frame_size[0], "height": frame_size[1]}
+            if frame_size is not None
+            else None
+        ),
         "vehicle": {
             "vehicle_id": vehicle.vehicle_id,
             "track_ids": vehicle.track_ids,

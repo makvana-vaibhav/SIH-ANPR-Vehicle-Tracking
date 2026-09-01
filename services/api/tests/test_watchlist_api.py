@@ -28,10 +28,17 @@ class TestWatchlistWrites:
         headers = await auth_headers("supervisor")
         plate = a_plate()
 
-        created = await client.post("/api/v1/watchlist", headers=headers, json={
-            "plate": plate, "category": "stolen", "priority": "critical",
-            "case_ref": "FIR/2026/TEST/001", "remarks": "added by a test",
-        })
+        created = await client.post(
+            "/api/v1/watchlist",
+            headers=headers,
+            json={
+                "plate": plate,
+                "category": "stolen",
+                "priority": "critical",
+                "case_ref": "FIR/2026/TEST/001",
+                "remarks": "added by a test",
+            },
+        )
         assert created.status_code == 201, created.text
         body = created.json()
         assert body["plate_normalised"] == plate
@@ -42,21 +49,22 @@ class TestWatchlistWrites:
         assert listed.status_code == 200
         assert plate in {row["plate_normalised"] for row in listed.json()}
 
-    async def test_plate_is_normalised_on_the_way_in(
-        self, client: AsyncClient, auth_headers
-    ):
+    async def test_plate_is_normalised_on_the_way_in(self, client: AsyncClient, auth_headers):
         headers = await auth_headers("supervisor")
         plate = a_plate()
 
-        created = await client.post("/api/v1/watchlist", headers=headers, json={
-            "plate": f" {plate[:4].lower()}-{plate[4:]} ", "category": "stolen",
-        })
+        created = await client.post(
+            "/api/v1/watchlist",
+            headers=headers,
+            json={
+                "plate": f" {plate[:4].lower()}-{plate[4:]} ",
+                "category": "stolen",
+            },
+        )
         assert created.status_code == 201, created.text
         assert created.json()["plate_normalised"] == plate
 
-    async def test_adding_the_same_plate_twice_conflicts(
-        self, client: AsyncClient, auth_headers
-    ):
+    async def test_adding_the_same_plate_twice_conflicts(self, client: AsyncClient, auth_headers):
         headers = await auth_headers("supervisor")
         plate = a_plate()
         payload = {"plate": plate, "category": "stolen"}
@@ -68,13 +76,20 @@ class TestWatchlistWrites:
 
     async def test_priority_can_be_amended(self, client: AsyncClient, auth_headers):
         headers = await auth_headers("supervisor")
-        created = await client.post("/api/v1/watchlist", headers=headers, json={
-            "plate": a_plate(), "category": "suspect", "priority": "medium",
-        })
+        created = await client.post(
+            "/api/v1/watchlist",
+            headers=headers,
+            json={
+                "plate": a_plate(),
+                "category": "suspect",
+                "priority": "medium",
+            },
+        )
         assert created.status_code == 201, created.text
 
         patched = await client.patch(
-            f"/api/v1/watchlist/{created.json()['id']}", headers=headers,
+            f"/api/v1/watchlist/{created.json()['id']}",
+            headers=headers,
             json={"priority": "critical", "remarks": "escalated"},
         )
         assert patched.status_code == 200, patched.text
@@ -84,25 +99,26 @@ class TestWatchlistWrites:
         self, client: AsyncClient, auth_headers
     ):
         headers = await auth_headers("supervisor")
-        response = await client.post("/api/v1/watchlist", headers=headers,
-                                     json={"plate": "GJ", "category": "stolen"})
+        response = await client.post(
+            "/api/v1/watchlist", headers=headers, json={"plate": "GJ", "category": "stolen"}
+        )
         assert response.status_code == 422
 
 
 class TestWatchlistPermissions:
-    async def test_an_operator_may_not_add_plates(
-        self, client: AsyncClient, auth_headers
-    ):
+    async def test_an_operator_may_not_add_plates(self, client: AsyncClient, auth_headers):
         headers = await auth_headers("operator")
-        response = await client.post("/api/v1/watchlist", headers=headers,
-                                     json={"plate": a_plate(), "category": "stolen"})
+        response = await client.post(
+            "/api/v1/watchlist", headers=headers, json={"plate": a_plate(), "category": "stolen"}
+        )
         assert response.status_code == 403
 
     async def test_a_supervisor_may_not_delete(self, client: AsyncClient, auth_headers):
         """Watchlist history is evidence; supervisors retire entries, admins remove them."""
         supervisor = await auth_headers("supervisor")
-        created = await client.post("/api/v1/watchlist", headers=supervisor,
-                                    json={"plate": a_plate(), "category": "stolen"})
+        created = await client.post(
+            "/api/v1/watchlist", headers=supervisor, json={"plate": a_plate(), "category": "stolen"}
+        )
         assert created.status_code == 201, created.text
 
         refused = await client.delete(
@@ -112,9 +128,9 @@ class TestWatchlistPermissions:
 
     async def test_unauthenticated_requests_are_rejected(self, client: AsyncClient):
         assert (await client.get("/api/v1/watchlist")).status_code == 401
-        assert (await client.post("/api/v1/watchlist",
-                                  json={"plate": a_plate(),
-                                        "category": "stolen"})).status_code == 401
+        assert (
+            await client.post("/api/v1/watchlist", json={"plate": a_plate(), "category": "stolen"})
+        ).status_code == 401
 
 
 class TestRoutesAreWhereTheClientExpects:
@@ -127,8 +143,9 @@ class TestRoutesAreWhereTheClientExpects:
         and the root document live outside it.
         """
         spec = (await client.get("/openapi.json")).json()
-        outside = {
-            path for path in spec["paths"]
-            if not path.startswith("/api/v1")
-        } - {"/", "/health", "/ready"}
+        outside = {path for path in spec["paths"] if not path.startswith("/api/v1")} - {
+            "/",
+            "/health",
+            "/ready",
+        }
         assert not outside, f"routes mounted outside /api/v1: {sorted(outside)}"

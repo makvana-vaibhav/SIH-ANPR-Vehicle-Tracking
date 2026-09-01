@@ -22,7 +22,9 @@ class TestFleetHealthEndpoint:
         ).json()
 
         assert body["total"] >= SEEDED_FLEET
-        assert (body["online"] + body["offline"] + body["degraded"] + body["unknown"]) == body["total"]
+        assert (body["online"] + body["offline"] + body["degraded"] + body["unknown"]) == body[
+            "total"
+        ]
 
     async def test_separates_integrated_from_registered(
         self, client: AsyncClient, auth_headers

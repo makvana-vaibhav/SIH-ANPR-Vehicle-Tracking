@@ -204,3 +204,151 @@ export interface VmsInstance {
   last_sync_at: string | null
   camera_count: number
 }
+
+// ── Intelligence: detections, watchlist, alerts ───────────────────────
+
+export interface BBox {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  w: number
+  h: number
+}
+
+export interface Detection {
+  id: string
+  ts: string
+  camera_id: string | null
+  camera_code: string
+  camera_name: string
+  track_id: string
+  vehicle_type: string | null
+  plate: string | null
+  plate_confidence: number | null
+  detection_confidence: number | null
+  grammar_valid: boolean | null
+  bbox: BBox | null
+  plate_bbox: BBox | null
+  crop_key: string | null
+  reads_total: number | null
+  agreement: number | null
+  corrected_from: string | null
+  ambiguous: boolean
+  candidates: { text: string; score: number; grammar_valid: boolean }[]
+}
+
+export interface DetectionPage {
+  items: Detection[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type Priority = 'low' | 'medium' | 'high' | 'critical'
+
+export type AlertStatus =
+  | 'new'
+  | 'acknowledged'
+  | 'dispatched'
+  | 'closed'
+  | 'false_positive'
+
+export interface WatchlistEntry {
+  id: string
+  plate_normalised: string
+  category: string
+  priority: Priority
+  case_ref: string | null
+  remarks: string | null
+  valid_from: string | null
+  valid_to: string | null
+  active: boolean
+  added_by: string | null
+  created_at: string
+}
+
+export interface Alert {
+  id: string
+  created_at: string
+  alert_type: string
+  priority: Priority
+  plate_normalised: string | null
+  confidence: number | null
+  status: AlertStatus
+  camera_id: string | null
+  detection_id: string | null
+  watchlist_id: string | null
+  acknowledged_by: string | null
+  acknowledged_at: string | null
+  notes: string | null
+}
+
+export interface AlertPage {
+  items: Alert[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/**
+ * What arrives on `/ws/events`.
+ *
+ * Three shapes share the socket. `vehicle.observed` is a vehicle still in
+ * view — the one to draw on live video. `vehicle.completed` is the settled
+ * consensus, and the one that was written to the database. `alert.raised` is
+ * a watchlist hit.
+ */
+export interface LiveVehicleEvent {
+  event: 'vehicle.observed' | 'vehicle.completed'
+  event_time: string
+  source: { camera_id: string; name?: string }
+  vehicle: {
+    vehicle_id: number
+    track_ids: number[]
+    type: string
+    confidence: number
+    bbox: BBox | null
+    first_seen_s: number
+    last_seen_s: number
+  }
+  plate: {
+    text: string
+    confidence: number
+    readable: boolean
+    grammar_valid: boolean
+    ambiguous: boolean
+    corrected_from: string | null
+    format: string
+    bbox?: BBox | null
+    evidence?: { reads_total?: number; agreement?: number; method?: string }
+  }
+  frame?: { width: number; height: number } | null
+}
+
+export interface LiveAlertEvent {
+  event: 'alert.raised'
+  alert_id: string
+  alert_type: string
+  priority: Priority
+  plate: string | null
+  confidence: number | null
+  status: AlertStatus
+  camera_id: string | null
+  detection_id: string | null
+  created_at: string
+  notes: string | null
+  watchlist?: {
+    id: string
+    plate: string
+    category: string
+    case_ref: string | null
+    exact: boolean
+  }
+}
+
+export type LiveEvent =
+  | LiveVehicleEvent
+  | LiveAlertEvent
+  | { event: 'connected'; subscribers: number }
+  | { event: 'keepalive' }

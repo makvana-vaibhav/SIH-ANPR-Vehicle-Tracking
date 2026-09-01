@@ -133,10 +133,10 @@ class WatchlistIndex:
     async def refresh(self) -> None:
         async with SessionLocal() as session:
             rows = (
-                await session.execute(
-                    select(Watchlist).where(Watchlist.active.is_(True))
-                )
-            ).scalars().all()
+                (await session.execute(select(Watchlist).where(Watchlist.active.is_(True))))
+                .scalars()
+                .all()
+            )
 
         exact: dict[str, list[WatchlistEntry]] = {}
         variants: dict[str, list[WatchlistEntry]] = {}
@@ -195,8 +195,10 @@ class WatchlistIndex:
 
 
 def _highest(entries: list[WatchlistEntry]) -> WatchlistEntry:
-    return max(entries, key=lambda e: _PRIORITY_ORDER.index(e.priority)
-               if e.priority in _PRIORITY_ORDER else -1)
+    return max(
+        entries,
+        key=lambda e: _PRIORITY_ORDER.index(e.priority) if e.priority in _PRIORITY_ORDER else -1,
+    )
 
 
 def _within_one_edit(a: str, b: str) -> bool:

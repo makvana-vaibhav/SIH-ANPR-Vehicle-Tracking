@@ -372,7 +372,8 @@ def write_outputs(result: RunResult, config: RunConfig) -> dict[str, Path]:
             "events.jsonl",
             (
                 vehicle_event(v, source, kind="vehicle.completed",
-                              run_id=result.run_dir.path.name)
+                              run_id=result.run_dir.path.name,
+                              frame_size=(result.source.width, result.source.height))
                 for v in result.vehicles
                 if v.result and v.result.text
             ),

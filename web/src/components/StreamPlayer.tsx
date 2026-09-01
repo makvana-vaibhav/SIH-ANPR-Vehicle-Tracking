@@ -26,7 +26,7 @@
  */
 
 import Hls from 'hls.js'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 type PlayerState = 'idle' | 'connecting' | 'playing' | 'failed'
 type Transport = 'webrtc' | 'hls'
@@ -43,6 +43,12 @@ interface Props {
    * costs a visible failure before the fallback that was always going to win.
    */
   preferHls?: boolean
+  /**
+   * Drawn over the video, inside the same box, so an overlay lines up with the
+   * picture through fullscreen and resizes alike. Rendered only while the
+   * stream is actually playing — boxes over a spinner would be nonsense.
+   */
+  overlay?: ReactNode
 }
 
 /** Wait for ICE gathering, with a ceiling so a stalled gather cannot hang the UI. */
@@ -86,6 +92,7 @@ export default function StreamPlayer({
   cameraCode,
   autoStart = true,
   preferHls = false,
+  overlay,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
@@ -370,6 +377,8 @@ export default function StreamPlayer({
             <p className="text-xs text-muted-foreground">{error}</p>
           </div>
         )}
+
+        {state === 'playing' && overlay}
 
         {state === 'playing' && (
           <span className="absolute left-2 top-2 flex items-center gap-1.5 rounded bg-black/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-status-online">

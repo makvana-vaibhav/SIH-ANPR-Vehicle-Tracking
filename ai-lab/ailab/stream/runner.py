@@ -118,6 +118,10 @@ class StreamRunner:
         self.stats = StreamStats()
 
         self._live: dict[int, _LiveTrack] = {}
+        # (width, height) of the frames being analysed, learned from the first
+        # one. Every bbox the runner emits is in this space, so it travels with
+        # the event — a consumer drawing the boxes cannot scale them otherwise.
+        self._frame_size: tuple[int, int] | None = None
         self._fps = 25.0
         self._next_vehicle_id = 0
         self._reads_by_track: dict[int, int] = {}
@@ -200,6 +204,9 @@ class StreamRunner:
 
     # ─────────────────────────────────────────────────────────────────
     def _process(self, captured: Any, frame_index: int, retire_after: int) -> None:
+        if self._frame_size is None and captured.image is not None:
+            height, width = captured.image.shape[:2]
+            self._frame_size = (int(width), int(height))
         pipeline = self.pipeline
         if captured.discontinuity:
             # The recording looped or the camera restarted. Track identities,
@@ -327,6 +334,7 @@ class StreamRunner:
                     kind="vehicle.observed",
                     latency_ms=captured.age_ms,
                     run_id=self.source.camera_id,
+                    frame_size=self._frame_size,
                 )
             )
             self.stats.latencies_ms.append(captured.age_ms)
@@ -357,6 +365,7 @@ class StreamRunner:
                 kind="vehicle.completed",
                 latency_ms=latency_ms,
                 run_id=self.source.camera_id,
+                frame_size=self._frame_size,
             )
         )
         # Release the evidence: a long-running worker cannot keep every crop

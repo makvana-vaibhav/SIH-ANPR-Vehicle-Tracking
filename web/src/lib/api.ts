@@ -7,17 +7,23 @@
  */
 
 import type {
+  Alert,
+  AlertPage,
+  AlertStatus,
   Camera,
   CameraGeoJSON,
   CameraHealthHistory,
   CameraPage,
   Department,
+  DetectionPage,
   FleetHealth,
   FleetSummary,
   GapReport,
   StreamGrant,
+  Priority,
   UserProfile,
   VmsInstance,
+  WatchlistEntry,
 } from '@/lib/types'
 
 export const API_BASE_URL: string =
@@ -263,6 +269,85 @@ export const getNearby = (lat: number, lon: number, radiusKm = 5) =>
   request<Camera[]>(
     `/api/v1/cameras/nearby?lat=${lat}&lon=${lon}&radius_km=${radiusKm}&limit=50`,
   )
+
+// ── Detections ────────────────────────────────────────────────────────
+
+export interface DetectionQuery {
+  camera_id?: string
+  plate?: string
+  plate_prefix?: string
+  since?: string
+  readable_only?: boolean
+  min_confidence?: number
+  limit?: number
+  offset?: number
+}
+
+export const getDetections = (query: DetectionQuery = {}) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<DetectionPage>(`/api/v1/detections?${params}`)
+}
+
+// ── Watchlist ─────────────────────────────────────────────────────────
+
+export const getWatchlist = (params: Record<string, string> = {}) =>
+  request<WatchlistEntry[]>(`/api/v1/watchlist?${new URLSearchParams(params)}`)
+
+export interface WatchlistDraft {
+  plate: string
+  category: string
+  priority?: Priority
+  case_ref?: string | null
+  remarks?: string | null
+  valid_to?: string | null
+}
+
+export const addToWatchlist = (draft: WatchlistDraft) =>
+  request<WatchlistEntry>('/api/v1/watchlist', {
+    method: 'POST',
+    body: JSON.stringify(draft),
+  })
+
+export const updateWatchlistEntry = (
+  id: string,
+  changes: Partial<WatchlistDraft> & { active?: boolean },
+) =>
+  request<WatchlistEntry>(`/api/v1/watchlist/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  })
+
+export const deleteWatchlistEntry = (id: string) =>
+  request<void>(`/api/v1/watchlist/${id}`, { method: 'DELETE' })
+
+// ── Alerts ────────────────────────────────────────────────────────────
+
+export interface AlertQuery {
+  status?: AlertStatus
+  plate?: string
+  camera_id?: string
+  open_only?: boolean
+  limit?: number
+  offset?: number
+}
+
+export const getAlerts = (query: AlertQuery = {}) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<AlertPage>(`/api/v1/alerts?${params}`)
+}
+
+/** Move an alert along its lifecycle. Every transition records who and when. */
+export const transitionAlert = (id: string, status: AlertStatus, notes?: string) =>
+  request<Alert>(`/api/v1/alerts/${id}/transition`, {
+    method: 'POST',
+    body: JSON.stringify({ status, notes: notes ?? null }),
+  })
 
 // ── Formatting ────────────────────────────────────────────────────────
 

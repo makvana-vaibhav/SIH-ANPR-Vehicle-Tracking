@@ -63,7 +63,9 @@ async def event_feed(websocket: WebSocket, token: str | None = Query(default=Non
     if claims is None:
         # Closed before accept, so an unauthenticated client never receives a
         # single event.
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="invalid or missing token")
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION, reason="invalid or missing token"
+        )
         return
 
     await websocket.accept()

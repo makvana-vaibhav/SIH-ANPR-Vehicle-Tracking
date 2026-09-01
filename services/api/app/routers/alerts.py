@@ -35,6 +35,7 @@ TRANSITION_PERMISSION = {
     AlertStatus.FALSE_POSITIVE.value: Permission.ALERT_CLOSE,
 }
 
+
 @router.get(
     "",
     response_model=AlertPage,
@@ -58,8 +59,13 @@ async def list_alerts(
         filters.append(Alert.status == alert_status.value)
     if open_only:
         filters.append(
-            Alert.status.in_([AlertStatus.NEW.value, AlertStatus.ACKNOWLEDGED.value,
-                              AlertStatus.DISPATCHED.value])
+            Alert.status.in_(
+                [
+                    AlertStatus.NEW.value,
+                    AlertStatus.ACKNOWLEDGED.value,
+                    AlertStatus.DISPATCHED.value,
+                ]
+            )
         )
     if plate:
         cleaned = "".join(ch for ch in plate.upper() if ch.isalnum())
@@ -77,7 +83,9 @@ async def list_alerts(
     )
     return AlertPage(
         items=[AlertOut.model_validate(a) for a in result.scalars().all()],
-        total=total, limit=limit, offset=offset,
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -124,16 +132,17 @@ async def transition_alert(
             session, alert, to=payload.status.value, user_id=user.id, notes=payload.notes
         )
     except alert_service.InvalidTransition as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     await session.commit()
     await session.refresh(alert)
 
     await audit.record(
-        request=request, user=user, action="alert.transition",
-        resource_type="alert", resource_id=str(alert.id),
+        request=request,
+        user=user,
+        action="alert.transition",
+        resource_type="alert",
+        resource_id=str(alert.id),
         params={"to": payload.status.value, "plate": alert.plate_normalised},
     )
     return alert
@@ -145,9 +154,7 @@ async def transition_alert(
     summary="Alert counts by status and priority",
 )
 async def alert_summary(session: DbSession) -> dict[str, object]:
-    by_status = await session.execute(
-        select(Alert.status, func.count()).group_by(Alert.status)
-    )
+    by_status = await session.execute(select(Alert.status, func.count()).group_by(Alert.status))
     by_priority = await session.execute(
         select(Alert.priority, func.count())
         .where(Alert.status.in_([AlertStatus.NEW.value, AlertStatus.ACKNOWLEDGED.value]))

@@ -41,7 +41,7 @@ def index_of(*entries: WatchlistEntry) -> WatchlistIndex:
             idx.variants.setdefault(variant, []).append(e)
     idx.entry_count = len(entries)
     idx._dirty = False
-    idx.loaded_at = 1e12   # far future, so needs_refresh stays False
+    idx.loaded_at = 1e12  # far future, so needs_refresh stays False
     return idx
 
 
@@ -49,13 +49,13 @@ class TestEditDistance:
     @pytest.mark.parametrize(
         "a,b,expected",
         [
-            ("GJ03AB1234", "GJ03AB1234", True),   # identical
-            ("GJ03AB1234", "GJ03AB1235", True),   # one substitution
-            ("GJ03AB1234", "GJ03AB123", True),    # one deletion
+            ("GJ03AB1234", "GJ03AB1234", True),  # identical
+            ("GJ03AB1234", "GJ03AB1235", True),  # one substitution
+            ("GJ03AB1234", "GJ03AB123", True),  # one deletion
             ("GJ03AB1234", "GJ03AB12345", True),  # one insertion
             ("GJ03AB1234", "GJ03AB1256", False),  # two substitutions
             ("GJ03AB1234", "MH12XY9876", False),  # unrelated
-            ("GJ03AB1234", "GJ03AB12", False),    # two deletions
+            ("GJ03AB1234", "GJ03AB12", False),  # two deletions
         ],
     )
     def test_within_one_edit(self, a: str, b: str, expected: bool) -> None:
@@ -151,8 +151,9 @@ class TestValidityWindow:
     async def test_an_entry_inside_its_window_fires(self) -> None:
         now = datetime.now(UTC)
         idx = index_of(
-            entry("GJ03AB1234", valid_from=now - timedelta(days=1),
-                  valid_to=now + timedelta(days=1))
+            entry(
+                "GJ03AB1234", valid_from=now - timedelta(days=1), valid_to=now + timedelta(days=1)
+            )
         )
         assert await idx.match("GJ03AB1234") is not None
 

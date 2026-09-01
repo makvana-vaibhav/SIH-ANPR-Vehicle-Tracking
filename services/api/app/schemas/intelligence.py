@@ -1,4 +1,4 @@
-"""Request and response shapes for the watchlist and alerts."""
+"""Request and response shapes for detections, the watchlist and alerts."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ class AlertTransition(BaseModel):
     notes: str | None = Field(
         default=None,
         description="Why. Required when closing as a false positive, because "
-                    "that is the transition worth being able to review later.",
+        "that is the transition worth being able to review later.",
     )
 
     @field_validator("notes")
@@ -111,6 +111,72 @@ class AlertTransition(BaseModel):
 
 class AlertPage(BaseModel):
     items: list[AlertOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class DetectionOut(BaseModel):
+    """One sighting, with the evidence behind it.
+
+    The evidence fields are not decoration. A plate the pipeline repaired, or
+    one where the frames disagreed, is a different thing from a clean read, and
+    an operator deciding whether to act on a hit needs to see which they have.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ts: datetime
+    camera_id: uuid.UUID | None
+    camera_code: str
+    camera_name: str
+    track_id: str
+    vehicle_type: str | None
+    plate: str | None
+    plate_confidence: float | None
+    detection_confidence: float | None
+    grammar_valid: bool | None
+    bbox: dict[str, Any] | None
+    plate_bbox: dict[str, Any] | None
+    crop_key: str | None
+
+    # ── evidence ──
+    reads_total: int | None
+    agreement: float | None
+    corrected_from: str | None
+    ambiguous: bool
+    candidates: list[dict[str, Any]]
+
+    @classmethod
+    def from_row(cls, row: Any, camera_code: str, camera_name: str) -> DetectionOut:
+        raw = row.ocr_raw or {}
+        evidence = raw.get("evidence") or {}
+        return cls(
+            id=row.id,
+            ts=row.ts,
+            camera_id=row.camera_id,
+            camera_code=camera_code,
+            camera_name=camera_name,
+            track_id=row.track_id,
+            vehicle_type=row.vehicle_type,
+            plate=row.plate_normalised or None,
+            plate_confidence=row.plate_confidence,
+            detection_confidence=row.detection_confidence,
+            grammar_valid=row.is_validated,
+            bbox=row.bbox,
+            plate_bbox=row.plate_bbox,
+            crop_key=row.crop_key,
+            reads_total=evidence.get("reads_total"),
+            agreement=evidence.get("agreement"),
+            corrected_from=raw.get("corrected_from"),
+            ambiguous=bool(raw.get("ambiguous", False)),
+            candidates=raw.get("candidates") or [],
+        )
+
+
+class DetectionPage(BaseModel):
+    items: list[DetectionOut]
     total: int
     limit: int
     offset: int

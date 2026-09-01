@@ -95,8 +95,11 @@ async def create_entry(
     # would not be matched until the next periodic refresh.
     watchlist_service.index.mark_stale()
     await audit.record_watchlist_change(
-        request=request, user=user, operation="create",
-        plate=entry.plate_normalised, watchlist_id=entry.id,
+        request=request,
+        user=user,
+        operation="create",
+        plate=entry.plate_normalised,
+        watchlist_id=entry.id,
     )
     return entry
 
@@ -128,8 +131,11 @@ async def update_entry(
 
     watchlist_service.index.mark_stale()
     await audit.record_watchlist_change(
-        request=request, user=user, operation="update",
-        plate=entry.plate_normalised, watchlist_id=entry.id,
+        request=request,
+        user=user,
+        operation="update",
+        plate=entry.plate_normalised,
+        watchlist_id=entry.id,
     )
     return entry
 
@@ -159,8 +165,11 @@ async def delete_entry(
 
     watchlist_service.index.mark_stale()
     await audit.record_watchlist_change(
-        request=request, user=user, operation="deactivate",
-        plate=entry.plate_normalised, watchlist_id=entry.id,
+        request=request,
+        user=user,
+        operation="deactivate",
+        plate=entry.plate_normalised,
+        watchlist_id=entry.id,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -117,9 +117,11 @@ class EventConsumer:
         while not self._stop.is_set():
             try:
                 batches = await client.xreadgroup(
-                    CONSUMER_GROUP, consumer_name,
+                    CONSUMER_GROUP,
+                    consumer_name,
                     {settings.event_stream_key: ">"},
-                    count=BATCH_SIZE, block=BLOCK_MS,
+                    count=BATCH_SIZE,
+                    block=BLOCK_MS,
                 )
             except RedisError:
                 self._client = None
@@ -171,9 +173,7 @@ class EventConsumer:
         # would have quietly broken per-camera history and the map.
         async with SessionLocal() as session:
             result = await session.execute(
-                select(Camera.id).where(
-                    func.upper(Camera.camera_code) == camera_code.upper()
-                )
+                select(Camera.id).where(func.upper(Camera.camera_code) == camera_code.upper())
             )
             camera_id = result.scalar_one_or_none()
 

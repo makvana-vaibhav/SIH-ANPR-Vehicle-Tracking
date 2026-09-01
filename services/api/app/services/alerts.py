@@ -134,8 +134,10 @@ async def raise_for_match(
     if repeat is not None:
         log.info(
             "alert.deduplicated",
-            plate=plate, camera=camera_code,
-            alert_id=str(repeat.alert_id), repeats=repeat.repeats,
+            plate=plate,
+            camera=camera_code,
+            alert_id=str(repeat.alert_id),
+            repeats=repeat.repeats,
         )
         return None
 
@@ -153,7 +155,7 @@ async def raise_for_match(
             None
             if match.exact
             else f"Near match to watchlist plate {match.entry.plate} "
-                 f"({match.distance} character different) — verify before acting"
+            f"({match.distance} character different) — verify before acting"
         ),
     )
     session.add(alert)
@@ -162,8 +164,12 @@ async def raise_for_match(
     deduper.remember(plate, camera_code, alert.id, now)
     log.info(
         "alert.raised",
-        alert_id=str(alert.id), plate=plate, camera=camera_code,
-        alert_type=alert.alert_type, priority=alert.priority, exact=match.exact,
+        alert_id=str(alert.id),
+        plate=plate,
+        camera=camera_code,
+        alert_type=alert.alert_type,
+        priority=alert.priority,
+        exact=match.exact,
     )
     return alert
 
@@ -193,15 +199,15 @@ async def transition(
     await session.flush()
     log.info(
         "alert.transitioned",
-        alert_id=str(alert.id), to=to, user=str(user_id) if user_id else None,
+        alert_id=str(alert.id),
+        to=to,
+        user=str(user_id) if user_id else None,
     )
     return alert
 
 
 async def get_alert(session: AsyncSession, alert_id: uuid.UUID) -> Alert | None:
-    return (
-        await session.execute(select(Alert).where(Alert.id == alert_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(Alert).where(Alert.id == alert_id))).scalar_one_or_none()
 
 
 def alert_payload(alert: Alert, match: Match | None = None) -> dict[str, Any]:

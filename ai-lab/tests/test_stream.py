@@ -326,3 +326,55 @@ class TestSentinelIntegrationRules:
         stamps = [reader._read_pts(capture)[0] for _ in range(10)]
         assert stamps == sorted(stamps)
         assert reader.stats.pts_unavailable is True, "fallback must be recorded, not hidden"
+
+
+class TestBoxesCarryTheirCoordinateSpace:
+    """A bbox in pixels is meaningless without the frame it was measured in.
+
+    The command centre draws these boxes over a video element that is almost
+    never the source resolution. Without `frame`, the client has to guess the
+    scale, and a guess puts the box on the wrong car.
+    """
+
+    def _vehicle(self):
+        from ailab.track.merge import Vehicle
+        from ailab.types import BBox, PlateConsensus
+
+        return Vehicle(
+            vehicle_id=1,
+            track_ids=[1],
+            class_name="car",
+            bbox=BBox(100.0, 200.0, 300.0, 400.0),
+            result=PlateConsensus(
+                text="GJ03AB1234", confidence=0.9, method="char_vote",
+                reads_total=3, reads_agreeing=3,
+            ),
+        )
+
+    def test_frame_size_travels_with_the_event(self) -> None:
+        from ailab.stream.events import SourceIdentity, vehicle_event
+
+        event = vehicle_event(
+            self._vehicle(),
+            SourceIdentity(camera_id="cam-1"),
+            frame_size=(1920, 1080),
+        )
+        assert event["frame"] == {"width": 1920, "height": 1080}
+
+    def test_frame_is_null_rather_than_absent_when_unknown(self) -> None:
+        """A consumer must be able to tell "unknown" from "forgot to read it"."""
+        from ailab.stream.events import SourceIdentity, vehicle_event
+
+        event = vehicle_event(self._vehicle(), SourceIdentity(camera_id="cam-1"))
+        assert "frame" in event
+        assert event["frame"] is None
+
+    def test_boxes_lie_inside_the_frame_they_declare(self) -> None:
+        from ailab.stream.events import SourceIdentity, vehicle_event
+
+        event = vehicle_event(
+            self._vehicle(), SourceIdentity(camera_id="cam-1"), frame_size=(1920, 1080)
+        )
+        box, frame = event["vehicle"]["bbox"], event["frame"]
+        assert 0 <= box["x1"] < box["x2"] <= frame["width"]
+        assert 0 <= box["y1"] < box["y2"] <= frame["height"]
