@@ -8,6 +8,7 @@ import Integration from '@/pages/Integration'
 import LiveAnpr from '@/pages/LiveAnpr'
 import Login from '@/pages/Login'
 import MapView from '@/pages/MapView'
+import VehicleSearch from '@/pages/VehicleSearch'
 import Watchlist from '@/pages/Watchlist'
 import { useAuth } from '@/hooks/useAuth'
 import { EventStreamProvider, useEventStream } from '@/hooks/useEventStream'
@@ -17,6 +18,7 @@ const NAV = [
   { to: '/map', label: 'GIS Map', gu: 'નકશો' },
   { to: '/anpr', label: 'Live ANPR', gu: 'લાઇવ ANPR' },
   { to: '/alerts', label: 'Alerts', gu: 'ચેતવણી' },
+  { to: '/vehicles', label: 'Vehicle Search', gu: 'વાહન શોધ' },
   { to: '/watchlist', label: 'Watchlist', gu: 'વોચલિસ્ટ' },
   { to: '/health', label: 'Fleet Health', gu: 'આરોગ્ય' },
   { to: '/integration', label: 'Integration', gu: 'એકીકરણ' },
@@ -122,6 +124,7 @@ function Shell() {
           <Route path="/map" element={<MapView />} />
           <Route path="/anpr" element={<LiveAnpr />} />
           <Route path="/alerts" element={<Alerts />} />
+          <Route path="/vehicles" element={<VehicleSearch />} />
           <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/health" element={<FleetHealthPage />} />
           <Route path="/integration" element={<Integration />} />

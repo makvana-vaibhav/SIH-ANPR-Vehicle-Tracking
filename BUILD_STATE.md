@@ -606,6 +606,8 @@ pure logic, 15 over HTTP).
 - [x] Unobserved-gap analysis (`unobserved_gap` flag)
 - [x] `/routable` — which plates have enough sightings to have a route at all
 - [x] `persist_route()` writes to `vehicle_tracks`
+- [x] **Vehicle Search screen** — plate in, journey drawn on a satellite map with a hop
+      table, plain-English reasons for every flag, and convoy partners
 - [ ] **Gate not run:** needs a plate seen on several *separated* cameras
 
 ### The one argument this phase rests on
@@ -627,7 +629,8 @@ not present them as symmetric, and the note travels in every response.
 |---|---|---|
 | `implausible_speed` | Lower-bound speed exceeds 150 km/h | **Yes** |
 | `impossible_simultaneous` | Same plate at two separated cameras at one instant | **Yes** |
-| `co_located` | Cameras < 50 m apart; speed would be position error | No |
+| `revisit` | The vehicle returned to a camera it had already passed | No |
+| `co_located` | Two *different* cameras < 50 m apart; speed would be position error | No |
 | `unobserved_gap` | Over an hour between sightings — the vehicle went somewhere unwatched | No |
 | `heading_conflict` | Camera faces more than 100° away from the direction of travel | No |
 
@@ -647,6 +650,26 @@ Verified instead against the real detections that do exist — `NA13NRU` across
 available on it; or a second demonstration feed is added; or Phase 12's backfill lands,
 in which case the seeded detections **must be labelled synthetic** wherever the route is
 displayed.
+
+Until then the screen says so itself: a route whose sightings are all on one camera
+shows *"there is no journey to draw — a route needs the plate read on cameras in
+different places"* rather than drawing a dot and leaving the operator to work out why.
+
+### Two artefacts the screen had to be taught about
+
+Both were found by looking at the rendered page rather than the tests, and both would
+have embarrassed a live demo:
+
+* **A revisit is not a co-location.** Four sightings on one camera were being reported
+  as *"these cameras are within 50 m"* — a statement about camera installation, when
+  there was only one camera and what actually happened is that the vehicle came back.
+  Now a distinct `revisit` flag.
+* **A convoy of near-identical plates is one car, not six.** OCR reading the same
+  vehicle as `AP05JEO` and `AP05JE0` produces two plates that co-occur *perfectly* at
+  every camera — the exact signature of a convoy. Partners within one edit of the
+  subject are now marked `likely_same_vehicle`, sorted below genuine associations, and
+  collapsed behind a disclosure rather than deleted: how often the reader disagrees
+  with itself about a vehicle is worth an operator seeing.
 
 ---
 

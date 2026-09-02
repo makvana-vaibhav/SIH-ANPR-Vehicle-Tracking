@@ -27,10 +27,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import maplibregl, { type MapGeoJSONFeature } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
+import {
+  baseStyle,
+  GUJARAT_CENTER,
+  satelliteReachable,
+  type Basemap,
+} from '@/lib/basemap'
+
 import type { CameraFeatureProperties, CameraGeoJSON } from '@/lib/types'
 
 /** Gujarat, framed to fit the whole state. */
-const GUJARAT_CENTER: [number, number] = [71.6, 22.6]
 const INITIAL_ZOOM = 6.6
 
 /** Status colours, matching the semantic palette in styles/index.css. */
@@ -41,8 +47,6 @@ const STATUS_COLORS = {
   unknown: '#94a3b8',
 } as const
 
-export type Basemap = 'satellite' | 'offline'
-
 /**
  * Above this many cameras, switch to clustering. At demo scale (250) every
  * camera is drawn individually — clustering 250 points collapses the whole
@@ -51,10 +55,6 @@ export type Basemap = 'satellite' | 'offline'
  */
 const CLUSTER_THRESHOLD = 2000
 
-const SATELLITE_TILES =
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-const SATELLITE_LABEL_TILES =
-  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
 
 interface Props {
   cameras: CameraGeoJSON | null
@@ -63,25 +63,6 @@ interface Props {
   selectedCode?: string | null
   basemap: Basemap
   onSatelliteUnavailable?: () => void
-}
-
-/** Probe one tile so we can fall back before the user sees a blank map. */
-async function satelliteReachable(): Promise<boolean> {
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), 4000)
-  try {
-    const response = await fetch(
-      SATELLITE_TILES.replace('{z}', '6').replace('{y}', '28').replace('{x}', '45'),
-      { signal: controller.signal, mode: 'no-cors' },
-    )
-    // `no-cors` yields an opaque response; reaching here at all means the
-    // request completed rather than failing at the network layer.
-    return response.type === 'opaque' || response.ok
-  } catch {
-    return false
-  } finally {
-    window.clearTimeout(timer)
-  }
 }
 
 export default function CameraMap({
@@ -103,49 +84,7 @@ export default function CameraMap({
 
     map.current = new maplibregl.Map({
       container: container.current,
-      style: {
-        version: 8,
-        // No sprite/glyphs: both are network fetches, and every label in this
-        // component is HTML precisely so the map needs neither.
-        sources: {
-          satellite: {
-            type: 'raster',
-            tiles: [SATELLITE_TILES],
-            tileSize: 256,
-            maxzoom: 19,
-            attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
-          },
-          'satellite-labels': {
-            type: 'raster',
-            tiles: [SATELLITE_LABEL_TILES],
-            tileSize: 256,
-            maxzoom: 19,
-          },
-        },
-        layers: [
-          {
-            id: 'background',
-            type: 'background',
-            paint: { 'background-color': '#080d16' },
-          },
-          {
-            id: 'satellite',
-            type: 'raster',
-            source: 'satellite',
-            layout: { visibility: 'none' },
-            // Slightly dimmed so status dots stay the brightest thing on
-            // screen — this is an operations display, not a mapping tool.
-            paint: { 'raster-brightness-max': 0.82, 'raster-saturation': -0.12 },
-          },
-          {
-            id: 'satellite-labels',
-            type: 'raster',
-            source: 'satellite-labels',
-            layout: { visibility: 'none' },
-            paint: { 'raster-opacity': 0.75 },
-          },
-        ],
-      },
+      style: baseStyle({ ground: '#080d16', dim: true }),
       center: GUJARAT_CENTER,
       zoom: INITIAL_ZOOM,
       maxZoom: 18,

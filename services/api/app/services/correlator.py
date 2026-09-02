@@ -373,9 +373,17 @@ def score_legs(hops: list[Hop], headings: dict[uuid.UUID, float | None]) -> None
             else None
         )
 
+        if previous.camera_id == hop.camera_id:
+            # The vehicle came back to a camera it had already passed. Distinct
+            # from two cameras that happen to sit close together: this is a
+            # fact about the journey — it doubled back, or waited nearby and
+            # returned — not an artefact of where the cameras were installed.
+            hop.flags.append("revisit")
+            continue
+
         if distance < MIN_SEPARATION_M:
-            # Two cameras on the same gantry. A speed here would be an artefact
-            # of position error, not a measurement.
+            # Two different cameras on the same gantry. A speed here would be
+            # an artefact of position error, not a measurement.
             hop.flags.append("co_located")
             continue
 
@@ -478,6 +486,24 @@ async def build_route(
 # ─────────────────────────────────────────────────────────────────────
 # Convoys
 # ─────────────────────────────────────────────────────────────────────
+def _within_one_edit(a: str, b: str) -> bool:
+    """True when one substitution, insertion or deletion turns a into b.
+
+    Shared with the watchlist matcher's notion of a near miss, and used here
+    for the opposite purpose: there it widens a search, here it identifies a
+    "convoy partner" that is really the same vehicle read twice.
+    """
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(1 for x, y in zip(a, b, strict=True) if x != y) <= 1
+
+    shorter, longer = (a, b) if len(a) < len(b) else (b, a)
+    return any(shorter == longer[:index] + longer[index + 1 :] for index in range(len(longer)))
+
+
 @dataclass(slots=True)
 class Convoy:
     """Two plates travelling together."""
@@ -488,6 +514,11 @@ class Convoy:
     first_together: datetime
     last_together: datetime
     median_gap_s: float
+    #: True when the partner plate is within one character of the subject.
+    #: Almost always one vehicle read two ways rather than two vehicles: OCR
+    #: producing GJ03AB1234 and GJ03A81234 from the same car will co-occur at
+    #: every camera perfectly, which is exactly what a convoy looks like.
+    likely_same_vehicle: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -497,6 +528,7 @@ class Convoy:
             "first_together": self.first_together.isoformat(),
             "last_together": self.last_together.isoformat(),
             "median_gap_s": round(self.median_gap_s, 1),
+            "likely_same_vehicle": self.likely_same_vehicle,
         }
 
 
@@ -571,10 +603,14 @@ async def find_convoys(
                 first_together=min(times),
                 last_together=max(times),
                 median_gap_s=gaps[len(gaps) // 2],
+                likely_same_vehicle=_within_one_edit(plate, other_plate),
             )
         )
 
-    convoys.sort(key=lambda c: (-c.shared_cameras, c.median_gap_s))
+    # Genuine convoys first. A near-identical plate co-occurring perfectly is
+    # the pipeline reading one car two ways, and leaving those at the top would
+    # bury the real associations under an artefact of OCR.
+    convoys.sort(key=lambda c: (c.likely_same_vehicle, -c.shared_cameras, c.median_gap_s))
     return convoys
 
 

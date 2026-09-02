@@ -8,7 +8,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import CameraMap, { type Basemap } from '@/components/CameraMap'
+import CameraMap from '@/components/CameraMap'
+import type { Basemap } from '@/lib/basemap'
 import CameraPanel from '@/components/CameraPanel'
 import * as api from '@/lib/api'
 import type {

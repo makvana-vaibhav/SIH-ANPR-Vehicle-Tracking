@@ -20,8 +20,11 @@ import type {
   FleetSummary,
   GapReport,
   StreamGrant,
+  ConvoyReport,
   Priority,
+  RoutablePlates,
   UserProfile,
+  VehicleRoute,
   VmsInstance,
   WatchlistEntry,
 } from '@/lib/types'
@@ -348,6 +351,60 @@ export const transitionAlert = (id: string, status: AlertStatus, notes?: string)
     method: 'POST',
     body: JSON.stringify({ status, notes: notes ?? null }),
   })
+
+// ── Vehicle intelligence ──────────────────────────────────────────────
+
+export interface RouteQuery {
+  since?: string
+  until?: string
+}
+
+export const getVehicleRoute = (plate: string, query: RouteQuery = {}) => {
+  const params = new URLSearchParams(query as Record<string, string>)
+  return request<VehicleRoute>(
+    `/api/v1/vehicles/${encodeURIComponent(plate)}/route?${params}`,
+  )
+}
+
+/** The same route as GeoJSON, for drawing. */
+export const getVehicleRouteGeoJSON = (plate: string, query: RouteQuery = {}) => {
+  const params = new URLSearchParams({ ...query, format: 'geojson' } as Record<
+    string,
+    string
+  >)
+  return request<GeoJSON.FeatureCollection>(
+    `/api/v1/vehicles/${encodeURIComponent(plate)}/route?${params}`,
+  )
+}
+
+export const getConvoys = (
+  plate: string,
+  query: RouteQuery & { window_s?: number; min_shared_cameras?: number } = {},
+) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<ConvoyReport>(
+    `/api/v1/vehicles/${encodeURIComponent(plate)}/convoy?${params}`,
+  )
+}
+
+/**
+ * Plates seen on enough cameras to have a route at all.
+ *
+ * Without this an operator searching a plate that was only ever seen once
+ * concludes the feature is broken, when the honest answer is that there is
+ * nothing to draw.
+ */
+export const getRoutablePlates = (minCameras = 2, limit = 25, since?: string) => {
+  const params = new URLSearchParams({
+    min_cameras: String(minCameras),
+    limit: String(limit),
+  })
+  if (since) params.set('since', since)
+  return request<RoutablePlates>(`/api/v1/vehicles/routable?${params}`)
+}
 
 // ── Formatting ────────────────────────────────────────────────────────
 

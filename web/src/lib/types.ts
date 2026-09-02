@@ -352,3 +352,81 @@ export type LiveEvent =
   | LiveAlertEvent
   | { event: 'connected'; subscribers: number }
   | { event: 'keepalive' }
+
+// ── Vehicle intelligence: routes and convoys ──────────────────────────
+
+/**
+ * One camera in a reconstructed journey, and the leg that led to it.
+ *
+ * `flags` is why the correlator does not believe part of this leg. An empty
+ * list means nothing was found wrong, which is weaker than "this leg is
+ * correct" — distances are straight lines between cameras, so a plausible-
+ * looking leg has only passed a weak test.
+ */
+export interface RouteHop {
+  camera_id: string
+  camera_code: string
+  camera_name: string
+  city: string | null
+  district: string | null
+  lat: number
+  lon: number
+  arrived_at: string
+  departed_at: string
+  dwell_s: number
+  sightings: number
+  plate_confidence: number
+  distance_m: number | null
+  distance_km: number | null
+  elapsed_s: number | null
+  implied_kmph: number | null
+  bearing_deg: number | null
+  flags: string[]
+  plausible: boolean
+}
+
+export interface VehicleRoute {
+  plate: string
+  window: { from: string | null; to: string | null }
+  first_seen: string | null
+  last_seen: string | null
+  hop_count: number
+  camera_count: number
+  distance_km: number
+  duration_s: number
+  is_plausible: boolean
+  confidence: number
+  flagged_hop_count: number
+  hops: RouteHop[]
+  geometry_note: string
+}
+
+export type RouteGeoJSON = GeoJSON.FeatureCollection
+
+export interface Convoy {
+  plate: string
+  with_plate: string
+  shared_cameras: number
+  first_together: string
+  last_together: string
+  median_gap_s: number
+  /**
+   * The partner plate is within one character of the subject — almost always
+   * one vehicle read two ways rather than two vehicles travelling together.
+   */
+  likely_same_vehicle: boolean
+}
+
+export interface ConvoyReport {
+  plate: string
+  window: { from: string | null; to: string | null }
+  criteria: { seconds_apart: number; min_shared_cameras: number }
+  convoys: Convoy[]
+  note: string
+}
+
+export interface RoutablePlates {
+  since: string
+  min_cameras: number
+  plates: { plate: string; cameras: number }[]
+}

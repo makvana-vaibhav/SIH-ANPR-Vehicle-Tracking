@@ -178,6 +178,28 @@ class TestLegScoring:
         assert route.hops[1].implied_kmph is None
         assert route.is_plausible, "co-location is not an implausibility"
 
+    def test_returning_to_a_camera_is_a_revisit_not_a_co_location(self) -> None:
+        """One camera seen twice is a fact about the journey.
+
+        Reporting it as "these cameras are within 50 m" describes the camera
+        installation, which is both wrong and useless: there is only one
+        camera, and what happened is that the vehicle came back.
+        """
+        route = route_of(
+            sighting(RAJKOT, "RJT", T0),
+            sighting(RAJKOT, "RJT", T0 + timedelta(hours=2)),
+        )
+        assert route.hops[1].flags == ["revisit"]
+        assert "co_located" not in route.hops[1].flags
+        assert route.is_plausible
+
+    def test_a_revisit_gets_no_implied_speed(self) -> None:
+        route = route_of(
+            sighting(RAJKOT, "RJT", T0),
+            sighting(RAJKOT, "RJT", T0 + timedelta(hours=2)),
+        )
+        assert route.hops[1].implied_kmph is None
+
     def test_a_long_unwatched_gap_is_marked_but_not_disbelieved(self) -> None:
         """Most of Gujarat has no camera. That bounds the claim, not the truth."""
         route = route_of(
@@ -369,3 +391,39 @@ class TestHopSerialisation:
         assert first["distance_km"] is None
         assert first["implied_kmph"] is None
         assert first["plausible"] is True
+
+
+class TestConvoyArtefacts:
+    """A near-identical plate is one car read twice, not two cars travelling.
+
+    This is the failure mode that would embarrass a demo: OCR reads the same
+    vehicle as GJ03AB1234 at one camera and GJ03A81234 at the next, the two
+    co-occur perfectly at every camera, and the system announces a convoy.
+    """
+
+    def test_a_one_character_difference_is_marked(self) -> None:
+        from app.services.correlator import _within_one_edit
+
+        assert _within_one_edit("GJ03AB1234", "GJ03A81234")
+        assert _within_one_edit("AP05JEO", "AP05JE0")
+
+    def test_a_dropped_character_is_marked(self) -> None:
+        from app.services.correlator import _within_one_edit
+
+        assert _within_one_edit("FJ14ZHY", "FJ4ZHY")
+
+    def test_a_genuinely_different_plate_is_not(self) -> None:
+        from app.services.correlator import _within_one_edit
+
+        assert not _within_one_edit("GJ03AB1234", "GJ18XY9876")
+        assert not _within_one_edit("NA13NRU", "BG65USJ")
+
+    def test_a_plate_is_within_one_edit_of_itself(self) -> None:
+        from app.services.correlator import _within_one_edit
+
+        assert _within_one_edit("GJ03AB1234", "GJ03AB1234")
+
+    def test_lengths_differing_by_more_than_one_are_not(self) -> None:
+        from app.services.correlator import _within_one_edit
+
+        assert not _within_one_edit("GJ03AB1234", "GJ03")
