@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
 import RouteMap from '@/components/RouteMap'
+import { useToast } from '@/components/Toast'
 import * as api from '@/lib/api'
 import type { Convoy, RouteGeoJSON, VehicleRoute } from '@/lib/types'
 
@@ -60,6 +61,7 @@ function duration(seconds: number): string {
 }
 
 export default function VehicleSearch() {
+  const toast = useToast()
   const [query, setQuery] = useState('')
   const [plate, setPlate] = useState<string | null>(null)
   const [hours, setHours] = useState<number>(24)
@@ -89,7 +91,7 @@ export default function VehicleSearch() {
   const search = useCallback(async (target: string, windowHours: number) => {
     const normalised = target.toUpperCase().replace(/[^A-Z0-9]/g, '')
     if (normalised.length < 4) {
-      setError('A plate needs at least four letters or digits to search on.')
+      toast.error('A plate needs at least four letters or digits to search on.')
       return
     }
 
@@ -108,14 +110,14 @@ export default function VehicleSearch() {
       setGeojson(shape)
       setConvoys(convoyReport.convoys)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      toast.error(err)
       setRoute(null)
       setGeojson(null)
       setConvoys([])
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [toast])
 
   function submit(event: FormEvent) {
     event.preventDefault()

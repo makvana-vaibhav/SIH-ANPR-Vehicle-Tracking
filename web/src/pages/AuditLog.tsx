@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import * as api from '@/lib/api'
+import { downloadCsv, stampedName } from '@/lib/csv'
 import type { AuditEntry } from '@/lib/types'
 
 const WINDOWS = [
@@ -141,6 +142,28 @@ export default function AuditLog() {
         <span className="pb-1.5 text-[11px] text-muted-foreground">
           {loading ? 'loading…' : `${entries.length} shown of ${total} matching`}
         </span>
+
+        <button
+          type="button"
+          disabled={entries.length === 0}
+          onClick={() =>
+            downloadCsv(stampedName('audit'), entries, [
+              { header: 'timestamp_utc', value: (e) => e.ts },
+              { header: 'username', value: (e) => e.username },
+              { header: 'role', value: (e) => e.role },
+              { header: 'action', value: (e) => e.action },
+              { header: 'resource_type', value: (e) => e.resource_type },
+              { header: 'resource_id', value: (e) => e.resource_id },
+              { header: 'ip', value: (e) => e.ip },
+              { header: 'result', value: (e) => e.result },
+              { header: 'params', value: (e) => e.params },
+            ])
+          }
+          title="Export the rows shown. Timestamps are UTC in the file; the table displays IST."
+          className="mb-0.5 rounded border border-border px-2 py-1.5 text-[11px] transition hover:border-muted-foreground disabled:opacity-40"
+        >
+          Export CSV
+        </button>
       </div>
 
       {error && (

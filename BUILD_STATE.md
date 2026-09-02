@@ -702,13 +702,18 @@ screen, so three judge moments could only be performed in a terminal.
       list, ack / dispatch / close / false-positive
 - [x] **Watchlist Manager**: add with case reference and reason, amend priority, retire
 - [x] WS reconnect with backoff and a visible feed status
-- [ ] Live Dashboard: fleet KPI strip, event ticker, mini map
+- [x] **Dashboard** — the landing screen: honest KPI tiles, live plate ticker,
+      alerts needing attention, fleet by department
+- [x] Toasts replace inline error text; errors do not auto-dismiss
+- [x] Loading skeletons, so an unloaded table never reads as an empty one
+- [x] Keyboard triage on alerts (`j`/`k` move, `a`/`d`/`c`/`f` act)
+- [x] CSV export on the audit trail, with RFC 4180 quoting and a UTF-8 BOM
 - [ ] Video Wall: 2×2 / 3×3 / 4×4
 - [ ] Vehicle Search + Vehicle Profile with animated route playback — needs Phase 7/8
 - [ ] Camera Onboarding form + CSV with row-level errors
 - [ ] Admin: users, VMS, audit viewer
 - [ ] Architecture page — needs Phase 10's measured numbers
-- [ ] CSV/PDF export, keyboard shortcuts for alert triage
+- [ ] PDF export; CSV on the remaining tables
 
 **Verified in a browser:** login → 31 ANPR cameras listed with provenance badges →
 event feed live → plate cards streaming with evidence → overlay boxes rendering →

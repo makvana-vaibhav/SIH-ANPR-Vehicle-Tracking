@@ -14,6 +14,8 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
+import { SkeletonRows } from '@/components/Skeleton'
+import { useToast } from '@/components/Toast'
 import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
 import { PERMISSIONS } from '@/lib/permissions'
@@ -30,6 +32,7 @@ const PRIORITY_STYLE: Record<Priority, string> = {
 }
 
 export default function Watchlist() {
+  const toast = useToast()
   const { can } = useAuth()
   // Reading the watchlist and changing it are separate grants: an analyst may
   // see what is being looked for without being able to add to it.
@@ -43,17 +46,17 @@ export default function Watchlist() {
   const [caseRef, setCaseRef] = useState('')
   const [remarks, setRemarks] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     try {
       setEntries(await api.getWatchlist({ limit: '200' }))
-      setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      toast.error(err)
+    } finally {
+      setLoading(false)
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => {
     void load()
@@ -63,13 +66,11 @@ export default function Watchlist() {
     event.preventDefault()
     const normalised = plate.toUpperCase().replace(/[^A-Z0-9]/g, '')
     if (normalised.length < 4) {
-      setError('A plate needs at least four letters or digits to match on.')
+      toast.error('A plate needs at least four letters or digits to match on.')
       return
     }
 
     setBusy(true)
-    setError(null)
-    setNotice(null)
     try {
       await api.addToWatchlist({
         plate: normalised,
@@ -78,25 +79,29 @@ export default function Watchlist() {
         case_ref: caseRef.trim() || null,
         remarks: remarks.trim() || null,
       })
-      setNotice(`${normalised} is now watched. A sighting will raise an alert.`)
+      toast.success(`${normalised} is now watched. A sighting will raise an alert.`)
       setPlate('')
       setCaseRef('')
       setRemarks('')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      toast.error(err)
     } finally {
       setBusy(false)
     }
   }
 
   async function toggleActive(entry: WatchlistEntry) {
-    setError(null)
     try {
       await api.updateWatchlistEntry(entry.id, { active: !entry.active })
+      toast.success(
+        entry.active
+          ? `${entry.plate_normalised} retired — it will no longer raise alerts.`
+          : `${entry.plate_normalised} is being watched again.`,
+      )
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      toast.error(err)
     }
   }
 
@@ -207,8 +212,6 @@ export default function Watchlist() {
           >
             {busy ? 'Adding…' : 'Add to watchlist'}
           </button>
-          {notice && <span className="text-xs text-status-online">{notice}</span>}
-          {error && <span className="text-xs text-status-offline">{error}</span>}
         </div>
       </form>
       )}
@@ -216,7 +219,11 @@ export default function Watchlist() {
       {/* ── Active ──────────────────────────────────────────────────── */}
       <section>
         <h2 className="text-sm font-medium">Watched now</h2>
-        {active.length === 0 ? (
+        {loading ? (
+          <div className="mt-2">
+            <SkeletonRows rows={3} height="h-9" />
+          </div>
+        ) : active.length === 0 ? (
           <p className="mt-2 rounded border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
             {mayAdd
               ? 'Nothing is being watched. Add a plate above.'

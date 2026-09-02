@@ -14,6 +14,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { SkeletonRows } from '@/components/Skeleton'
+import { useToast } from '@/components/Toast'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
@@ -69,23 +71,29 @@ const TRANSITION_PERMISSION: Record<AlertStatus, string> = {
 }
 
 export default function Alerts() {
+  const toast = useToast()
   const { can } = useAuth()
   const { alerts: liveAlerts, status: feedStatus } = useEventStream()
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [cameras, setCameras] = useState<Map<string, Camera>>(new Map())
   const [openOnly, setOpenOnly] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
   const [working, setWorking] = useState<string | null>(null)
+  // Which alert the keyboard is pointed at. Triage in a control room is a
+  // repetitive job and reaching for a mouse for every one of forty alerts is
+  // the difference between clearing a backlog and giving up on it.
+  const [cursor, setCursor] = useState(0)
 
   const load = useCallback(async () => {
     try {
       const page = await api.getAlerts({ open_only: openOnly, limit: 100 })
       setAlerts(page.items)
-      setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      toast.error(err)
+    } finally {
+      setLoading(false)
     }
-  }, [openOnly])
+  }, [openOnly, toast])
 
   useEffect(() => {
     void load()
@@ -113,18 +121,71 @@ export default function Alerts() {
     void load()
   }, [liveAlerts, load])
 
-  async function act(alert: Alert, to: AlertStatus) {
-    setWorking(alert.id)
-    setError(null)
-    try {
-      await api.transitionAlert(alert.id, to)
-      await load()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setWorking(null)
+  const act = useCallback(
+    async (alert: Alert, to: AlertStatus) => {
+      setWorking(alert.id)
+      try {
+        await api.transitionAlert(alert.id, to)
+        toast.success(
+          `${alert.plate_normalised} ${to.replace(/_/g, ' ')}. Recorded against you.`,
+        )
+        await load()
+      } catch (err) {
+        toast.error(err)
+      } finally {
+        setWorking(null)
+      }
+    },
+    [load, toast],
+  )
+
+  // ── Keyboard triage ────────────────────────────────────────────────
+  // j/k to move, a/d/c/f to act. Deliberately not single-key destructive:
+  // `f` (false positive) and `c` (close) end an alert's life, so they are
+  // confirmed by the toast rather than by a dialog that would defeat the
+  // point of a keyboard shortcut.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null
+      if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (alerts.length === 0) return
+
+      const current = alerts[Math.min(cursor, alerts.length - 1)]
+      const step = (to: AlertStatus) => {
+        if (!current) return
+        const allowed = (NEXT_STEPS[current.status] ?? []).some((s) => s.to === to)
+        if (allowed && can(TRANSITION_PERMISSION[to])) void act(current, to)
+      }
+
+      switch (event.key) {
+        case 'j':
+          setCursor((c) => Math.min(c + 1, alerts.length - 1))
+          break
+        case 'k':
+          setCursor((c) => Math.max(c - 1, 0))
+          break
+        case 'a':
+          step('acknowledged')
+          break
+        case 'd':
+          step('dispatched')
+          break
+        case 'c':
+          step('closed')
+          break
+        case 'f':
+          step('false_positive')
+          break
+        default:
+          return
+      }
+      event.preventDefault()
     }
-  }
+
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [alerts, cursor, can, act])
 
   const critical = useMemo(
     () => alerts.filter((a) => a.priority === 'critical' && a.status === 'new'),
@@ -142,6 +203,14 @@ export default function Alerts() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <span className="hidden text-[10px] text-muted-foreground lg:inline">
+            <kbd className="rounded bg-muted px-1">j</kbd>/
+            <kbd className="rounded bg-muted px-1">k</kbd> move ·{' '}
+            <kbd className="rounded bg-muted px-1">a</kbd>ck ·{' '}
+            <kbd className="rounded bg-muted px-1">d</kbd>ispatch ·{' '}
+            <kbd className="rounded bg-muted px-1">c</kbd>lose ·{' '}
+            <kbd className="rounded bg-muted px-1">f</kbd>alse
+          </span>
           <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
             <input
               type="checkbox"
@@ -181,13 +250,9 @@ export default function Alerts() {
         </div>
       )}
 
-      {error && (
-        <p className="rounded border border-status-offline/40 bg-status-offline/10 px-4 py-2 text-sm text-status-offline">
-          {error}
-        </p>
-      )}
-
-      {alerts.length === 0 ? (
+      {loading ? (
+        <SkeletonRows rows={5} height="h-20" />
+      ) : alerts.length === 0 ? (
         <div className="rounded-md border border-dashed border-border p-8 text-center">
           <p className="text-sm text-muted-foreground">No alerts.</p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -197,13 +262,17 @@ export default function Alerts() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {alerts.map((alert) => {
+          {alerts.map((alert, index) => {
             const camera = alert.camera_id ? cameras.get(alert.camera_id) : null
             const steps = NEXT_STEPS[alert.status] ?? []
+            const focused = index === Math.min(cursor, alerts.length - 1)
             return (
               <li
                 key={alert.id}
-                className={`rounded-md border-l-4 border-y border-r border-y-border border-r-border px-4 py-3 ${PRIORITY_STYLE[alert.priority]}`}
+                onMouseEnter={() => setCursor(index)}
+                className={`rounded-md border-l-4 border-y border-r border-y-border border-r-border px-4 py-3 ${PRIORITY_STYLE[alert.priority]} ${
+                  focused ? 'ring-1 ring-primary' : ''
+                }`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">

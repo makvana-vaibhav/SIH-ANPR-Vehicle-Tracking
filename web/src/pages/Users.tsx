@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
+import { useToast } from '@/components/Toast'
 import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
 import { PERMISSIONS, ROLE_SUMMARY } from '@/lib/permissions'
@@ -46,6 +47,7 @@ const ROLE_STYLE: Record<string, string> = {
 }
 
 export default function Users() {
+  const toast = useToast()
   const { user: me, can } = useAuth()
   const mayCreate = can(PERMISSIONS.userCreate)
   const mayUpdate = can(PERMISSIONS.userUpdate)
@@ -56,19 +58,16 @@ export default function Users() {
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<Role>('operator')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [resetting, setResetting] = useState<string | null>(null)
   const [resetValue, setResetValue] = useState('')
 
   const load = useCallback(async () => {
     try {
       setUsers((await api.getUsers()).items)
-      setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      toast.error(err)
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => {
     void load()
@@ -77,8 +76,6 @@ export default function Users() {
   async function create(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
-    setError(null)
-    setNotice(null)
     try {
       await api.createUser({
         username: username.trim(),
@@ -86,7 +83,7 @@ export default function Users() {
         full_name: fullName.trim() || null,
         role,
       })
-      setNotice(
+      toast.success(
         `${username.trim()} created. They must set their own password before ` +
           'the account can be relied on for attribution.',
       )
@@ -95,32 +92,31 @@ export default function Users() {
       setPassword('')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      toast.error(err)
     } finally {
       setBusy(false)
     }
   }
 
   async function change(target: ManagedUser, changes: Parameters<typeof api.updateUser>[1]) {
-    setError(null)
     try {
       await api.updateUser(target.id, changes)
+      toast.success(`${target.username} updated.`)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      toast.error(err)
     }
   }
 
   async function submitReset(target: ManagedUser) {
-    setError(null)
     try {
       await api.resetUserPassword(target.id, resetValue)
-      setNotice(`${target.username} must set a new password at next sign-in.`)
+      toast.success(`${target.username} must set a new password at next sign-in.`)
       setResetting(null)
       setResetValue('')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      toast.error(err)
     }
   }
 
@@ -133,17 +129,6 @@ export default function Users() {
           against one of them, so each must belong to a named person.
         </p>
       </header>
-
-      {error && (
-        <p className="rounded border border-status-offline/40 bg-status-offline/10 px-4 py-2 text-sm text-status-offline">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p className="rounded border border-status-online/40 bg-status-online/10 px-4 py-2 text-sm text-status-online">
-          {notice}
-        </p>
-      )}
 
       {/* ── Create ──────────────────────────────────────────────────── */}
       {mayCreate && (

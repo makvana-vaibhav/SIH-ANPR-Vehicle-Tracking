@@ -2,9 +2,11 @@
 
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
+import { ToastProvider } from '@/components/Toast'
 import Alerts from '@/pages/Alerts'
 import AuditLog from '@/pages/AuditLog'
 import ChangePassword from '@/pages/ChangePassword'
+import Dashboard from '@/pages/Dashboard'
 import FleetHealthPage from '@/pages/FleetHealth'
 import Integration from '@/pages/Integration'
 import LiveAnpr from '@/pages/LiveAnpr'
@@ -34,6 +36,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
+  { to: '/dashboard', label: 'Dashboard', gu: 'ડેશબોર્ડ', needs: PERMISSIONS.cameraRead },
   { to: '/map', label: 'GIS Map', gu: 'નકશો', needs: PERMISSIONS.cameraRead },
   { to: '/anpr', label: 'Live ANPR', gu: 'લાઇવ ANPR', needs: PERMISSIONS.streamView },
   { to: '/alerts', label: 'Alerts', gu: 'ચેતવણી', needs: PERMISSIONS.alertRead },
@@ -95,7 +98,9 @@ export default function App() {
   // live alert count. One socket serves every screen inside it.
   return (
     <EventStreamProvider>
-      <Shell />
+      <ToastProvider>
+        <Shell />
+      </ToastProvider>
     </EventStreamProvider>
   )
 }
@@ -135,7 +140,7 @@ function Shell() {
             >
               {item.label}
               {item.to === '/alerts' && <AlertBadge />}
-              <span className="ml-1.5 hidden text-xs opacity-60 2xl:inline">
+              <span className="ml-1.5 hidden text-xs opacity-60 min-[1800px]:inline">
                 {item.gu}
               </span>
             </NavLink>
@@ -172,6 +177,14 @@ function Shell() {
       <div className="min-h-0 flex-1">
         <Routes>
           <Route path="/" element={<Navigate to={landing} replace />} />
+          <Route
+            path="/dashboard"
+            element={
+              <RequirePermission anyOf={[PERMISSIONS.cameraRead]} label="The dashboard">
+                <Dashboard />
+              </RequirePermission>
+            }
+          />
           <Route
             path="/map"
             element={
