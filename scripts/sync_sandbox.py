@@ -250,6 +250,11 @@ async def sync(base_url: str, dry_run: bool = False) -> int:
             # city-level placement can never be mistaken for a surveyed one.
             fields["tags"] = [
                 "sandbox",
+                # The grid's own id, stored rather than derived from our code.
+                # Their id format has already changed once (7 → cam07) and the
+                # guide says the catalogue is the source of truth, so deriving
+                # it would break silently the next time they renumber.
+                f"grid-id:{item.external_id}",
                 f"transport:{transport}",
                 f"placement:{precision or 'none'}",
             ]

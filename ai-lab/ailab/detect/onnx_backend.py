@@ -109,7 +109,17 @@ class OnnxYoloModel:
             if static_h != static_w:
                 raise ValueError(f"non-square fixed input {inp.shape} is not supported")
             if imgsz != static_h:
-                log.debug("%s is fixed at %dpx; ignoring imgsz=%d", path.name, static_h, imgsz)
+                # Warning, not debug. A configured value being ignored is the
+                # single most expensive kind of silence: `--set
+                # detector.imgsz=1280` appears to work, changes nothing, and
+                # sends you looking for the answer in the model instead of the
+                # export. Say so where it will actually be read.
+                log.warning(
+                    "%s has a fixed %dpx input, so imgsz=%d is ignored. "
+                    "Re-export the model at %d to change it "
+                    "(scripts/fetch_models.sh).",
+                    path.name, static_h, imgsz, imgsz,
+                )
             self.imgsz = int(static_h)
         else:
             self.imgsz = int(imgsz)

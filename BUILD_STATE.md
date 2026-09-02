@@ -729,6 +729,43 @@ All were invisible to a passing suite, because nothing exercised the paths.
 
 ---
 
+## The grid moved, and RTSP was never blocked ✅
+
+On 2 Sep the organisers published a revised integrator guide. The change that
+matters is not the new hostname but the **split of media from metadata**:
+
+    catalogue   https://cctv.corp8.cloud/cameras.json     (CDN, password)
+    HLS         https://cctv.corp8.cloud/<id>/index.m3u8  (CDN, password)
+    RTSP        rtsp://103.250.160.189:8554/stream/<id>   (direct)
+    WHEP        http://103.250.160.189:8889/stream/<id>/whep (direct)
+
+Their guide states the reason plainly: RTSP and WebRTC "carry media over
+TCP/UDP that a CDN cannot proxy", so they are served on a static IP.
+
+**This invalidates a conclusion held since Phase 5.** The adapter derived all
+four URLs from one hostname, so it probed `rtsp://<cdn-host>:8554`, found the
+port shut, and recorded that the grid was RTSP-blocked and HLS-only. The port
+was never blocked — we were knocking on the CDN. Both 8554 and 8889 are open
+and always were.
+
+- [x] `SentinelSandboxAdapter` models the two hosts separately, with the reason
+      in the docstring so it cannot be "simplified" back
+- [x] Catalogue path falls back `/cameras.json` → `/api/ingest`; a redirect to
+      a login page is reported as a login page, not as "unreachable"
+- [x] The grid's own camera id is **stored** (`grid-id:` tag) rather than derived
+      from our camera code — their ids changed `7` → `cam07` and will again
+- [x] `scripts/retarget_grid.py` moves the 30 registered cameras to the new
+      scheme, tagging the inferred ids as inferred
+- [x] Worker probes and uses RTSP directly
+
+**Measured:** all 30 cameras respond to `ffprobe` over RTSP — 24 × H.264,
+6 × HEVC, resolutions 960×576 to 2560×1440, most 1080p. The worker now
+processes them live: *"RTSP to 103.250.160.189 is reachable"*, *"processing
+SBX-00001 [Chiman bhai Bridge] over rtsp"*, and detections from Chiman bhai
+Bridge, Janpath, Paldi Circle and Visat teen Rasta are in the database.
+
+---
+
 ## The fleet: real feeds only ✅
 
 The ANPR fleet is the organisers' 30 grid cameras plus one clearly labelled
@@ -896,7 +933,8 @@ Recorded so no session mistakes these for done.
 |---|---|
 | **mypy does not pass** | 17 errors across 8 files, and `make lint` does not run it. CLAUDE.md §5 claims "Python passes mypy" — currently untrue. Fix or amend the claim. |
 | **ANPR accuracy is measured on generated plates** | Still true for the *measured* accuracy figure. The pipeline now also runs on real footage with legible plates (`anpr_demo.mp4`, 12 of 13 plates resolving to a valid format), but that clip has no ground truth, so those are model-confidence numbers, not measured accuracy. Real labelled **Gujarat** footage remains the single most valuable thing that could be added. |
-| **The organisers' grid yields no readable plates** | The grid is reachable now (HLS only, through the web container's `/grid/` proxy; 8554 and 8889 are blocked). Its cameras are night-time junction/RLVD overviews: vehicles 80–315 px, plates 40–60 px in headlight glare, and **zero plates were read from any of them**. Detection, tracking and health all work against it. ANPR needs a camera pointed at a lane, not at a junction. |
+| **The organisers' grid yields no readable plates** | **Re-confirmed 2 Sep on the new endpoints.** All 30 cameras are now reachable over RTSP at 1080p, and the answer is unchanged: they are night-time junction/RLVD overviews with heavy headlight glare. Foreground vehicles face away from the camera; the ones facing it are distant and washed out. Across 116 sampled frames the pipeline found 3 plate candidates and read **zero**. Detection, tracking, health and events all work. ANPR needs a camera pointed down a lane. |
+| **Vehicle detection is weak on the grid's night scenes** | On a junction frame with 15+ visible vehicles the detector finds 1–2. YOLOv8n at a **fixed 640×640** export, downscaling 1080p, leaves distant vehicles a few pixels across. `detector.imgsz` cannot fix this — the ONNX input shape is static, and setting it now warns loudly instead of being silently ignored. Re-exporting at 1280 is the obvious next step and is untried. |
 | **Plate detector weights are AGPL-3.0** | An Ultralytics export. Acceptable for evaluation — the lab is a development tool and does not ship — but must be replaced before production. |
 | **One OCR error survives consensus** | `GJ35K5714` read as `GJ35X5714`. Both are letters in a letter slot, so grammar cannot repair it, and every frame agreed. A genuine recognition error needing a better model or a fine-tune, not a consensus failure. |
 | **Evidence crops are not in MinIO** | `Detection.crop_key` expects an object key; the worker currently records a path. Upload is unwired. |

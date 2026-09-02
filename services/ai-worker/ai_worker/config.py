@@ -42,7 +42,12 @@ class WorkerSettings(BaseSettings):
     #   "sandbox"  the organisers' grid, read from its own catalogue
     #   "mediamtx" whatever is publishing to our gateway (simulator, RTSP pulls)
     ai_worker_source: str = "registry"
-    sandbox_base_url: str = "https://live.corp8.cloud"
+    # The CDN, for the catalogue and HLS.
+    sandbox_base_url: str = "https://cctv.corp8.cloud"
+    # Where RTSP and WHEP are served. A CDN cannot proxy either, which is why
+    # the organisers publish them on a direct address — and why pointing these
+    # at the CDN made port 8554 look closed for weeks.
+    sandbox_media_host: str = "103.250.160.189"
     # Force a transport instead of probing. Empty means probe once at startup.
     sandbox_transport: str = ""
     # Concurrent streams per worker. Each is a decode thread plus an inference

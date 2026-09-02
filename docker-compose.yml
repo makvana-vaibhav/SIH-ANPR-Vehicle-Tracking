@@ -343,7 +343,8 @@ services:
       # listing a federated camera while its gateway is down. "sandbox" reads
       # the grid's catalogue directly; "mediamtx" only sees our own gateway.
       AI_WORKER_SOURCE: ${AI_WORKER_SOURCE:-registry}
-      SANDBOX_BASE_URL: ${SANDBOX_BASE_URL:-https://live.corp8.cloud}
+      SANDBOX_BASE_URL: ${SANDBOX_BASE_URL:-https://cctv.corp8.cloud}
+      SANDBOX_MEDIA_HOST: ${SANDBOX_MEDIA_HOST:-103.250.160.189}
       AI_WORKER_INDEX: "0"
       AI_WORKER_COUNT: "1"
       # Concurrent inference slots. Measured at ~one camera per spare core
