@@ -8,12 +8,15 @@ through an ASGI transport with no network involved.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+# Imported under an alias: this module also defines a `settings` *fixture*,
+# and the fixture function would otherwise shadow the object.
 from app.core.config import Settings, get_settings
+from app.core.config import settings as app_settings
 from app.db.session import engine
 from app.main import app
 from app.services import token_store
@@ -34,6 +37,32 @@ async def _reset_pooled_clients() -> AsyncGenerator[None, None]:
     yield
     await engine.dispose()
     await token_store.close()
+
+
+@pytest.fixture(autouse=True)
+def _relax_rate_limits() -> Iterator[None]:
+    """Raise the rate-limit budget for the duration of a test.
+
+    The suite fires several hundred requests in a few seconds from one client,
+    which is nothing like a human operator and would exhaust any honest
+    production budget. Rather than weaken the real defaults, the ceiling is
+    lifted here and the limiter's actual behaviour is asserted directly in
+    `test_retention.py::TestRateLimiting` — including that a 429 fires once the
+    budget is spent.
+
+    The middleware is left *enabled*, so every test still exercises the code
+    path and the rate-limit headers are still produced.
+    """
+    original = (app_settings.rate_limit_requests, app_settings.rate_limit_auth_requests)
+    app_settings.rate_limit_requests = 1_000_000
+    app_settings.rate_limit_auth_requests = 1_000_000
+    try:
+        yield
+    finally:
+        (
+            app_settings.rate_limit_requests,
+            app_settings.rate_limit_auth_requests,
+        ) = original
 
 
 @pytest.fixture

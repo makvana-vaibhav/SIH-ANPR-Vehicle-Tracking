@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger, request_id_var
+from app.core.ratelimit import RateLimitMiddleware
 from app.db.session import dispose_engine
 from app.middleware.audit import AuditMiddleware
 from app.routers import (
@@ -34,7 +35,7 @@ from app.routers import (
     vehicles,
     watchlist,
 )
-from app.services import event_consumer, fleet_roster, token_store
+from app.services import event_consumer, fleet_roster, retention, token_store
 
 configure_logging(service="api")
 log = get_logger("api")
@@ -75,10 +76,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # whether or not an operator happens to be watching.
     await event_consumer.consumer.start()
     fleet_roster.publisher.start()
+    retention.enforcer.start()
 
     yield
 
     log.info("api.stopping")
+    await retention.enforcer.stop()
     await fleet_roster.publisher.stop()
     await event_consumer.consumer.stop()
     await token_store.close()
@@ -98,9 +101,18 @@ app = FastAPI(
     license_info={"name": "Apache-2.0"},
 )
 
-# Every mutating request and every search writes an audit_log row. Registered
-# before CORS so it runs inside it and sees the resolved request.
+# Starlette runs middleware in reverse registration order, so what is added
+# last is outermost. The intended order, outermost first, is:
+#
+#   CORS  →  rate limit  →  audit  →  the route
+#
+# CORS outermost so a 429 still carries the headers a browser needs to read it.
+# The rate limiter *outside* the audit middleware so a flood is rejected before
+# it can write a row per request — an attacker who can make the platform fill
+# its own audit table has found a way to destroy the record of what they did.
 app.add_middleware(AuditMiddleware)
+
+app.add_middleware(RateLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -108,7 +120,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
+    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
 )
 
 

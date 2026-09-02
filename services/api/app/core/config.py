@@ -107,10 +107,27 @@ class Settings(BaseSettings):
     health_probe_timeout_seconds: int = 5
     health_offline_after_failures: int = 2
 
-    # ── Retention (surfaced in docs/SECURITY.md) ──────────────────────
+    # ── Retention (enforced by app/services/retention.py) ─────────────
+    # Under the DPDP Act the stated period is the lawful basis for holding the
+    # data at all, so these are not advisory. See docs/SECURITY.md.
     retention_detections_days: int = 365
     retention_media_days: int = 90
+    retention_camera_health_days: int = 90
     retention_audit_days: int = 1825
+    # Off only for a deployment that has an external purge process. When false
+    # the sweep still runs and reports what it *would* delete, so the gap
+    # between policy and practice is visible rather than silent.
+    retention_enforce: bool = True
+
+    # ── Rate limiting ─────────────────────────────────────────────────
+    # Counted in Redis, so the limit is per-deployment rather than per-replica.
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 300
+    rate_limit_window_seconds: int = 60
+    # Authentication is limited far harder: it is the endpoint worth guessing
+    # against, and a legitimate operator signs in once a shift.
+    rate_limit_auth_requests: int = 10
+    rate_limit_auth_window_seconds: int = 300
 
     # ── Validators ────────────────────────────────────────────────────
     @field_validator("database_url")
