@@ -177,6 +177,10 @@ test: ## Run backend and frontend test suites
 	@printf "\n\033[1mFrontend tests\033[0m\n"
 	@cd web && npm run test
 
+.PHONY: docs
+docs: ## Regenerate docs/API.md from the running API
+	@python3 scripts/generate_api_docs.py
+
 .PHONY: lint
 lint: ## Lint and type-check everything
 	@printf "\033[1mPython\033[0m\n"

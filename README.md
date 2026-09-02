@@ -135,7 +135,8 @@ Everything is pinned to an exact version, and every image runs natively on both
 | [docs/HLD.md](docs/HLD.md) | High-level design, scaling to 80,000 cameras, measured performance |
 | [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md) | Bandwidth, GPU sizing, storage tiering, DR |
 | [docs/SECURITY.md](docs/SECURITY.md) | RBAC, encryption, audit, retention, lawful-use safeguards |
-| [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Minute-by-minute walkthrough |
+| [docs/API.md](docs/API.md) | Every endpoint, generated from the live OpenAPI document |
+| [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Minute-by-minute walkthrough, with fallbacks |
 
 ---
 
