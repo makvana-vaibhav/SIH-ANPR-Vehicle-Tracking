@@ -10,20 +10,24 @@ import type {
   Alert,
   AlertPage,
   AlertStatus,
+  AuditPage,
   Camera,
   CameraGeoJSON,
   CameraHealthHistory,
   CameraPage,
   Department,
   DetectionPage,
+  ManagedUser,
   FleetHealth,
   FleetSummary,
   GapReport,
   StreamGrant,
   ConvoyReport,
   Priority,
+  Role,
   RoutablePlates,
   UserProfile,
+  UserPage,
   VehicleRoute,
   VmsInstance,
   WatchlistEntry,
@@ -404,6 +408,78 @@ export const getRoutablePlates = (minCameras = 2, limit = 25, since?: string) =>
   })
   if (since) params.set('since', since)
   return request<RoutablePlates>(`/api/v1/vehicles/routable?${params}`)
+}
+
+// ── User administration ───────────────────────────────────────────────
+
+export const getUsers = () => request<UserPage>('/api/v1/users')
+
+export interface UserDraft {
+  username: string
+  password: string
+  full_name?: string | null
+  role: Role
+  must_change_password?: boolean
+}
+
+export const createUser = (draft: UserDraft) =>
+  request<ManagedUser>('/api/v1/users', {
+    method: 'POST',
+    body: JSON.stringify(draft),
+  })
+
+export const updateUser = (
+  id: string,
+  changes: { full_name?: string | null; role?: Role; is_active?: boolean },
+) =>
+  request<ManagedUser>(`/api/v1/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  })
+
+export const resetUserPassword = (
+  id: string,
+  newPassword: string,
+  mustChange = true,
+) =>
+  request<ManagedUser>(`/api/v1/users/${id}/password`, {
+    method: 'POST',
+    body: JSON.stringify({
+      new_password: newPassword,
+      must_change_password: mustChange,
+    }),
+  })
+
+export const deleteUser = (id: string) =>
+  request<void>(`/api/v1/users/${id}`, { method: 'DELETE' })
+
+/** Change your own password, re-verifying the current one. */
+export const changeOwnPassword = (currentPassword: string, newPassword: string) =>
+  request<{ detail: string }>('/api/v1/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  })
+
+// ── Audit trail ───────────────────────────────────────────────────────
+
+export interface AuditQuery {
+  action?: string
+  username?: string
+  result?: string
+  since?: string
+  limit?: number
+  offset?: number
+}
+
+export const getAudit = (query: AuditQuery = {}) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<AuditPage>(`/api/v1/audit?${params}`)
 }
 
 // ── Formatting ────────────────────────────────────────────────────────

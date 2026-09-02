@@ -184,6 +184,8 @@ export interface UserProfile {
   is_active: boolean
   last_login_at: string | null
   permissions: string[]
+  /** An administrator chose this password; it is a shared secret until changed. */
+  must_change_password?: boolean
 }
 
 export interface Department {
@@ -429,4 +431,53 @@ export interface RoutablePlates {
   since: string
   min_cameras: number
   plates: { plate: string; cameras: number }[]
+}
+
+// ── User administration and audit ─────────────────────────────────────
+
+export type Role =
+  | 'admin'
+  | 'supervisor'
+  | 'operator'
+  | 'analyst'
+  | 'auditor'
+  | 'api_client'
+
+export interface ManagedUser {
+  id: string
+  username: string
+  full_name: string | null
+  role: Role
+  department_id: string | null
+  is_active: boolean
+  /** An administrator chose this password; the holder must replace it. */
+  must_change_password: boolean
+  last_login_at: string | null
+  created_at: string | null
+}
+
+export interface UserPage {
+  items: ManagedUser[]
+  total: number
+}
+
+export interface AuditEntry {
+  id: number
+  ts: string
+  user_id: string | null
+  username: string | null
+  role: string | null
+  action: string
+  resource_type: string | null
+  resource_id: string | null
+  ip: string | null
+  result: string
+  params: Record<string, unknown> | null
+}
+
+export interface AuditPage {
+  items: AuditEntry[]
+  total: number
+  limit: number
+  offset: number
 }

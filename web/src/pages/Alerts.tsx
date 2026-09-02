@@ -14,8 +14,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
+import { PERMISSIONS } from '@/lib/permissions'
 import type { Alert, AlertStatus, Camera, Priority } from '@/lib/types'
 
 const PRIORITY_STYLE: Record<Priority, string> = {
@@ -51,7 +53,23 @@ const NEXT_STEPS: Record<AlertStatus, { to: AlertStatus; label: string }[]> = {
   false_positive: [],
 }
 
+/**
+ * Which grant each transition needs, mirroring the API's own table.
+ *
+ * They are separate permissions because in a control room they are separate
+ * authorities: acknowledging is routine, dispatching commits a unit, closing
+ * ends the record.
+ */
+const TRANSITION_PERMISSION: Record<AlertStatus, string> = {
+  new: PERMISSIONS.alertRead,
+  acknowledged: PERMISSIONS.alertAcknowledge,
+  dispatched: PERMISSIONS.alertDispatch,
+  closed: PERMISSIONS.alertClose,
+  false_positive: PERMISSIONS.alertClose,
+}
+
 export default function Alerts() {
+  const { can } = useAuth()
   const { alerts: liveAlerts, status: feedStatus } = useEventStream()
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [cameras, setCameras] = useState<Map<string, Camera>>(new Map())
@@ -250,7 +268,9 @@ export default function Alerts() {
                   </div>
 
                   <div className="flex shrink-0 flex-wrap gap-1.5">
-                    {steps.map((step) => (
+                    {steps
+                      .filter((step) => can(TRANSITION_PERMISSION[step.to]))
+                      .map((step) => (
                       <button
                         key={step.to}
                         type="button"
@@ -265,9 +285,12 @@ export default function Alerts() {
                         {step.label}
                       </button>
                     ))}
-                    {steps.length === 0 && (
+                    {steps.filter((step) => can(TRANSITION_PERMISSION[step.to]))
+                      .length === 0 && (
                       <span className="text-[11px] text-muted-foreground">
-                        {alert.status.replace(/_/g, ' ')}
+                        {steps.length > 0
+                          ? `${alert.status.replace(/_/g, ' ')} — your role cannot advance this`
+                          : alert.status.replace(/_/g, ' ')}
                       </span>
                     )}
                   </div>

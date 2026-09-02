@@ -14,7 +14,9 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
+import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
+import { PERMISSIONS } from '@/lib/permissions'
 import type { Priority, WatchlistEntry } from '@/lib/types'
 
 const CATEGORIES = ['stolen', 'suspect', 'wanted', 'bolo', 'expired'] as const
@@ -28,6 +30,12 @@ const PRIORITY_STYLE: Record<Priority, string> = {
 }
 
 export default function Watchlist() {
+  const { can } = useAuth()
+  // Reading the watchlist and changing it are separate grants: an analyst may
+  // see what is being looked for without being able to add to it.
+  const mayAdd = can(PERMISSIONS.watchlistCreate)
+  const mayAmend = can(PERMISSIONS.watchlistUpdate)
+
   const [entries, setEntries] = useState<WatchlistEntry[]>([])
   const [plate, setPlate] = useState('')
   const [category, setCategory] = useState<string>('stolen')
@@ -105,7 +113,15 @@ export default function Watchlist() {
         </p>
       </header>
 
+      {!mayAdd && (
+        <p className="rounded border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+          Your role can read the watchlist but not change it. Adding or retiring a
+          plate needs <code className="font-mono">watchlist.create</code>.
+        </p>
+      )}
+
       {/* ── Add ─────────────────────────────────────────────────────── */}
+      {mayAdd && (
       <form
         onSubmit={submit}
         className="rounded-md border border-border bg-card p-4"
@@ -195,13 +211,16 @@ export default function Watchlist() {
           {error && <span className="text-xs text-status-offline">{error}</span>}
         </div>
       </form>
+      )}
 
       {/* ── Active ──────────────────────────────────────────────────── */}
       <section>
         <h2 className="text-sm font-medium">Watched now</h2>
         {active.length === 0 ? (
           <p className="mt-2 rounded border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-            Nothing is being watched. Add a plate above.
+            {mayAdd
+              ? 'Nothing is being watched. Add a plate above.'
+              : 'Nothing is being watched. A supervisor can add a plate.'}
           </p>
         ) : (
           <div className="mt-2 overflow-x-auto">
@@ -241,13 +260,15 @@ export default function Watchlist() {
                       {api.formatIST(entry.created_at)}
                     </td>
                     <td className="py-1.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => void toggleActive(entry)}
-                        className="rounded border border-border px-2 py-0.5 text-[11px] transition hover:border-muted-foreground"
-                      >
-                        Retire
-                      </button>
+                      {mayAmend && (
+                        <button
+                          type="button"
+                          onClick={() => void toggleActive(entry)}
+                          className="rounded border border-border px-2 py-0.5 text-[11px] transition hover:border-muted-foreground"
+                        >
+                          Retire
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -272,8 +293,9 @@ export default function Watchlist() {
               <li key={entry.id}>
                 <button
                   type="button"
+                  disabled={!mayAmend}
                   onClick={() => void toggleActive(entry)}
-                  title="Reactivate"
+                  title={mayAmend ? 'Reactivate' : 'Reactivating needs watchlist.update'}
                   className="rounded border border-border px-2 py-0.5 font-mono text-[11px] text-muted-foreground transition hover:border-primary hover:text-foreground"
                 >
                   {entry.plate_normalised} ↩

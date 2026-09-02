@@ -21,6 +21,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
@@ -45,6 +46,12 @@ class User(Base):
 
     # Role drives the RBAC matrix in app/core/rbac.py.
     role: Mapped[str] = mapped_column(String(32), nullable=False)
+    # True when an administrator chose this password. Until the holder replaces
+    # it, at least two people know it, so nothing the account does can be
+    # attributed to one person — which is the whole point of the audit log.
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
 
     # Departmental scoping: a municipal operator should not browse the police
     # estate. Enforced at the query layer from Phase 2 onward.

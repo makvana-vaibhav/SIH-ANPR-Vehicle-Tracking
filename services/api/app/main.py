@@ -25,6 +25,7 @@ from app.db.session import dispose_engine
 from app.middleware.audit import AuditMiddleware
 from app.routers import (
     alerts,
+    audit,
     auth,
     cameras,
     detections,
@@ -32,6 +33,7 @@ from app.routers import (
     fleet,
     health,
     streams,
+    users,
     vehicles,
     watchlist,
 )
@@ -188,6 +190,8 @@ app.include_router(fleet.router)
 app.include_router(streams.router)
 app.include_router(events.router)
 app.include_router(detections.router)
+app.include_router(users.router)
+app.include_router(audit.router)
 app.include_router(vehicles.router)
 app.include_router(watchlist.router)
 app.include_router(alerts.router)

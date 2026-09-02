@@ -23,7 +23,7 @@ record what was measured and why the defaults are what they are.
 | Phase | Title | State |
 |---|---|---|
 | 0 | Foundation & self-documentation | ✅ **complete** |
-| 1 | Auth, RBAC, audit | ✅ **complete** |
+| 1 | Auth, RBAC, audit | ✅ **complete** — accounts, audit viewer and UI enforcement added Sep 2 |
 | 2 | Camera registry + GIS + bulk onboarding | ✅ **complete** |
 | 3 | Integration layer (adapters) + health monitoring | ✅ **complete** |
 | 4 | Stream gateway | ✅ **complete** |
@@ -729,6 +729,54 @@ All were invisible to a passing suite, because nothing exercised the paths.
 
 ---
 
+## Accounts, RBAC in the interface, and the audit viewer ✅
+
+Three controls existed on paper and not in the product.
+
+**The interface ignored the RBAC the API enforces.** `hasPermission()` had been
+in `useAuth` since Phase 1 and no screen called it, so every role saw every tab:
+an auditor was offered Live ANPR and Vehicle Search and refused on arrival, and
+an analyst was shown the watchlist add form and refused on submit. Teaching a
+control room that this system's errors are noise is expensive.
+
+- [x] Navigation filtered by permission; `RequirePermission` guards each route
+      so a typed URL refuses cleanly and *names the missing permission*
+- [x] Write controls gated — no "Add to watchlist" for a role that will be
+      refused, no alert transition a role cannot make
+- [x] Verified per role in a browser: **0 unexpected 403s across all five**
+
+**There was no account administration at all.** No endpoint could create a
+user, assign a role, deactivate an account or reset a password.
+
+- [x] `/api/v1/users` — create, amend, reset, delete, all audited
+- [x] An administrator cannot deactivate or demote **themselves**
+- [x] An account that has acted **cannot be deleted** — it would orphan every
+      audit row naming it; the API insists on deactivation instead
+- [x] `must_change_password` (migration `0002`): a password an administrator
+      chose is a shared secret, and nothing the account does is attributable
+      until the holder replaces it
+- [x] Password policy rejects **the credential documented in this repository**,
+      passwords containing the username, repeated characters and keyboard runs
+
+**`AUDIT_READ` gated nothing.** It was a permission with no endpoint.
+
+- [x] `/api/v1/audit` with filters, and the screen behind it
+- [x] **Reading the trail is itself audited** — a reviewer who leaves no trace
+      is a hole in the control
+
+### Bugs this surfaced
+
+| Bug | Effect |
+|---|---|
+| Middleware derived actions from the URL path (`users.create`) while routers recorded the singular (`user.create`) | **Two names for one event.** A reviewer filtering `user.` silently saw half the entries |
+| `<select>` had no `api_client` option | The camera-onboarding machine identity **rendered as "admin"** |
+| `AuditEntry.ip` typed `str`, column is `INET` | Every audit read returned **500** |
+| Tests created accounts and never removed them | Ten `test.*` accounts accumulated **in the demo database** |
+
+**382 API tests pass** (29 new), `make lint` clean.
+
+---
+
 ## The grid moved, and RTSP was never blocked ✅
 
 On 2 Sep the organisers published a revised integrator guide. The change that
@@ -944,9 +992,9 @@ Recorded so no session mistakes these for done.
 | **Vendor adapters unexercised against real VMS** | The code is real and unit-tested, but no Milestone/Genetec/Hikvision server has been on the other end. Only the sandbox adapter targets a genuinely remote endpoint. |
 | **Health debounce counters are in-memory** | A monitor restart resets the consecutive-failure count, so the first post-restart sweep cannot flip a camera offline. Deliberate (it is debounce state, not a fact), but worth knowing. |
 | **Portrait source clips are pillarboxed** | `fetch_videos.sh` pads to 16:9 rather than cropping. |
-| **No rate limiting** on the API | Should exist before anything is exposed beyond localhost. |
+| ~~No rate limiting~~ | **Cleared.** Redis-backed, per-deployment, counting *failed* auth attempts so a shift change cannot lock a control room out. |
 | **HLS fallback opens a raw .m3u8** | Browsers other than Safari will download rather than play it. Needs hls.js or an embedded player page. |
-| **Alembic downgrade untested** | One migration exists; `downgrade()` is written but never run. |
+| ~~Alembic downgrade untested~~ | **Cleared.** `0002` was applied, rolled back and re-applied; the column disappeared and returned. |
 | **The demonstration footage carries UK plates** | `anpr_demo.mp4` is the only clip available with legible plates. `configs/demo.yaml` and `configs/stream_demo.yaml` accept UK grammar for it; a Gujarat deployment runs `stream`, which is Indian-only. Do not ship a config that accepts GB. |
 | **Live reads converge less than offline ones** | Streaming emits `vehicle.observed` incrementally, so an early event can carry a partial read (`FJ4ZHY` before `FJ14ZHY`). The final `vehicle.completed` is right; consumers that act on the first event see the rougher answer. |
 | **No frontend for alerts or the watchlist** | Both APIs are complete and tested over HTTP, but `web/src/pages/` has only Map, Fleet Health, Integration and Login. The demonstration is a terminal script, not a screen. |
