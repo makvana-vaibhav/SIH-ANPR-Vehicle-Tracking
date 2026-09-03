@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import time
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -110,6 +110,19 @@ class SentinelSandboxAdapter(CameraAdapter):
                 last_error = str(exc)
         return None, attempted, last_error
 
+    def _credentials(self) -> str:
+        """`user:pass@` for the media URLs, or empty for anonymous access.
+
+        RTSP carries credentials in the URL. That is the protocol's own design
+        and not a choice available here, which is why every log path that
+        touches a stream URL redacts it.
+        """
+        user = settings.sandbox_rtsp_username
+        secret = settings.sandbox_rtsp_password
+        if not user:
+            return ""
+        return f"{quote(user, safe='')}:{quote(secret, safe='')}@"
+
     def _media_host(self) -> str:
         """Where RTSP and WHEP are served — not the CDN.
 
@@ -125,8 +138,9 @@ class SentinelSandboxAdapter(CameraAdapter):
         cdn = self._host()
         media = self._media_host()
         scheme = "https" if self.base_url.startswith("https") else "http"
+        auth = self._credentials()
         return StreamEndpoints(
-            rtsp=f"rtsp://{media}:{RTSP_PORT}/stream/{external_id}",
+            rtsp=f"rtsp://{auth}{media}:{RTSP_PORT}/stream/{external_id}",
             # WHEP is plain HTTP on the direct host: it is not behind the CDN,
             # so there is no certificate for it to present.
             whep=f"http://{media}:{WHEP_PORT}/stream/{external_id}/whep",

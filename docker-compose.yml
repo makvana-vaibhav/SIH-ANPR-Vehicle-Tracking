@@ -345,6 +345,9 @@ services:
       AI_WORKER_SOURCE: ${AI_WORKER_SOURCE:-registry}
       SANDBOX_BASE_URL: ${SANDBOX_BASE_URL:-https://cctv.corp8.cloud}
       SANDBOX_MEDIA_HOST: ${SANDBOX_MEDIA_HOST:-103.250.160.189}
+      # From .env, which is gitignored. Empty means anonymous access.
+      SANDBOX_RTSP_USERNAME: ${SANDBOX_RTSP_USERNAME:-}
+      SANDBOX_RTSP_PASSWORD: ${SANDBOX_RTSP_PASSWORD:-}
       AI_WORKER_INDEX: "0"
       AI_WORKER_COUNT: "1"
       # Concurrent inference slots. Measured at ~one camera per spare core

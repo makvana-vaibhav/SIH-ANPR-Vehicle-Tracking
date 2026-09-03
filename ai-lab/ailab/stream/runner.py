@@ -33,7 +33,7 @@ from ailab.config import RunConfig
 from ailab.logging import get_logger
 from ailab.pipeline import Pipeline
 from ailab.stream.events import EventSink, SourceIdentity, vehicle_event
-from ailab.stream.reader import StreamReader
+from ailab.stream.reader import StreamReader, redact
 from ailab.track.merge import Vehicle
 from ailab.types import Detection, Frame, StageTimer, Track, TrackObservation
 
@@ -142,7 +142,9 @@ class StreamRunner:
         reader = StreamReader(url, realtime=realtime).start()
         log.info(
             "streaming %s as camera %s (%.1f fps source)",
-            url, self.source.camera_id, reader.fps,
+            # A federated grid carries its credentials in the URL, so every
+            # line that prints a source has to redact — including this one.
+            redact(url), self.source.camera_id, reader.fps,
         )
 
         # Retire a track this many frames after it was last seen. Expressed in

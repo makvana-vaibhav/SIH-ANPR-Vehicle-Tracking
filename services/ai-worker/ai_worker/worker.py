@@ -23,6 +23,7 @@ from typing import Any
 
 from ailab.config import RunConfig
 from ailab.stream import SourceIdentity, StreamRunner, StreamUnavailable
+from ailab.stream.reader import redact
 
 from ai_worker.config import WorkerSettings
 from ai_worker.discovery import (
@@ -35,6 +36,16 @@ from ai_worker.rotation import Rotation
 from ai_worker.publisher import RedisEventSink
 
 log = logging.getLogger(__name__)
+
+#: What each diagnosis means for whoever is reading the log. The point of the
+#: table is that these have different owners: a network team, an integration
+#: contact, and us.
+REASON_ADVICE = {
+    "unauthorized": "the far end rejected our credentials",
+    "not found": "the far end has no such camera id",
+    "timeout": "the far end accepted the connection then went quiet",
+    "opened but no media": "answers, but sends no decodable video",
+}
 
 
 @dataclass
@@ -55,6 +66,8 @@ class CameraTask:
     #: end is down" from "our inference loop broke", which are different
     #: problems with different owners.
     unreachable: bool = False
+    #: Why, from `ailab.stream.reader.diagnose`.
+    reason: str = ""
 
     @property
     def alive(self) -> bool:
@@ -243,7 +256,9 @@ class AiWorker:
             stream.label or "unnamed",
             stream.transport,
             f"{slice_seconds:.0f}s" if slice_seconds else "as long as it runs",
-            stream.rtsp_url,
+            # Redacted: RTSP credentials travel in the URL, and this line goes
+            # to stdout, the container log, and wherever those are shipped.
+            redact(stream.rtsp_url),
         )
 
     def _config_for(self, stream: CameraStream) -> RunConfig:
@@ -282,10 +297,21 @@ class AiWorker:
             # camera's status, not a fault in this worker, so it gets a line
             # rather than a traceback — thirty unreachable cameras would
             # otherwise bury every real failure in the log.
-            log.warning("%s is unreachable: %s", stream.camera_code, exc)
+            #
+            # The *reason* is what makes the line worth reading. "unreachable"
+            # sends an operator to check the network; "unauthorized" sends them
+            # to find a password. Reporting the first when the truth is the
+            # second is how a working grid looks broken for a day.
+            log.warning(
+                "%s not started — %s: %s",
+                stream.camera_code,
+                REASON_ADVICE.get(exc.reason, exc.reason),
+                exc,
+            )
             task = self.tasks.get(stream.camera_code)
             if task is not None:
                 task.unreachable = True
+                task.reason = exc.reason
         except Exception:
             # A supervisor boundary: one camera's failure must not take down
             # the others, and the traceback has to survive to be diagnosed.

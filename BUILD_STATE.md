@@ -734,6 +734,43 @@ All were invisible to a passing suite, because nothing exercised the paths.
 
 ---
 
+## The grid started requiring credentials ✅
+
+On 3 Sep the grid began rejecting anonymous RTSP with **401 Unauthorized**; it
+had been open the day before, and the integrator guide still describes it as
+needing no registration.
+
+**Our side reported this as "SBX-00001 is unreachable".** That single word cost
+the most: it sends whoever reads it to check the network when the real answer
+is a password. OpenCV returns a bare `False` for a refused connection, a DNS
+failure, an authentication rejection and a missing path alike, so nothing
+downstream could tell them apart.
+
+- [x] `reader.diagnose()` reproduces the first RTSP `DESCRIBE` (or an HTTP GET)
+      by hand and reports **unauthorized / not found / timeout / no route /
+      opened but no media**
+- [x] `StreamUnavailable` carries the reason; the worker prints what it means
+      for whoever is reading — *"the far end rejected our credentials"*
+- [x] `SANDBOX_RTSP_USERNAME` / `_PASSWORD`, read from `.env` (gitignored),
+      documented empty in `.env.example`. Empty is a valid configuration: the
+      grid was anonymous until this week
+- [x] **`reader.redact()` on every log line that prints a source**
+
+**The credentials leaked into the worker log on the first attempt** — 15
+occurrences, from three separate call sites that each had to be found by hand.
+`tests/test_stream.py::TestCredentialsNeverReachTheLog` now greps the source
+for any `log.*` call that prints a stream URL without redacting it, and was
+verified to fail against a reintroduced leak. It is scoped per file, because
+`self.source` is the URL in `reader.py` and a `SourceIdentity` object in
+`runner.py` — conflating them produced a confident false positive.
+
+**Measured after the fix:** 10 grid cameras producing detections within ten
+minutes, 0 occurrences of the token in any log, and the log showing
+`rtsp://vaibhav.r.makvana%40gmail.com:***@103.250.160.189:8554/…` — host and
+camera still legible for diagnosis.
+
+---
+
 ## Accounts, RBAC in the interface, and the audit viewer ✅
 
 Three controls existed on paper and not in the product.
@@ -1005,7 +1042,8 @@ Recorded so no session mistakes these for done.
 |---|---|
 | **mypy does not pass** | 17 errors across 8 files, and `make lint` does not run it. CLAUDE.md §5 claims "Python passes mypy" — currently untrue. Fix or amend the claim. |
 | **ANPR accuracy is measured on generated plates** | Still true for the *measured* accuracy figure. The pipeline now also runs on real footage with legible plates (`anpr_demo.mp4`, 12 of 13 plates resolving to a valid format), but that clip has no ground truth, so those are model-confidence numbers, not measured accuracy. Real labelled **Gujarat** footage remains the single most valuable thing that could be added. |
-| **The organisers' grid yields no readable plates** | **Re-confirmed 2 Sep on the new endpoints.** All 30 cameras are now reachable over RTSP at 1080p, and the answer is unchanged: they are night-time junction/RLVD overviews with heavy headlight glare. Foreground vehicles face away from the camera; the ones facing it are distant and washed out. Across 116 sampled frames the pipeline found 3 plate candidates and read **zero**. Detection, tracking, health and events all work. ANPR needs a camera pointed down a lane. |
+| **The grid yields plates rarely, and mostly at daytime** | **Superseded 3 Sep.** The earlier "zero plates" finding was sampled at ~22:00 from night footage. In daylight, with credentials, the grid *does* yield plates: `GJ11CO5913` at 0.92 confidence and grammar-valid from `SBX-00007 hero-showroom-gir-somnath` — GJ11 is the Junagadh RTO, geographically consistent with that camera. The rate is low (roughly 1 valid plate per 100 detections) and most cameras are still junction overviews. Treat the grid as an occasional ANPR source, not a reliable one. |
+| **Grid OCR reads signage as plates** | `DELIGHT` was read at 0.99 confidence from `SBX-00014 Delight` — the camera's own signage. Grammar correctly marks it invalid, so it never reaches the watchlist, but a confidence figure alone would have been badly misleading. This is why `grammar_valid` gates the alert path and not confidence. |
 | **Vehicle detection is weak on the grid's night scenes** | On a junction frame with 15+ visible vehicles the detector finds 1–2. YOLOv8n at a **fixed 640×640** export, downscaling 1080p, leaves distant vehicles a few pixels across. `detector.imgsz` cannot fix this — the ONNX input shape is static, and setting it now warns loudly instead of being silently ignored. Re-exporting at 1280 is the obvious next step and is untried. |
 | **Plate detector weights are AGPL-3.0** | An Ultralytics export. Acceptable for evaluation — the lab is a development tool and does not ship — but must be replaced before production. |
 | **One OCR error survives consensus** | `GJ35K5714` read as `GJ35X5714`. Both are letters in a letter slot, so grammar cannot repair it, and every frame agreed. A genuine recognition error needing a better model or a fine-tune, not a consensus failure. |

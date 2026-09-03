@@ -34,11 +34,15 @@ import os
 # detector instead of the transport.
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
+import socket
 import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 import cv2
 import numpy as np
@@ -56,7 +60,96 @@ class StreamUnavailable(RuntimeError):
     supervising many cameras wants to log this as a fact about one camera, not
     as an exception with a traceback — thirty unreachable cameras would
     otherwise bury every real fault in the log.
+
+    Carries `reason`, because "unreachable" and "the far end rejected our
+    credentials" call for completely different responses and OpenCV reports
+    both as a bare False. Telling an operator to check the network when the
+    real answer is a missing password costs hours.
     """
+
+    def __init__(self, message: str, reason: str = "unknown") -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+def redact(url: str) -> str:
+    """A stream URL safe to log.
+
+    RTSP credentials travel in the URL (`rtsp://user:pass@host/path`), so any
+    code path that logs a source — and there are several: connection, retry,
+    failure, the run report — would otherwise write the password to disk and
+    to whatever ships those logs onward.
+    """
+    parsed = urlparse(url)
+    if not parsed.password:
+        return url
+    safe = parsed._replace(
+        netloc=f"{parsed.username or ''}:***@{parsed.hostname}"
+        + (f":{parsed.port}" if parsed.port else "")
+    )
+    return urlunparse(safe)
+
+
+def diagnose(url: str, timeout: float = 6.0) -> str:
+    """Ask the far end why it would not open.
+
+    `cv2.VideoCapture.isOpened()` returns False for a refused connection, a
+    DNS failure, an authentication rejection and a missing path alike. This
+    reproduces the first exchange by hand to recover the distinction:
+
+        no route / refused   the host or port is wrong, or a firewall
+        unauthorized         credentials are needed or were rejected
+        not found            the host is right and the camera id is not
+        timeout              the far end accepted and then went quiet
+    """
+    parsed = urlparse(url)
+    host, port = parsed.hostname, parsed.port
+
+    if parsed.scheme in ("http", "https"):
+        try:
+            request = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return "ok" if response.status == 200 else f"http {response.status}"
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                return "unauthorized"
+            if exc.code == 404:
+                return "not found"
+            return f"http {exc.code}"
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return f"no route ({exc})"
+
+    if parsed.scheme != "rtsp" or not host:
+        return "unknown"
+
+    port = port or 554
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            # A DESCRIBE is the first request any RTSP client makes, and it is
+            # what returns 401 when the server wants credentials.
+            request = (
+                f"DESCRIBE {url} RTSP/1.0\r\n"
+                "CSeq: 1\r\n"
+                "User-Agent: sentinel-gj/diagnose\r\n"
+                "Accept: application/sdp\r\n\r\n"
+            )
+            sock.sendall(request.encode("ascii"))
+            status = sock.recv(256).decode("latin-1", "replace").split("\r\n")[0]
+    except TimeoutError:
+        return "timeout"
+    except OSError as exc:
+        return f"no route ({exc})"
+
+    if " 401" in status or " 403" in status:
+        return "unauthorized"
+    if " 404" in status:
+        return "not found"
+    if " 200" in status:
+        # It answers a DESCRIBE but the decoder still could not start: usually
+        # a codec the build cannot handle, or a path publishing nothing.
+        return "opened but no media"
+    return status.strip() or "unknown"
 
 
 @dataclass(slots=True)
@@ -197,7 +290,7 @@ class StreamReader:
                     log.warning(
                         "%s reports no usable PTS; falling back to nominal cadence. "
                         "Motion-derived values from this source are approximate.",
-                        self.source,
+                        redact(self.source),
                     )
             self._pts_s += 1.0 / self._fps
             return self._pts_s, False
@@ -213,7 +306,7 @@ class StreamReader:
             log.info(
                 "scene discontinuity on %s (PTS %.2fs -> %.2fs); "
                 "tracker state will be rebuilt",
-                self.source, self._last_pts_s, raw_s,
+                redact(self.source), self._last_pts_s, raw_s,
             )
 
         self._last_pts_s = raw_s
@@ -222,7 +315,10 @@ class StreamReader:
 
     def start(self) -> StreamReader:
         if not self._open():
-            raise StreamUnavailable(f"could not open stream: {self.source}")
+            reason = diagnose(self.source)
+            raise StreamUnavailable(
+                f"{redact(self.source)} — {reason}", reason=reason
+            )
         self._thread = threading.Thread(target=self._run, name="stream-reader", daemon=True)
         self._thread.start()
         return self
@@ -291,7 +387,10 @@ class StreamReader:
         if not self.reconnect:
             return False
         if self.max_reconnects and self.stats.reconnects >= self.max_reconnects:
-            log.warning("giving up on %s after %d reconnects", self.source, self.stats.reconnects)
+            log.warning(
+                "giving up on %s after %d reconnects",
+                redact(self.source), self.stats.reconnects,
+            )
             return False
 
         self.stats.decode_failures += 1
@@ -303,7 +402,7 @@ class StreamReader:
         delay = self._backoff_s
         log.warning(
             "stream %s dropped; reconnecting in %.1fs (attempt %d)",
-            self.source, delay, self.stats.reconnects,
+            redact(self.source), delay, self.stats.reconnects,
         )
         # Exponential backoff, capped. Feeds are supervised and restart; a tight
         # reconnect loop against a recovering gateway is useless and rude, and

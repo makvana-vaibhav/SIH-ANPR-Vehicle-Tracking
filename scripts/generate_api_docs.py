@@ -82,7 +82,7 @@ def main() -> int:
         "* Timestamps are **UTC, ISO 8601** on the wire. The UI converts to IST at",
         "  the presentation edge; nothing is stored in local time.",
         "* Every list endpoint is paginated. There is no unbounded read.",
-        "* Errors return `{\"detail\": ...}` with a conventional status code.",
+        '* Errors return `{"detail": ...}` with a conventional status code.',
         "  A `429` carries `Retry-After`.",
         "",
         "## Authorisation at a glance",

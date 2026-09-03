@@ -213,13 +213,21 @@ repository because no GPU has ever executed this code.
 |---|---|
 | Generated plates with ground truth | 100% exact match, CER 0.000 |
 | Real footage (`anpr_demo.mp4`, no ground truth) | 12 of 13 plates resolve to a valid format at 0.74–0.95 confidence |
-| **The organisers' grid** | **Zero plates read** |
+| **The organisers' grid** | Occasional. `GJ11CO5913` at 0.92, grammar-valid, in daylight |
 
 The 100% figure is **optimistic by construction** — rendered plates have no
-embossing, dirt, motion blur or regional fonts. The grid figure is the honest
-one: its cameras are night-time junction overviews with headlight glare, where
-vehicles face away or are too distant. Detection, tracking, health and events
-all work against them; ANPR needs a camera pointed down a lane.
+embossing, dirt, motion blur or regional fonts.
+
+The grid figure is the honest one and it moves with the light. Sampled at
+night, it read **zero** plates: headlight glare, vehicles facing away, and
+junction overviews rather than lane-facing cameras. In daylight it reads plates
+occasionally — roughly one valid plate per hundred detections. Detection,
+tracking, health and events work against it at any hour; ANPR does not.
+
+It also reads **signage** as plates: `DELIGHT` at 0.99 confidence from a camera
+called Delight. Grammar marks it invalid so it never reaches the watchlist,
+which is precisely why the alert path is gated on `grammar_valid` and not on
+confidence.
 
 ---
 

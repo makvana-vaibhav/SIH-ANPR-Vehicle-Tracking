@@ -85,8 +85,18 @@ class TestStreamReader:
             assert reader.finished
 
     def test_unopenable_source_fails_loudly(self) -> None:
-        with pytest.raises(RuntimeError, match="could not open"):
+        """And says *why*, not merely that it failed.
+
+        "could not open" sends whoever reads it looking in the wrong place
+        when the real answer is a rejected password or a wrong camera id.
+        """
+        from ailab.stream.reader import StreamUnavailable
+
+        with pytest.raises(StreamUnavailable) as caught:
             StreamReader("/nonexistent/camera.mp4").start()
+
+        assert "/nonexistent/camera.mp4" in str(caught.value)
+        assert caught.value.reason
 
     def test_stats_are_serialisable(self, short_clip: Path) -> None:
         with StreamReader(str(short_clip), realtime=False) as reader:
@@ -378,3 +388,83 @@ class TestBoxesCarryTheirCoordinateSpace:
         box, frame = event["vehicle"]["bbox"], event["frame"]
         assert 0 <= box["x1"] < box["x2"] <= frame["width"]
         assert 0 <= box["y1"] < box["y2"] <= frame["height"]
+
+
+class TestCredentialsNeverReachTheLog:
+    """RTSP carries credentials in the URL. Every line that prints a source
+    is therefore a place a password can escape to disk.
+
+    This is not hypothetical: adding grid credentials leaked them into the
+    worker's log on the first attempt, in three separate places, because each
+    log site had to be found by hand. These tests are the net.
+    """
+
+    URL = "rtsp://officer%40police.gov.in:s3cr3t-token@10.0.0.5:8554/stream/cam01"
+
+    def test_the_password_is_replaced(self) -> None:
+        from ailab.stream.reader import redact
+
+        assert "s3cr3t-token" not in redact(self.URL)
+        assert "***" in redact(self.URL)
+
+    def test_the_rest_of_the_url_survives(self) -> None:
+        """A redacted URL still has to be useful for diagnosing a camera."""
+        from ailab.stream.reader import redact
+
+        safe = redact(self.URL)
+        assert "10.0.0.5:8554" in safe
+        assert "/stream/cam01" in safe
+        assert safe.startswith("rtsp://")
+
+    def test_a_url_without_credentials_is_untouched(self) -> None:
+        from ailab.stream.reader import redact
+
+        plain = "rtsp://mediamtx:8554/cam-demo"
+        assert redact(plain) == plain
+
+    def test_every_log_call_that_prints_a_source_redacts_it(self) -> None:
+        """A grep, deliberately.
+
+        The failure mode is a *new* log line added later that prints a raw
+        URL, and no unit test of existing behaviour would catch that. This
+        reads the source and fails on the pattern.
+        """
+        import re
+        from pathlib import Path
+
+        def calls(text: str):
+            """Whole `log.x(...)` calls, matched by balancing parentheses.
+
+            A regex that stops at the first `)` would cut `redact(url)` in
+            half and report the redaction as the leak.
+            """
+            for match in re.finditer(r"log\.\w+\(", text):
+                index, depth = match.end(), 1
+                while index < len(text) and depth:
+                    depth += (text[index] == "(") - (text[index] == ")")
+                    index += 1
+                yield text[match.start() : index], text[: match.start()].count("\n") + 1
+
+        # Which names hold a *URL* differs by file, and getting this wrong
+        # produces a confident false positive: `self.source` is the stream URL
+        # in reader.py, but a `SourceIdentity` object in runner.py.
+        url_names = {
+            "ailab/stream/reader.py": ("self.source",),
+            "ailab/stream/runner.py": ("url",),
+        }
+
+        offenders: list[str] = []
+        for name, names in url_names.items():
+            path = Path(name)
+            text = path.read_text()
+            for call, line in calls(text):
+                for holder in names:
+                    named = re.search(
+                        rf"(?<![\w.]){re.escape(holder)}\b(?!\s*[=.])", call
+                    )
+                    if named and f"redact({holder}" not in call:
+                        offenders.append(f"{path.name}:{line}")
+        assert not offenders, (
+            "these log calls print a stream source without redacting it, so a "
+            "federated grid's password would reach the log: " + ", ".join(offenders)
+        )

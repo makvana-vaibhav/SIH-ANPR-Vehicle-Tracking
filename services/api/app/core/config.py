@@ -126,6 +126,15 @@ class Settings(BaseSettings):
     # what made port 8554 appear closed for weeks.
     sandbox_base_url: str = "https://cctv.corp8.cloud"
     sandbox_media_host: str = "103.250.160.189"
+    # The grid began requiring RTSP/WHEP credentials on 3 Sep 2026; it was open
+    # the day before. Empty means anonymous, which is what the original guide
+    # described — so an empty value is a valid configuration, not a missing one.
+    #
+    # These live in `.env` (gitignored) and are redacted wherever a stream URL
+    # is logged. They are a real secret: anyone holding them can pull video
+    # from a government camera network.
+    sandbox_rtsp_username: str = ""
+    sandbox_rtsp_password: str = ""
 
     # ── Rate limiting ─────────────────────────────────────────────────
     # Counted in Redis, so the limit is per-deployment rather than per-replica.
