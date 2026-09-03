@@ -80,11 +80,6 @@ function waitForIceGathering(pc: RTCPeerConnection, timeoutMs = 2000): Promise<v
  * /grid/, so the browser makes ordinary same-origin requests and every one of
  * those problems disappears.
  */
-function throughProxy(url: string | null): string | null {
-  if (!url) return url
-  const match = /^https?:\/\/live\.corp8\.cloud\/(.*)$/.exec(url)
-  return match ? `/grid/${match[1]}` : url
-}
 
 export default function StreamPlayer({
   whepUrl,
@@ -119,7 +114,7 @@ export default function StreamPlayer({
   /** Play the HLS ladder in this element. */
   const playHls = useCallback(() => {
     const video = videoRef.current
-    const source = throughProxy(hlsUrl)
+    const source = hlsUrl
     if (!video || !source) {
       setError('No HLS endpoint for this camera')
       setState('failed')

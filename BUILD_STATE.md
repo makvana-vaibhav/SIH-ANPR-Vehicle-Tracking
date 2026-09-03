@@ -734,6 +734,63 @@ All were invisible to a passing suite, because nothing exercised the paths.
 
 ---
 
+## The grid's two authentication systems ✅
+
+The grid authenticates **two different ways**, and treating them as one is why
+the platform looked broken while the grid was fine:
+
+| Path | Host | Authenticates with |
+|---|---|---|
+| RTSP (inference) | `103.250.160.189:8554` | username/password in the URL |
+| Catalogue + HLS | `cctv.corp8.cloud` | a **login session cookie** |
+
+The RTSP credentials are not accepted by the CDN — Basic auth there returns a
+302 to the login page. The CDN wants the form POST a browser makes and returns
+a `sentinel=` cookie. Media paths additionally refuse any request that does not
+look like a browser; the 403 body is literally `browser required`.
+
+That explained both visible symptoms at once:
+
+* **Health monitoring** fetched the catalogue, got a login page, and left all
+  30 cameras `unknown` — so the map showed 1 online out of 281.
+* **Video playback** pointed the browser straight at the CDN, where it has no
+  session, so the player reported *"No video is being published"* for a camera
+  that was publishing perfectly.
+
+- [x] `app/services/grid_session.py` — logs in, holds the cookie, re-logs when
+      it lapses. The only place in the platform holding those credentials
+- [x] The catalogue fetch uses it → **all 30 grid cameras now report online**
+- [x] `app/routers/grid_media.py` — an authenticated HLS proxy. The browser
+      presents the same short-lived, camera-scoped stream token it uses
+      everywhere else; the grid's credentials never leave the server
+- [x] Catalogue cached for 20 s → **30 fetches per health sweep became 4**.
+      The later requests in a sweep had been timing out and recording healthy
+      cameras as unreachable
+- [x] The dead `/grid/` nginx block and its `throughProxy` helper removed —
+      both pointed at a host that no longer serves us
+
+### Two bugs the work surfaced
+
+**The token was in the query string.** A player resolves `seg00123.ts` against
+the *path* of its playlist and drops the query doing so, so the playlist loaded
+and every segment then arrived unauthenticated — a 422 that looked like a
+malformed request and was really a lost credential. The token moved into the
+path, where relative resolution carries it for free and 7,200 segments do not
+each need a JWT appended.
+
+**The stream grant handed the browser the grid's password.** `rtsp_url` carries
+credentials because RTSP has nowhere else to put them, and it was being
+returned verbatim — undoing the entire point of proxying HLS with the field
+directly beneath it. Caught by a test written for exactly that, now redacted by
+`app/core/urls.py`.
+
+**Measured:** 31 cameras online (30 grid + demo), 0 offline. Playlist, AES key
+and segments all 200 through the proxy; a browser plays `SBX-00001` at
+1920×1080 with `readyState 4` and no console errors. A stream token for one
+camera returns 403 on another.
+
+---
+
 ## The grid started requiring credentials ✅
 
 On 3 Sep the grid began rejecting anonymous RTSP with **401 Unauthorized**; it

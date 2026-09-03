@@ -31,6 +31,7 @@ from app.routers import (
     detections,
     events,
     fleet,
+    grid_media,
     health,
     streams,
     users,
@@ -188,6 +189,7 @@ app.include_router(auth.router)
 app.include_router(cameras.router)
 app.include_router(fleet.router)
 app.include_router(streams.router)
+app.include_router(grid_media.router)
 app.include_router(events.router)
 app.include_router(detections.router)
 app.include_router(users.router)

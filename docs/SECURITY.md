@@ -204,9 +204,23 @@ worse failure.
 ### Federated sources
 
 The platform **consumes** the organisers' grid and never publishes to it, per
-their integration guide. No credentials for their gateway are stored; RTSP and
-HLS endpoints are read from their catalogue. `VmsInstance.credentials_ref`
-holds a *pointer* into a secret store, never a secret — asserted by a test.
+their integration guide.
+
+The grid requires credentials, and they are held **server-side only**:
+
+* `SANDBOX_RTSP_USERNAME` / `_PASSWORD` live in `.env`, which is gitignored.
+* RTSP carries them in the URL — the protocol offers nowhere else — so every
+  log line that prints a stream source redacts them, enforced by a test that
+  greps for an unredacted one.
+* The stream grant returned to a browser has them stripped
+  (`app/core/urls.py`). A browser cannot play RTSP, and returning the field
+  verbatim would have undone the proxy below.
+* The CDN's HLS is behind a login session that the API holds and the browser
+  never sees. `app/routers/grid_media.py` proxies media, authorised by the
+  same short-lived, camera-scoped stream token used for every other feed.
+
+`VmsInstance.credentials_ref` holds a *pointer* into a secret store, never a
+secret — asserted by a test.
 
 ---
 
@@ -245,7 +259,6 @@ Stated plainly, because a security document that omits its gaps is misleading.
 | **Media retention unwired** | The 90-day media rule deletes nothing | Evidence crops are not yet uploaded to MinIO at all |
 | **Plate detector weights are AGPL-3.0** | Licence obligation on the deployed artifact | Must be replaced or the obligation accepted before shipping |
 | **No penetration test** | Unknown unknowns | |
-| **Health monitoring does not probe the federated grid** | 30 reachable cameras report `unknown` | Detection works; the probe does not run against them |
 | **mypy does not pass** | 33 errors, 11 files | `make lint` does not run it; CLAUDE.md §5's claim is currently false |
 
 **None of these is hidden anywhere else in this repository.** `BUILD_STATE.md`

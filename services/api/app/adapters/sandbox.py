@@ -49,6 +49,7 @@ from app.adapters.base import (
 )
 from app.adapters.vendor import as_bool, as_float, extract_list, pick
 from app.core.config import settings
+from app.services import grid_session
 
 #: Documented catalogue endpoint. `/api/ingest` was the earlier form and is
 #: still tried, because the guide has changed once already and a grid that has
@@ -90,22 +91,41 @@ class SentinelSandboxAdapter(CameraAdapter):
         200 carrying HTML, and a caller told "the catalogue is unreachable"
         would go looking for a network fault instead of a password.
         """
+        async with grid_session.catalogue.lock:
+            return await self._fetch_catalogue_locked(http_timeout)
+
+    async def _fetch_catalogue_locked(self, http_timeout: float) -> tuple[Any | None, str, str]:
+        cached = grid_session.catalogue.get()
+        if cached is not None:
+            return cached, f"{self.base_url.rstrip('/')}{CATALOGUE_PATHS[0]} (cached)", ""
+
         last_error = "no catalogue path configured"
         attempted = ""
+        # The catalogue is behind the CDN's login. `grid_session` holds that
+        # session; without credentials this returns bare headers and the
+        # request lands on the login page, which is reported as such below.
+        headers = await grid_session.session.headers()
         for path in CATALOGUE_PATHS:
             attempted = f"{self.base_url.rstrip('/')}{path}"
             try:
                 async with httpx.AsyncClient(timeout=http_timeout, follow_redirects=True) as client:
-                    response = await client.get(attempted)
+                    response = await client.get(attempted, headers=headers)
                     response.raise_for_status()
                     if "json" not in response.headers.get("content-type", ""):
                         last_error = (
                             "the catalogue returned a page rather than JSON — the "
                             "grid is behind a login and this deployment has no "
-                            "session for it"
+                            "valid session for it. Set SANDBOX_RTSP_USERNAME and "
+                            "SANDBOX_RTSP_PASSWORD."
                         )
+                        # The cookie may simply have expired; drop it so the
+                        # next attempt logs in rather than reusing a dead one.
+                        grid_session.session.invalidate()
+                        grid_session.catalogue.clear()
                         continue
-                    return response.json(), attempted, ""
+                    payload = response.json()
+                    grid_session.catalogue.put(payload)
+                    return payload, attempted, ""
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = str(exc)
         return None, attempted, last_error
