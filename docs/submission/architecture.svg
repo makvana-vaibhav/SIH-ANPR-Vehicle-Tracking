@@ -71,7 +71,7 @@
   <text x="386" y="544" font-size="11.5" fill="#475569">credentials never reach the browser</text>
   <text x="386" y="562" font-size="11.5" fill="#475569">every open writes an audit row</text>
 
-  <rect x="700" y="442" width="660" height="150" rx="12" fill="url(#edgeBand)" stroke="#0891b2" stroke-width="2"/>
+  <rect x="700" y="442" width="660" height="158" rx="12" fill="url(#edgeBand)" stroke="#0891b2" stroke-width="2"/>
   <text x="720" y="468" font-size="13" font-weight="700" fill="#0e7490" letter-spacing="1.2">EDGE AI PIPELINE — RUNS AT THE DISTRICT, NOT THE CENTRE</text>
   <g font-size="11.5" fill="#0f172a">
     <rect x="720" y="482" width="118" height="44" rx="6" fill="#fff" stroke="#0891b2"/><text x="734" y="500" font-weight="600">YOLO</text><text x="734" y="516" font-size="10.5" fill="#475569">vehicle detect</text>
@@ -80,15 +80,16 @@
     <rect x="1098" y="482" width="118" height="44" rx="6" fill="#fff" stroke="#0891b2"/><text x="1112" y="500" font-weight="600">Rectify</text><text x="1112" y="516" font-size="10.5" fill="#475569">4-pt warp, CLAHE</text>
     <rect x="1224" y="482" width="116" height="44" rx="6" fill="#fff" stroke="#0891b2"/><text x="1238" y="500" font-weight="600">ONNX OCR</text><text x="1238" y="516" font-size="10.5" fill="#475569">CRNN</text>
   </g>
-  <rect x="720" y="534" width="620" height="42" rx="6" fill="#0e7490"/>
+  <rect x="720" y="532" width="620" height="54" rx="6" fill="#0e7490"/>
   <text x="736" y="551" font-size="12.5" font-weight="700" fill="#ffffff">Multi-frame consensus → one event per vehicle, not per frame</text>
-  <text x="736" y="568" font-size="11" fill="#cffafe">char-position voting weighted by OCR confidence × crop sharpness · grammar-validated · candidates retained for operator override</text>
+  <text x="736" y="566" font-size="10.5" fill="#cffafe">char-position voting weighted by OCR confidence × crop sharpness</text>
+  <text x="736" y="580" font-size="10.5" fill="#cffafe">grammar-validated · top-3 candidates kept so an operator can overrule it</text>
 
   <!-- bus -->
-  <line x1="1040" y1="592" x2="1040" y2="624" stroke="#0891b2" stroke-width="2.5" marker-end="url(#arrowAccent)"/>
+  <line x1="1040" y1="600" x2="1040" y2="624" stroke="#0891b2" stroke-width="2.5" marker-end="url(#arrowAccent)"/>
   <rect x="700" y="626" width="660" height="58" rx="10" fill="#164e63"/>
   <text x="720" y="651" font-size="14" font-weight="700" fill="#ffffff">EVENT BUS — Redis Streams (dev) / Redpanda (scale), one interface</text>
-  <text x="720" y="672" font-size="11.5" fill="#a5f3fc">~2 KB per event · consumer group = exactly-once persistence · measured 317,869 events absorbed with 0 failures</text>
+  <text x="720" y="672" font-size="11.5" fill="#a5f3fc">~2 KB per event · consumer group = exactly-once persistence · measured 388,713 events absorbed with 0 failures</text>
 
   <!-- intelligence -->
   <line x1="1040" y1="684" x2="1040" y2="714" stroke="#0891b2" stroke-width="2.5" marker-end="url(#arrowAccent)"/>

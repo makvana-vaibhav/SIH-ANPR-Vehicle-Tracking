@@ -228,11 +228,13 @@ a straight line. The road is longer. So when we say the implied speed was
 >
 > | | |
 > |---|---|
-> | Events absorbed | **317,869** |
+> | Offered | 2,664 events/s |
+> | **Sustained** | **2,774 events/s** |
+> | Detections written | **388,713** |
 > | Failures | **0** |
-> | Backlog peak → final | 199 → **0** |
-> | Watchlist alerts raised under load | **306** |
-> | p95 capture → persisted | **4.5 s** |
+> | Watchlist alerts raised under load | **397** |
+> | Backlog | peaked at 10,237, **cleared completely** |
+> | p95 capture → persisted | 5.7 s |
 >
 > *Measured, not extrapolated.*
 
@@ -423,7 +425,7 @@ watchlist and two judge moments would have had nothing to fire on.
 >
 > ### Measured today
 > 281 cameras federated · 24 ms to alert · 19 s to detect a dead camera ·
-> 317,869 events absorbed with zero failures
+> 388,713 events written with zero failures
 
 ---
 

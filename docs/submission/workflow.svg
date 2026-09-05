@@ -63,11 +63,12 @@
     <line x1="1120" y1="340" x2="1150" y2="340" stroke="#0891b2" stroke-width="2" marker-end="url(#a)"/>
     <rect x="1152" y="310" width="188" height="60" rx="6" fill="#fff" stroke="#0891b2"/><text x="1166" y="332" font-weight="600" font-size="12">7 · Repeat per frame</text><text x="1166" y="349" font-size="10.5" fill="#475569">reads buffered per track,</text><text x="1166" y="363" font-size="10.5" fill="#475569">nothing emitted yet</text>
   </g>
-  <rect x="60" y="384" width="1280" height="56" rx="8" fill="#0e7490"/>
+  <rect x="60" y="384" width="1280" height="64" rx="8" fill="#0e7490"/>
   <text x="80" y="408" font-size="13.5" font-weight="700" fill="#ffffff">8 · MULTI-FRAME CONSENSUS — the accuracy story, and why one car makes one record</text>
-  <text x="80" y="428" font-size="11.5" fill="#cffafe">Character-position voting weighted by (OCR confidence × crop sharpness). Position-aware confusion correction resolved by slot: 0↔O and 1↔I only where the format expects a letter. Grammar-validated against Indian and BH-series formats — invalid reads are flagged, never silently dropped.</text>
+  <text x="80" y="425" font-size="11" fill="#cffafe">Character-position voting weighted by (OCR confidence × crop sharpness). Position-aware confusion correction resolved by slot:</text>
+  <text x="80" y="440" font-size="11" fill="#cffafe">0↔O and 1↔I only where the format expects a letter. Grammar-validated against Indian and BH-series formats — invalid reads are flagged, never dropped.</text>
   <g font-size="11.5">
-    <line x1="700" y1="440" x2="700" y2="462" stroke="#0891b2" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="700" y1="448" x2="700" y2="462" stroke="#0891b2" stroke-width="2" marker-end="url(#a)"/>
     <rect x="60" y="464" width="400" height="40" rx="6" fill="#fff" stroke="#0891b2"/>
     <text x="76" y="480" font-weight="600" font-size="12">9 · ONE event per vehicle → Redis Stream</text>
     <text x="76" y="496" font-size="10.5" fill="#475569">~2 KB: plate, confidence, top-3 candidates, per-frame reads, bbox</text>
@@ -76,7 +77,7 @@
     <text x="492" y="496" font-size="10.5" fill="#475569">XREAD — every operator sees every event, live on the map</text>
     <rect x="892" y="464" width="448" height="40" rx="6" fill="#fff" stroke="#0891b2"/>
     <text x="908" y="480" font-weight="600" font-size="12">10b · Consumer group persists it exactly once</text>
-    <text x="908" y="496" font-size="10.5" fill="#475569">N workers share the fleet N ways · batched writes · measured p95 latency 4.5 s at statewide rate</text>
+    <text x="908" y="496" font-size="10.5" fill="#475569">N workers share the fleet N ways · batched writes · measured p95 5.7 s at statewide rate</text>
   </g>
 
   <!-- ── C: WATCHLIST ── -->
@@ -142,6 +143,6 @@
   </g>
   <rect x="60" y="898" width="1280" height="68" rx="8" fill="#0e7490"/>
   <text x="80" y="920" font-size="12.5" font-weight="700" fill="#ffffff">MEASURED — 80,000 camera identities, 3 ingest workers, one laptop, CPU only</text>
-  <text x="80" y="940" font-size="11.5" fill="#cffafe">317,869 events absorbed · 0 failures · backlog peaked at 199 and cleared · 306 watchlist alerts raised under load · p95 capture-to-persisted 4.5 s</text>
+  <text x="80" y="940" font-size="11.5" fill="#cffafe">2,774 events/s sustained vs 2,664 offered · 388,713 events written · 0 failures · 397 watchlist alerts raised under load · backlog cleared</text>
   <text x="80" y="958" font-size="11.5" fill="#a5f3fc">The load test found a real bug: upper(camera_code) defeated the index. At 281 cameras invisible; at 80,000 it was a 106 ms sequential scan per batch that collapsed ingest 7.5×. Fixed by migration 0003.</text>
 </svg>

@@ -141,7 +141,7 @@ permissions, because in a real control room they are separate authorities.
 > seven thousand times less. That is why existing district links are enough.
 >
 > We ran it. 80,000 camera identities, three ingest workers, on this laptop:
-> 317,000 events absorbed, zero failures, the backlog cleared, and 306
+> 388,000 events written, zero failures, the backlog cleared, and 397
 > watchlist alerts raised while it was running."
 
 **Then, the strongest 20 seconds in the video:**
