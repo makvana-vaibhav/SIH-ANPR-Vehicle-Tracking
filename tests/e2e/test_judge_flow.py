@@ -77,7 +77,11 @@ class TestMomentOne:
         response = await client.get("/api/v1/cameras/geojson?limit=5000", headers=admin)
         assert response.status_code == 200
         features = response.json()["features"]
-        assert len(features) > 100, f"only {len(features)} cameras — seed may not have run"
+        # Ten, not a hundred. The registry used to be seeded with 250
+        # synthetic cameras and 251 of 281 had no video source at all — a big
+        # number proved a CSV had loaded, not that anything worked. Every
+        # camera here can now be opened, watched and analysed.
+        assert len(features) > 10, f"only {len(features)} cameras — did the grid sync run?"
 
     async def test_every_camera_has_a_position(self, client, admin):
         """A camera without coordinates cannot be on the map at all."""
@@ -95,7 +99,7 @@ class TestMomentOne:
         response = await client.get("/api/v1/cameras/summary", headers=admin)
         assert response.status_code == 200
         summary = response.json()
-        assert summary["total"] > 100
+        assert summary["total"] > 10
         assert summary["by_department"], "no departments to filter by"
 
 
@@ -300,7 +304,7 @@ class TestMomentFive:
         response = await client.get("/api/v1/health/fleet", headers=admin)
         assert response.status_code == 200
         health = response.json()
-        assert health["total"] > 100
+        assert health["total"] > 10
         # `unknown` is its own category: never-probed is not the same as
         # offline, and a dashboard that conflates them lies about the fleet.
         assert {"online", "offline", "unknown"} <= set(health)

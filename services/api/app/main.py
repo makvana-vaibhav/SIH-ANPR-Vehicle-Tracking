@@ -40,6 +40,7 @@ from app.routers import (
 )
 from app.services import (
     alert_fanout,
+    gateway,
     event_consumer,
     event_tailer,
     fleet_roster,
@@ -97,6 +98,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     else:
         log.info("api.ingest_delegated", reason="dedicated ingest workers")
     fleet_roster.publisher.start()
+    # Make the media gateway's paths match the registry. A camera onboarded
+    # while MediaMTX was restarting would otherwise stay unwatchable until
+    # somebody happened to edit it, with nothing reporting a fault.
+    await gateway.reconcile()
     retention.enforcer.start()
 
     yield

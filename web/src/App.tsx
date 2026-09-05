@@ -8,7 +8,7 @@ import AuditLog from '@/pages/AuditLog'
 import ChangePassword from '@/pages/ChangePassword'
 import Dashboard from '@/pages/Dashboard'
 import FleetHealthPage from '@/pages/FleetHealth'
-import Integration from '@/pages/Integration'
+import Cameras from '@/pages/Cameras'
 import LiveAnpr from '@/pages/LiveAnpr'
 import Login from '@/pages/Login'
 import MapView from '@/pages/MapView'
@@ -53,12 +53,7 @@ const NAV: NavItem[] = [
     needs: PERMISSIONS.watchlistRead,
   },
   { to: '/health', label: 'Fleet Health', gu: 'આરોગ્ય', needs: PERMISSIONS.cameraRead },
-  {
-    to: '/integration',
-    label: 'Integration',
-    gu: 'એકીકરણ',
-    needs: PERMISSIONS.cameraRead,
-  },
+  { to: '/cameras', label: 'Cameras', gu: 'કૅમેરા', needs: PERMISSIONS.cameraRead },
   { to: '/users', label: 'Accounts', gu: 'ખાતાં', needs: PERMISSIONS.userRead },
   { to: '/audit', label: 'Audit', gu: 'ઓડિટ', needs: PERMISSIONS.auditRead },
 ]
@@ -240,13 +235,16 @@ function Shell() {
             }
           />
           <Route
-            path="/integration"
+            path="/cameras"
             element={
-              <RequirePermission anyOf={[PERMISSIONS.cameraRead]} label="Integration">
-                <Integration />
+              <RequirePermission anyOf={[PERMISSIONS.cameraRead]} label="Cameras">
+                <Cameras />
               </RequirePermission>
             }
           />
+          {/* The screen was called Integration until it grew the ability to
+              actually onboard something. Old links should still land. */}
+          <Route path="/integration" element={<Navigate to="/cameras" replace />} />
           <Route
             path="/users"
             element={

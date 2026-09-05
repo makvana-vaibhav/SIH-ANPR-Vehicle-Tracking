@@ -58,36 +58,55 @@ export default function FleetHealthPage() {
         </p>
       </header>
 
-      {/* Availability */}
-      <section className="grid gap-4 md:grid-cols-4">
+      {/* Availability.
+       *
+       * This used to lead with four numbers that were nearly the same thing:
+       * integrated, availability-of-integrated, offline, awaiting-integration.
+       * Three of them existed to describe a registry that held 250 cameras
+       * with no video source at all — cameras that could not be unhealthy
+       * because they were never anything. With those gone, the honest summary
+       * is one figure and a breakdown.
+       *
+       * "Not yet probed" only appears when it is non-zero. A card permanently
+       * reading 0, explaining a state that no longer normally occurs, is how
+       * a screen stops being read. */}
+      <section className="grid gap-4 md:grid-cols-3">
         <Card
-          label="Integrated cameras"
-          value={health?.integrated ?? '—'}
-          sub={`of ${health?.total ?? '—'} registered`}
-        />
-        <Card
-          label="Availability (integrated)"
+          label="Availability"
           value={
-            health?.integrated_availability_pct != null
-              ? `${health.integrated_availability_pct}%`
-              : '—'
+            health?.availability_pct != null ? `${health.availability_pct}%` : '—'
           }
-          sub="Excludes cameras with no live feed yet"
-          tone="text-status-online"
+          sub={`${health?.online ?? '—'} of ${health?.total ?? '—'} cameras reachable`}
+          tone={
+            health && health.availability_pct < 90
+              ? 'text-status-offline'
+              : 'text-status-online'
+          }
         />
         <Card
           label="Offline"
           value={health?.offline ?? '—'}
-          sub="Integration reachable, no video"
+          sub="Reachable integration, no video arriving"
           tone={health && health.offline > 0 ? 'text-status-offline' : undefined}
         />
         <Card
-          label="Awaiting integration"
-          value={health?.awaiting_integration ?? '—'}
-          sub="Registered, feed not yet attached"
-          tone="text-status-unknown"
+          label="Degraded"
+          value={health?.degraded ?? '—'}
+          sub="Video arriving, but late or dropping frames"
+          tone={health && health.degraded > 0 ? 'text-amber-400' : undefined}
         />
       </section>
+
+      {health != null && health.unknown > 0 && (
+        <p className="rounded border border-status-unknown/40 bg-status-unknown/10 px-4 py-2 text-xs text-muted-foreground">
+          <strong className="text-foreground">{health.unknown}</strong> camera
+          {health.unknown === 1 ? ' has' : 's have'} not been probed yet, so
+          {health.unknown === 1 ? ' its' : ' their'} state is unknown rather than
+          offline — normally this is a camera onboarded in the last minute.
+          Availability above counts {health.unknown === 1 ? 'it' : 'them'} as
+          not reachable, which is the cautious reading.
+        </p>
+      )}
 
       {/* Per department */}
       <section className="rounded-lg border border-border bg-card">

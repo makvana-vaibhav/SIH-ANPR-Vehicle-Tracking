@@ -193,6 +193,17 @@ class CameraOut(BaseModel):
     status: str
     installed_on: date | None = None
     tags: list[str] | None = None
+
+    #: Whether a video source is configured — **not** the source itself.
+    #:
+    #: `stream_url` is deliberately absent from this model and must stay
+    #: absent: a federated camera's URL carries the credentials for the
+    #: organisers' grid, and returning it would hand every operator's browser
+    #: a password. But an administrator still needs to know whether a camera
+    #: has a source at all, because one without a source can never be watched
+    #: or analysed, and that distinction is the whole reason the registry no
+    #: longer holds 250 cameras that could do neither.
+    has_stream: bool = False
     created_at: datetime
     updated_at: datetime
     # Only populated by /nearby.

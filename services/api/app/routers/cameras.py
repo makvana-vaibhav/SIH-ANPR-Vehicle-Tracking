@@ -47,7 +47,7 @@ from app.schemas.camera import (
     VendorEnumOut,
     VmsInstanceOut,
 )
-from app.services import audit
+from app.services import audit, gateway
 from app.services import camera as camera_service
 
 log = get_logger("api.cameras")
@@ -343,6 +343,12 @@ async def create_camera(
     )
     log.info("camera.created", camera_code=camera.camera_code, by=user.username)
 
+    # Tell the gateway to pull this camera's source. Without it the stream URL
+    # the operator just typed is stored and never used: everything downstream
+    # reads the camera from `rtsp://<gateway>/<code>`, and nothing would ever
+    # have published it there.
+    await gateway.register(camera)
+
     return camera_service.to_out(camera)
 
 
@@ -375,6 +381,15 @@ async def update_camera(
         # not answer the question a reviewer is asking.
         params={"camera_code": camera.camera_code, "fields": sorted(changed)},
     )
+
+    # Only when the source actually moved. Re-registering on every edit would
+    # tear down a live pull because somebody corrected a spelling.
+    if "stream_url" in changed:
+        if camera.stream_url:
+            await gateway.register(camera)
+        else:
+            await gateway.unregister(camera.camera_code)
+
     return camera_service.to_out(camera)
 
 
@@ -411,6 +426,10 @@ async def delete_camera(
         params={"camera_code": code},
     )
     log.warning("camera.deleted", camera_code=code, by=user.username)
+
+    # Leave the gateway holding no path for a camera that no longer exists —
+    # otherwise it keeps trying to reach a source nobody can now see or manage.
+    await gateway.unregister(code)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -470,4 +489,11 @@ async def bulk_upload(
             "dry_run": dry_run,
         },
     )
+
+    # One reconcile for the whole file rather than a registration per row: a
+    # four-thousand-camera estate would otherwise make four thousand calls to
+    # the gateway while the operator waits for the response.
+    if not dry_run and (result.created or result.updated):
+        await gateway.reconcile()
+
     return result

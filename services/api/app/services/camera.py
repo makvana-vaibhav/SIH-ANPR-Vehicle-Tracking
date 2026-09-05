@@ -80,6 +80,8 @@ def to_out(camera: Camera, *, distance_km: float | None = None) -> CameraOut:
         status=camera.status,
         installed_on=camera.installed_on,
         tags=camera.tags,
+        # A boolean, never the URL. See CameraOut.has_stream.
+        has_stream=bool(camera.stream_url),
         created_at=camera.created_at,
         updated_at=camera.updated_at,
         distance_km=distance_km,

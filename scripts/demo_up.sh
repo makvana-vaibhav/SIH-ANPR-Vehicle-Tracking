@@ -60,12 +60,21 @@ else
 fi
 
 # ── 3. The camera fleet ──────────────────────────────────────────────
-# Without these two the ANPR fleet is 239 synthetic cameras with no video,
-# and the grid cameras point at endpoints the organisers retired.
-step "Shaping the camera fleet"
-docker compose exec -T api python /app/scripts/shape_fleet.py 2>/dev/null \
-    | grep -E "demonstration camera|ANPR fleet|federated grid" | sed 's/^/  /' \
-    || warn "shape_fleet did not report"
+# Every camera in the registry has a real video source: the organisers' grid,
+# plus the one demonstration camera the seed created. There is no synthetic
+# fleet any more — 251 of the old 281 cameras had no stream URL at all.
+step "Onboarding the camera fleet"
+
+# This was missing, and it mattered: nothing in the demo path onboarded the
+# grid. The SBX cameras existed only because someone had run this by hand
+# months ago, so a fresh clone reached `make demo` with no real cameras and
+# no indication anything was wrong.
+if docker compose exec -T api python /app/scripts/sync_sandbox.py 2>/dev/null \
+    | grep -E "created|updated|unchanged" | sed 's/^/  /'; then
+    :
+else
+    warn "grid sync did not report — is SANDBOX_BASE_URL set in .env?"
+fi
 
 docker compose exec -T api python /app/scripts/retarget_grid.py 2>/dev/null \
     | grep -E "grid cameras retargeted" | sed 's/^/  /' \
@@ -104,11 +113,18 @@ TOKEN=$(token)
 if [ -z "$TOKEN" ]; then fail "cannot sign in as admin"; exit 1; fi
 ok "admin can sign in"
 
+# Threshold is 10, not 100. The old fleet was 281 cameras of which 251 had no
+# video source; a count in the hundreds proved only that a CSV had loaded. What
+# matters now is that real cameras were onboarded, and there are about 31.
 CAMERAS=$(api "/api/v1/cameras/summary" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("total",0))' 2>/dev/null || echo 0)
-[ "${CAMERAS:-0}" -gt 100 ] && ok "$CAMERAS cameras on the map" || fail "only $CAMERAS cameras — seed may have failed"
+[ "${CAMERAS:-0}" -gt 10 ] && ok "$CAMERAS cameras in the registry" \
+    || fail "only $CAMERAS cameras — the grid sync or the seed failed"
 
+# Asserted, because every camera should now be analysable. A camera in this
+# registry without ANPR is a camera whose stream could not be resolved.
 ANPR=$(api "/api/v1/cameras/summary" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("anpr_enabled",0))' 2>/dev/null || echo 0)
-ok "$ANPR cameras in the ANPR fleet"
+[ "${ANPR:-0}" -gt 10 ] && ok "$ANPR cameras in the ANPR fleet" \
+    || fail "only $ANPR cameras have a resolvable stream"
 
 printf '  %s…waiting up to 90s for the first plate read%s\n' "$DIM" "$RESET"
 PLATES=0

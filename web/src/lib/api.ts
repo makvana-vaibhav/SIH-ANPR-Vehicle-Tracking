@@ -272,6 +272,69 @@ export const getAdapters = () =>
     '/api/v1/integration/adapters',
   )
 
+export interface CameraInput {
+  camera_code: string
+  name: string
+  lat: number
+  lon: number
+  district?: string | null
+  city?: string | null
+  junction?: string | null
+  department_code?: string | null
+  vms_name?: string | null
+  heading_deg?: number | null
+  camera_type?: string | null
+  protocol?: string | null
+  stream_url?: string | null
+  sub_stream_url?: string | null
+  resolution?: string | null
+  fps?: number | null
+  anpr_enabled: boolean
+  tags?: string[] | null
+}
+
+export const createCamera = (body: CameraInput) =>
+  request<Camera>('/api/v1/cameras', { method: 'POST', body: JSON.stringify(body) })
+
+export const updateCamera = (id: string, body: Partial<CameraInput>) =>
+  request<Camera>(`/api/v1/cameras/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+
+export const deleteCamera = (id: string) =>
+  request<void>(`/api/v1/cameras/${id}`, { method: 'DELETE' })
+
+export interface BulkRowError {
+  row: number
+  camera_code: string | null
+  errors: string[]
+}
+
+export interface BulkUploadResult {
+  created: number
+  updated: number
+  failed: number
+  errors: BulkRowError[]
+  dry_run: boolean
+}
+
+/** Upload a CSV. `dryRun` validates without writing, which is how the UI
+ *  shows an operator what a file would do before it does it. */
+export const bulkUploadCameras = (file: File, dryRun: boolean) => {
+  const form = new FormData()
+  form.append('file', file)
+  return request<BulkUploadResult>(
+    `/api/v1/cameras/bulk?dry_run=${dryRun}&update_existing=true`,
+    // No Content-Type: the browser must set its own multipart boundary, and
+    // overriding it produces a request the server cannot parse.
+    { method: 'POST', body: form },
+  )
+}
+
+export const getEnums = () =>
+  request<Record<string, string[]>>('/api/v1/cameras/enums')
+
 export const getNearby = (lat: number, lon: number, radiusKm = 5) =>
   request<Camera[]>(
     `/api/v1/cameras/nearby?lat=${lat}&lon=${lon}&radius_km=${radiusKm}&limit=50`,

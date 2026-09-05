@@ -25,6 +25,9 @@ export interface Camera {
   status: CameraStatus
   installed_on: string | null
   tags: string[] | null
+  /** Whether a video source is configured. The URL itself is never sent to the
+   *  browser — a federated camera's carries the grid credentials. */
+  has_stream: boolean
   created_at: string
   updated_at: string
   distance_km?: number | null

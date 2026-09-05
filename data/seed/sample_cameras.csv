@@ -1,0 +1,5 @@
+camera_code,name,department_code,district,city,junction,lat,lon,heading_deg,camera_type,protocol,stream_url,resolution,fps,anpr_enabled,tags
+CAM-SAMPLE-01,Kalawad Road Junction,POLICE,Rajkot,Rajkot,Kalawad Road,22.286394,70.772770,90,fixed,rtsp,,1920x1080,15,True,urban|junction
+CAM-SAMPLE-02,Gondal Chokdi Highway,HIGHWAYS,Rajkot,Gondal,NH-27 Gondal Chokdi,21.960670,70.802380,180,ptz,rtsp,,1920x1080,25,True,highway
+CAM-SAMPLE-03,Sarkhej Toll Plaza,HIGHWAYS,Ahmedabad,Ahmedabad,SG Highway,22.985000,72.500000,270,fixed,rtsp,,1280x720,15,True,highway|toll
+CAM-SAMPLE-04,Bad Row Demonstration,POLICE,Rajkot,Rajkot,Nowhere,51.507400,-0.127800,90,fixed,rtsp,,1920x1080,15,True,invalid
