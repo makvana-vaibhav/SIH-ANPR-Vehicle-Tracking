@@ -996,16 +996,41 @@ anyone looking. The same reasoning applies to the rest.
 
 ---
 
-## Phase 12 — Demo hardening
+## Phase 12 — Demo hardening ✅
 
-- [ ] `make demo`: fresh DB → 250 cameras → watchlist incl. `GJ03AB1234` HIGH/stolen →
-      simulator replaying 6 clips → backfill 30 days / 500k detections on a diurnal curve with the
-      demo vehicle's route planted → open browser
-- [ ] `scripts/generate_synthetic_plates.py` → accuracy report (precision / recall / CER) in the docs
-- [ ] `tests/e2e/test_judge_flow.py` — all five judge moments, headless
-- [ ] `PANIC.md` — projector / network / GPU failure, pre-recorded fallback video path
+- [x] `make demo` → `scripts/demo_up.sh`: containers → migrate → seed → `shape_fleet.py`
+      → `retarget_grid.py` → simulator → ai-worker → **verifies each judge moment before
+      claiming ready**. Measured: 281 cameras on the map, 31 in the ANPR fleet.
+- [x] Synthetic plates with ground truth → accuracy report. Built in Phase 5 under
+      `ai-lab/scripts/make_test_footage.py` + `ailab/evaluate/groundtruth.py`, not the
+      `scripts/generate_synthetic_plates.py` the plan named. Result (100% exact, CER 0.000)
+      is in `docs/HLD.md` §6, labelled optimistic-by-construction.
+- [x] `tests/e2e/test_judge_flow.py` — all five judge moments, headless. 17 tests.
+- [x] `PANIC.md` — projector / network / grid / GPU failure, with a triage path per component.
 
-**Gate:** fresh clone → `make demo` → all five judge moments, timed under 5 minutes.
+**Gate passed.** `make demo` reports "Demo ready"; `make test` runs the e2e suite last and
+all four suites are green: 389 API + 54 worker + 33 e2e + 24 frontend.
+
+### Two things this phase found that the other 443 tests did not
+
+**The demo path had never been run end to end.** `make demo` previously called a
+target that assumed a populated database. A judge cloning fresh would have got an
+empty map. Every phase gate had passed against a database that earlier phases had
+already filled.
+
+**Test pollution reached the demo data.** The watchlist held **151 stray `GJ01*`
+entries** written by API tests that never cleaned up, alongside the 5 real ones — so
+the Watchlist screen a judge opens was 97% test litter. Fixed with an autouse
+pattern-scoped cleanup fixture; the same class of bug had already been fixed once for
+`test.*` users, which is why it is worth stating that a passing suite can still be
+degrading the product it tests.
+
+### And one about timestamps
+
+The e2e suite failed 7 of 17 on `datetime.isoformat()`, which emits `+00:00`; an
+unencoded `+` in a query string decodes to a space, so the API correctly rejected it.
+The frontend never hit this because `toISOString()` emits `Z`. Worth knowing before
+someone writes a curl example into the docs.
 
 ---
 

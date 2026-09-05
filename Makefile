@@ -140,11 +140,8 @@ seed: ## Seed cameras, watchlist, and users
 	@$(COMPOSE) exec -T api python -m scripts.seed
 
 .PHONY: demo
-demo: ## Full judge demo: fresh data, simulator, browser
-	@$(MAKE) --no-print-directory up
-	@$(MAKE) --no-print-directory migrate
-	@$(MAKE) --no-print-directory seed
-	@printf "\n\033[1;32mDemo ready\033[0m → $(WEB_URL)\n"
+demo: ## Full judge demo: fresh data, fleet, worker, verified
+	@./scripts/demo_up.sh
 	@command -v open >/dev/null 2>&1 && open "$(WEB_URL)" || true
 
 .PHONY: models
@@ -172,8 +169,11 @@ test: ## Run backend and frontend test suites
 	@printf "\n\033[1mAI worker tests\033[0m\n"
 	@$(COMPOSE) exec -T -e PYTHONPATH=/app/services/ai-worker api \
 		python -m pytest /app/services/ai-worker/tests -q
-	@printf "\n\033[1mEnd-to-end tests\033[0m\n"
-	@$(COMPOSE) exec -T -e WEB_URL=http://web api python -m pytest /app/tests -q
+	@printf "\n\033[1mEnd-to-end: the five judge moments\033[0m\n"
+	@# Run from the suite's own directory so tests/e2e/pytest.ini applies —
+	@# without it async fixtures are never awaited and every test fails.
+	@$(COMPOSE) exec -T -w /app/tests/e2e -e WEB_URL=http://web api \
+		python -m pytest . -q
 	@printf "\n\033[1mFrontend tests\033[0m\n"
 	@cd web && npm run test
 

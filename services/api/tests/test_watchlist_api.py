@@ -14,6 +14,10 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import delete
+
+from app.db.session import SessionLocal
+from app.models.intelligence import Watchlist
 
 pytestmark = pytest.mark.asyncio
 
@@ -27,6 +31,21 @@ def a_plate() -> str:
     unlikely without exceeding the 24-character column.
     """
     return f"GJ01{uuid.uuid4().hex[:10].upper()}"
+
+
+@pytest.fixture(autouse=True)
+async def _remove_test_entries():
+    """Delete anything this module added, however it was added.
+
+    Autouse and pattern-based rather than a per-call helper, because the
+    failure is a test *forgetting* to register its cleanup — and 151 stray
+    entries had accumulated in the demo database before anyone noticed. A
+    sweep catches call sites that do not exist yet.
+    """
+    yield
+    async with SessionLocal() as db:
+        await db.execute(delete(Watchlist).where(Watchlist.plate_normalised.like("GJ01%")))
+        await db.commit()
 
 
 class TestWatchlistWrites:
