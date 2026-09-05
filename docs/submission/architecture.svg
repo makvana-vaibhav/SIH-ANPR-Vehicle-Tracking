@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 980" width="1400" height="980" font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrowAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0891b2"/>
+    </marker>
+    <linearGradient id="edgeBand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0e7490" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#0e7490" stop-opacity="0.03"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1400" height="980" fill="#f8fafc"/>
+  <text x="48" y="52" font-size="30" font-weight="700" fill="#0f172a">Sentinel-GJ — Statewide CCTV Intelligence Platform</text>
+  <text x="48" y="80" font-size="16" fill="#475569">Model 5 (Hybrid) = Model 1 Registry + GIS · Model 3 Federation middleware · selective Model 2 unified viewing</text>
+  <text x="48" y="104" font-size="15" font-weight="600" fill="#0e7490">The central tier carries events, not video — 80,000 cameras: ~320 Gbps of video becomes ~43 Mbps of metadata</text>
+
+  <!-- TIER 1: sources -->
+  <rect x="40" y="132" width="1320" height="126" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="60" y="158" font-size="13" font-weight="700" fill="#64748b" letter-spacing="1.2">EXISTING GOVERNMENT CCTV — MULTI-DEPARTMENT, MULTI-VENDOR, LEFT IN PLACE</text>
+  <g font-size="13" fill="#0f172a">
+    <rect x="60" y="172" width="200" height="66" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text x="76" y="196" font-weight="600">Police / Traffic</text><text x="76" y="216" font-size="12" fill="#475569">Milestone VMS · RTSP</text>
+    <rect x="276" y="172" width="200" height="66" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text x="292" y="196" font-weight="600">Municipal Corp.</text><text x="292" y="216" font-size="12" fill="#475569">Genetec · ONVIF</text>
+    <rect x="492" y="172" width="200" height="66" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text x="508" y="196" font-weight="600">Highways / NHAI</text><text x="508" y="216" font-size="12" fill="#475569">Hikvision · RTSP</text>
+    <rect x="708" y="172" width="200" height="66" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text x="724" y="196" font-weight="600">Transport / RTO</text><text x="724" y="216" font-size="12" fill="#475569">Vendor REST API</text>
+    <rect x="924" y="172" width="216" height="66" rx="8" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="940" y="196" font-weight="600" fill="#0e7490">Sentinel Camera Grid</text><text x="940" y="216" font-size="12" fill="#0e7490">organisers' feed · live</text>
+    <rect x="1156" y="172" width="184" height="66" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text x="1172" y="196" font-weight="600">Private / CSR</text><text x="1172" y="216" font-size="12" fill="#475569">self-registered</text>
+  </g>
+
+  <!-- TIER 2: integration -->
+  <line x1="700" y1="258" x2="700" y2="290" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="40" y="292" width="1320" height="112" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="60" y="318" font-size="13" font-weight="700" fill="#64748b" letter-spacing="1.2">INTEGRATION LAYER — ONE ADAPTER INTERFACE, FOUR IMPLEMENTATIONS</text>
+  <g font-size="13">
+    <rect x="60" y="332" width="240" height="54" rx="8" fill="#eff6ff" stroke="#3b82f6"/>
+    <text x="80" y="354" font-weight="600" fill="#1e40af">RtspAdapter</text><text x="80" y="372" font-size="11.5" fill="#475569">ffprobe health, direct pull</text>
+    <rect x="316" y="332" width="240" height="54" rx="8" fill="#eff6ff" stroke="#3b82f6"/>
+    <text x="336" y="354" font-weight="600" fill="#1e40af">OnvifAdapter</text><text x="336" y="372" font-size="11.5" fill="#475569">WS-Discovery, device+media</text>
+    <rect x="572" y="332" width="240" height="54" rx="8" fill="#eff6ff" stroke="#3b82f6"/>
+    <text x="592" y="354" font-weight="600" fill="#1e40af">VendorVmsAdapter</text><text x="592" y="372" font-size="11.5" fill="#475569">REST federation, token auth</text>
+    <rect x="828" y="332" width="240" height="54" rx="8" fill="#eff6ff" stroke="#3b82f6"/>
+    <text x="848" y="354" font-weight="600" fill="#1e40af">SimulatedVmsAdapter</text><text x="848" y="372" font-size="11.5" fill="#475569">deterministic demo fleet</text>
+    <rect x="1084" y="332" width="256" height="54" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="1104" y="354" font-weight="600" fill="#92400e">Health Monitor</text><text x="1104" y="372" font-size="11.5" fill="#78350f">offline in 19 s (measured)</text>
+  </g>
+
+  <!-- TIER 3: split -->
+  <line x1="360" y1="404" x2="360" y2="440" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="1040" y1="404" x2="1040" y2="440" stroke="#0891b2" stroke-width="2.5" marker-end="url(#arrowAccent)"/>
+  <text x="376" y="428" font-size="12" fill="#475569">video, on demand only</text>
+  <text x="1056" y="428" font-size="12" font-weight="600" fill="#0e7490">frames → edge AI</text>
+
+  <rect x="40" y="442" width="640" height="150" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="60" y="468" font-size="13" font-weight="700" fill="#64748b" letter-spacing="1.2">STREAM GATEWAY — PULL ONLY WHILE SOMEONE WATCHES</text>
+  <rect x="60" y="482" width="290" height="90" rx="8" fill="#f0fdf4" stroke="#16a34a"/>
+  <text x="80" y="506" font-size="13" font-weight="600" fill="#166534">MediaMTX</text>
+  <text x="80" y="526" font-size="11.5" fill="#475569">RTSP in → WebRTC (WHEP) out</text>
+  <text x="80" y="544" font-size="11.5" fill="#475569">HLS fallback, AES-128 encrypted</text>
+  <text x="80" y="562" font-size="11.5" fill="#475569">on-demand publish: idle = 0 bps</text>
+  <rect x="366" y="482" width="294" height="90" rx="8" fill="#f0fdf4" stroke="#16a34a"/>
+  <text x="386" y="506" font-size="13" font-weight="600" fill="#166534">Signed stream grant</text>
+  <text x="386" y="526" font-size="11.5" fill="#475569">short-lived, camera-scoped token</text>
+  <text x="386" y="544" font-size="11.5" fill="#475569">credentials never reach the browser</text>
+  <text x="386" y="562" font-size="11.5" fill="#475569">every open writes an audit row</text>
+
+  <rect x="700" y="442" width="660" height="150" rx="12" fill="url(#edgeBand)" stroke="#0891b2" stroke-width="2"/>
+  <text x="720" y="468" font-size="13" font-weight="700" fill="#0e7490" letter-spacing="1.2">EDGE AI PIPELINE — RUNS AT THE DISTRICT, NOT THE CENTRE</text>
+  <g font-size="11.5" fill="#0f172a">
+    <rect x="720" y="482" width="118" height="44" rx="6" fill="#fff" stroke="#0891b2"/><text x="734" y="500" font-weight="600">YOLO</text><text x="734" y="516" font-size="10.5" fill="#475569">vehicle detect</text>
+    <rect x="846" y="482" width="118" height="44" rx="6" fill="#fff" stroke="#0891b2"/><text x="860" y="500" font-weight="600">ByteTrack</text><text x="860" y="516" font-size="10.5" fill="#475569">pure NumPy</text>
+    <rect x="972" y="482" width="118" height="44" rx="6" fill="#fff" stroke="#0891b2"/><text x="986" y="500" font-weight="600">Plate detect</text><text x="986" y="516" font-size="10.5" fill="#475569">per-track ROI</text>
+    <rect x="1098" y="482" width="118" height="44" rx="6" fill="#fff" stroke="#0891b2"/><text x="1112" y="500" font-weight="600">Rectify</text><text x="1112" y="516" font-size="10.5" fill="#475569">4-pt warp, CLAHE</text>
+    <rect x="1224" y="482" width="116" height="44" rx="6" fill="#fff" stroke="#0891b2"/><text x="1238" y="500" font-weight="600">ONNX OCR</text><text x="1238" y="516" font-size="10.5" fill="#475569">CRNN</text>
+  </g>
+  <rect x="720" y="534" width="620" height="42" rx="6" fill="#0e7490"/>
+  <text x="736" y="551" font-size="12.5" font-weight="700" fill="#ffffff">Multi-frame consensus → one event per vehicle, not per frame</text>
+  <text x="736" y="568" font-size="11" fill="#cffafe">char-position voting weighted by OCR confidence × crop sharpness · grammar-validated · candidates retained for operator override</text>
+
+  <!-- bus -->
+  <line x1="1040" y1="592" x2="1040" y2="624" stroke="#0891b2" stroke-width="2.5" marker-end="url(#arrowAccent)"/>
+  <rect x="700" y="626" width="660" height="58" rx="10" fill="#164e63"/>
+  <text x="720" y="651" font-size="14" font-weight="700" fill="#ffffff">EVENT BUS — Redis Streams (dev) / Redpanda (scale), one interface</text>
+  <text x="720" y="672" font-size="11.5" fill="#a5f3fc">~2 KB per event · consumer group = exactly-once persistence · measured 317,869 events absorbed with 0 failures</text>
+
+  <!-- intelligence -->
+  <line x1="1040" y1="684" x2="1040" y2="714" stroke="#0891b2" stroke-width="2.5" marker-end="url(#arrowAccent)"/>
+  <rect x="40" y="716" width="1320" height="128" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="60" y="742" font-size="13" font-weight="700" fill="#64748b" letter-spacing="1.2">INTELLIGENCE LAYER — HORIZONTALLY SCALED INGEST WORKERS</text>
+  <g font-size="12.5">
+    <rect x="60" y="756" width="246" height="72" rx="8" fill="#fef2f2" stroke="#dc2626"/>
+    <text x="78" y="778" font-weight="600" fill="#991b1b">Watchlist matcher</text>
+    <text x="78" y="796" font-size="11" fill="#475569">deletion-index: O(plate length),</text><text x="78" y="812" font-size="11" fill="#475569">not O(watchlist). Fuzzy = separate tier</text>
+    <rect x="322" y="756" width="246" height="72" rx="8" fill="#fef2f2" stroke="#dc2626"/>
+    <text x="340" y="778" font-weight="600" fill="#991b1b">Alert engine</text>
+    <text x="340" y="796" font-size="11" fill="#475569">new → ack → dispatched → closed</text><text x="340" y="812" font-size="11" fill="#475569">pub/sub fan-out to every replica</text>
+    <rect x="584" y="756" width="246" height="72" rx="8" fill="#f5f3ff" stroke="#7c3aed"/>
+    <text x="602" y="778" font-weight="600" fill="#5b21b6">Correlator</text>
+    <text x="602" y="796" font-size="11" fill="#475569">cross-camera route, implied speed</text><text x="602" y="812" font-size="11" fill="#475569">implausible hops flagged, not dropped</text>
+    <rect x="846" y="756" width="246" height="72" rx="8" fill="#f5f3ff" stroke="#7c3aed"/>
+    <text x="864" y="778" font-weight="600" fill="#5b21b6">Convoy detection</text>
+    <text x="864" y="796" font-size="11" fill="#475569">plates co-occurring across ≥3</text><text x="864" y="812" font-size="11" fill="#475569">cameras in a tight window</text>
+    <rect x="1108" y="756" width="232" height="72" rx="8" fill="#fffbeb" stroke="#d97706"/>
+    <text x="1126" y="778" font-weight="600" fill="#92400e">Audit trail</text>
+    <text x="1126" y="796" font-size="11" fill="#475569">every search, stream open,</text><text x="1126" y="812" font-size="11" fill="#475569">watchlist change — incl. denials</text>
+  </g>
+
+  <!-- storage + UI -->
+  <rect x="40" y="858" width="640" height="94" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="60" y="884" font-size="13" font-weight="700" fill="#64748b" letter-spacing="1.2">PERSISTENCE</text>
+  <g font-size="11.5" fill="#475569">
+    <text x="60" y="906" font-weight="600" fill="#0f172a" font-size="12.5">PostgreSQL 16 + PostGIS 3.4 + TimescaleDB</text>
+    <text x="60" y="924">hypertables for detections &amp; health — expiry is drop_chunks, not a 168 TB row scan</text>
+    <text x="60" y="942">OpenSearch 2.19 (plate search, pg_trgm fallback) · MinIO (crops) · Redis (bus, cache, rate limit)</text>
+  </g>
+  <rect x="700" y="858" width="660" height="94" rx="12" fill="#0f172a"/>
+  <text x="720" y="884" font-size="13" font-weight="700" fill="#94a3b8" letter-spacing="1.2">COMMAND CENTRE — REACT 18 + MAPLIBRE GL</text>
+  <g font-size="11.5" fill="#cbd5e1">
+    <text x="720" y="906" font-weight="600" fill="#ffffff" font-size="12.5">GIS map · live ANPR · alerts · vehicle search &amp; route · watchlist · admin · audit</text>
+    <text x="720" y="924">6 roles × 19 permissions enforced server-side; the UI hides what you cannot use but is never the control</text>
+    <text x="720" y="942">Offline basemap from local GeoJSON — no tile server, no API key, works on a plane</text>
+  </g>
+</svg>
