@@ -17,6 +17,7 @@ collapsing everything into a single boolean.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -28,6 +29,10 @@ from fastapi import APIRouter, Response, status
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import check_database
+from app.services.alert_fanout import subscriber
+from app.services.event_bus import broadcaster
+from app.services.event_consumer import WORKER_STATS_KEY, WORKER_STATS_TTL_S, consumer
+from app.services.event_tailer import tailer
 
 log = get_logger("api.health")
 
@@ -237,5 +242,83 @@ async def ready(response: Response) -> dict[str, Any]:
         "dependencies": dependencies,
         "critical_failures": critical_failures,
         "degraded": optional_failures,
+        "now": datetime.now(UTC).isoformat(),
+    }
+
+
+async def _ingest_fleet() -> dict[str, Any]:
+    """Aggregate counters across every ingest worker currently alive.
+
+    On a single-node deployment this is just the API's own consumer. With
+    dedicated workers the API persists nothing, and reporting only its own
+    counters would show an ingest rate of zero on a platform absorbing
+    thousands of events a second.
+
+    Each worker's entry expires, so one that has died stops counting rather
+    than leaving its final total in the sum forever.
+    """
+    client = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        raw = await client.hgetall(WORKER_STATS_KEY)
+    except (RedisError, OSError) as exc:
+        return {"workers": 0, "error": str(exc)}
+    finally:
+        await client.aclose()
+
+    if not raw:
+        return {"workers": 0, "consumed": 0, "persisted": 0, "alerts_raised": 0,
+                "failed": 0, "latency": {}}
+
+    # Drop workers that have stopped reporting. A dead worker's final totals
+    # would otherwise sit in the sum forever, making a shrinking fleet look
+    # like a healthy one.
+    cutoff = time.time() - WORKER_STATS_TTL_S
+    workers = [
+        entry
+        for entry in (json.loads(value) for value in raw.values())
+        if entry.get("reported_at", 0) >= cutoff
+    ]
+    latencies = [w["latency"] for w in workers if w.get("latency", {}).get("p95_ms") is not None]
+    return {
+        "workers": len(workers),
+        "consumed": sum(w.get("consumed", 0) for w in workers),
+        "persisted": sum(w.get("persisted", 0) for w in workers),
+        "alerts_raised": sum(w.get("alerts_raised", 0) for w in workers),
+        "failed": sum(w.get("failed", 0) for w in workers),
+        # The worst worker's percentile, not the mean of them. An operator
+        # waiting on the slowest shard is waiting; averaging that away would
+        # report a latency nobody experienced.
+        "latency": {
+            "p50_ms": max((lat["p50_ms"] for lat in latencies), default=None),
+            "p95_ms": max((lat["p95_ms"] for lat in latencies), default=None),
+            "p99_ms": max((lat["p99_ms"] for lat in latencies), default=None),
+            "samples": sum(lat["samples"] for lat in latencies),
+        },
+        "names": sorted(w["worker"] for w in workers),
+    }
+
+
+@router.get("/metrics", summary="Ingest and fan-out counters")
+async def metrics() -> dict[str, Any]:
+    """Throughput and latency of the event pipeline.
+
+    Aggregate counters only — no plate, no camera, no user — which is why this
+    sits alongside the probes rather than behind a permission. A scraper that
+    needs a token is a scraper that stops working at 3 a.m. when the token
+    expires, and the value here is exactly the value in `/ready`: how the
+    process is doing, not what it has seen.
+
+    It does reveal *volume*, and volume is not nothing in a surveillance
+    system. In the scale profile Prometheus reaches this on the internal
+    network; a deployment exposing it publicly should put it behind the
+    ingress, not behind application auth.
+    """
+    return {
+        "uptime_seconds": round(time.monotonic() - _STARTED_AT, 1),
+        "ingest": consumer.stats(),
+        "ingest_fleet": await _ingest_fleet(),
+        "tail": tailer.stats(),
+        "alert_fanout": subscriber.stats(),
+        "sockets": broadcaster.stats(),
         "now": datetime.now(UTC).isoformat(),
     }

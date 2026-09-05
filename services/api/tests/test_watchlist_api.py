@@ -158,19 +158,68 @@ class TestWatchlistPermissions:
         ).status_code == 401
 
 
+class TestReissuingARetiredEntry:
+    """Retiring is the only removal this API offers, so re-adding must work.
+
+    Deleting a watchlist entry deactivates it rather than removing it — a
+    surveillance decision that can be erased cannot be reviewed. But the
+    retired row still occupies the unique constraint on (plate, case_ref), so
+    inserting alongside it raised an integrity error the operator saw as
+    "Internal server error", with no path forward.
+    """
+
+    async def test_reissuing_under_the_same_case_reactivates(self, client, auth_headers):
+        admin = await auth_headers("admin")
+        plate = a_plate()
+        body = {"plate": plate, "category": "stolen", "priority": "high",
+                "case_ref": "FIR/REISSUE/0001"}
+
+        first = await client.post("/api/v1/watchlist", headers=admin, json=body)
+        assert first.status_code == 201, first.text
+        entry_id = first.json()["id"]
+
+        assert (
+            await client.delete(f"/api/v1/watchlist/{entry_id}", headers=admin)
+        ).status_code == 204
+
+        again = await client.post("/api/v1/watchlist", headers=admin, json=body)
+        assert again.status_code == 201, again.text
+        # The same record, brought back — not a second row competing with it.
+        assert again.json()["id"] == entry_id
+
+        listed = (await client.get(f"/api/v1/watchlist?plate={plate}", headers=admin)).json()
+        assert [e["id"] for e in listed if e["plate_normalised"] == plate] == [entry_id]
+
+    async def test_an_active_duplicate_is_still_refused(self, client, auth_headers):
+        """Reinstating a retired entry must not become a way to duplicate a live one."""
+        admin = await auth_headers("admin")
+        plate = a_plate()
+        body = {"plate": plate, "category": "stolen", "priority": "high",
+                "case_ref": "FIR/REISSUE/0002"}
+
+        assert (
+            await client.post("/api/v1/watchlist", headers=admin, json=body)
+        ).status_code == 201
+        clash = await client.post("/api/v1/watchlist", headers=admin, json=body)
+        assert clash.status_code == 409
+
+
 class TestRoutesAreWhereTheClientExpects:
     async def test_every_router_is_under_the_api_prefix(self, client: AsyncClient):
         """The browser reaches the API through nginx at /api/v1.
 
         A router mounted at the root is unreachable in the product even though
         it answers perfectly well in a test that addresses it directly, so the
-        prefix is asserted rather than assumed. Only the container healthchecks
-        and the root document live outside it.
+        prefix is asserted rather than assumed. Only the container healthchecks,
+        the scrape endpoint and the root document live outside it — those are
+        infrastructure surfaces, not product surfaces, and versioning them with
+        the API would mean a monitoring system breaks on an API version bump.
         """
         spec = (await client.get("/openapi.json")).json()
         outside = {path for path in spec["paths"] if not path.startswith("/api/v1")} - {
             "/",
             "/health",
             "/ready",
+            "/metrics",
         }
         assert not outside, f"routes mounted outside /api/v1: {sorted(outside)}"

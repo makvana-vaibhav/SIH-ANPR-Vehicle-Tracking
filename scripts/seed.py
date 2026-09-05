@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # The script runs from /app inside the container; make the API package importable.
@@ -23,8 +25,10 @@ from app.core.config import settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db.session import SessionLocal, dispose_engine  # noqa: E402
 from app.models.enums import AdapterType, CameraStatus, Role, VmsVendor  # noqa: E402
+from app.models.intelligence import Watchlist  # noqa: E402
 from app.models.registry import Department, VmsInstance  # noqa: E402
 from app.models.security import User  # noqa: E402
+from app.schemas.intelligence import normalise_plate  # noqa: E402
 from app.services.camera import bulk_upload  # noqa: E402
 
 SEED_DIR = Path("/data/seed")
@@ -312,11 +316,88 @@ async def seed_cameras() -> None:
         print(f"    row {err.row} ({err.camera_code}): {'; '.join(err.errors)}")
 
 
+async def seed_watchlist() -> None:
+    """Load the demo watchlist from data/seed/watchlist.csv.
+
+    This file has existed since Phase 2 and **nothing read it**. The watchlist
+    was populated by hand during development, so it survived on this machine
+    and nowhere else: a fresh clone reached `make demo` with an empty watchlist
+    and judge moments 3 and 4 — the automatic alert and the tracked vehicle —
+    had nothing to fire on.
+
+    Existing entries are **reactivated**, not skipped. Deleting a watchlist
+    entry through the API deactivates it rather than removing it, which is
+    right for an audit trail and means a demo plate retired during testing
+    stays retired through every future re-seed unless seeding says otherwise.
+    That is exactly how this database ended up with all eight of its entries
+    inactive.
+    """
+    csv_path = SEED_DIR / "watchlist.csv"
+    if not csv_path.exists():
+        print(f"  watchlist: SKIPPED — {csv_path} not found")
+        return
+
+    created = reactivated = updated = 0
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    async with SessionLocal() as session:
+        for row in rows:
+            plate = normalise_plate(row["plate"])
+            existing = (
+                await session.execute(
+                    select(Watchlist).where(Watchlist.plate_normalised == plate)
+                )
+            ).scalars().first()
+
+            valid_from = _timestamp(row.get("valid_from"))
+            valid_to = _timestamp(row.get("valid_to"))
+
+            if existing is None:
+                session.add(
+                    Watchlist(
+                        plate_normalised=plate,
+                        category=row["category"],
+                        priority=row["priority"],
+                        case_ref=row.get("case_ref") or None,
+                        remarks=row.get("remarks") or None,
+                        valid_from=valid_from,
+                        valid_to=valid_to,
+                        active=True,
+                    )
+                )
+                created += 1
+                continue
+
+            if not existing.active:
+                reactivated += 1
+            else:
+                updated += 1
+            existing.category = row["category"]
+            existing.priority = row["priority"]
+            existing.case_ref = row.get("case_ref") or None
+            existing.remarks = row.get("remarks") or None
+            existing.valid_from = valid_from
+            existing.valid_to = valid_to
+            existing.active = True
+
+        await session.commit()
+
+    print(f"  watchlist: {created} created, {reactivated} reactivated, {updated} refreshed")
+
+
+def _timestamp(value: str | None) -> datetime | None:
+    """Parse an ISO timestamp from the CSV, tolerating the Z suffix."""
+    if not value or not value.strip():
+        return None
+    return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Seed Sentinel-GJ demo data")
     parser.add_argument(
         "--only",
-        choices=["departments", "users", "vms", "cameras", "all"],
+        choices=["departments", "users", "vms", "cameras", "watchlist", "all"],
         default="all",
         help="Seed a single dataset instead of everything",
     )
@@ -331,6 +412,8 @@ async def main() -> int:
             await seed_vms(department_ids)
         if args.only in ("cameras", "all"):
             await seed_cameras()
+        if args.only in ("watchlist", "all"):
+            await seed_watchlist()
     finally:
         await dispose_engine()
 

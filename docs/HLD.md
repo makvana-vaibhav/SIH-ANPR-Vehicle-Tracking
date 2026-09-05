@@ -47,8 +47,10 @@ So we **federate**. Existing VMS stay authoritative for their own video. We:
 Plus on-demand pull: if 50 operators each watch one feed, that is 50 × 4 Mbps
 = 200 Mbps, not 320 Gbps.
 
-*Status: the 43 Mbps figure is arithmetic, not measurement. Phase 10's load
-test is what would make it measured; it has not been run — see §7.*
+*Status: the 43 Mbps figure is arithmetic — it multiplies a measured event size
+by an assumed camera count. What is now **measured** is that the platform
+absorbs that event rate: 2,774 events/s sustained across 80,000 camera
+identities, with zero failures. See §7.*
 
 ---
 
@@ -254,13 +256,58 @@ CPU core sustains roughly **8 cameras**. 80,000 cameras ≈ 10,000 cores ≈
 **This is extrapolation, not measurement.** A single mid-range GPU would change
 it by an order of magnitude, and this repository has never run one.
 
-### What has not been done
+### The load test, and what it measured
 
-**Phase 10's load test has not been run.** There is no measured
-events-per-second figure, no sustained-throughput number, and no p95 under
-load. Judge Moment 5 asks for numbers from a load test we actually ran, and
-today we have not run it. That is the single largest gap between this document
-and the claim it wants to make.
+**Run.** `make load` — 80,000 camera identities, three ingest workers, one
+laptop, CPU only. The generator replays AI-tier *output*; no inference happens
+in the measurement, because no laptop can produce 2,667 events/s of real ANPR.
+
+| | Measured |
+|---|---|
+| Offered rate | 2,664 events/s |
+| **Ingest sustained (median)** | **2,774 events/s** |
+| Range across the run | 2,280 – 4,002 events/s |
+| Events consumed / detections written | 388,748 / 388,713 |
+| **Failures** | **0** |
+| Watchlist alerts raised under load | 397 |
+| Backlog peak → after the generator stopped | 10,237 → **cleared** |
+| Capture → persisted, p50 / p95 / p99 | 4,812 / 5,670 / 5,904 ms |
+
+**The throughput target is met; the latency target is not.** Phase 10's gate
+asked for p95 under 3 s and the measurement is 5.7 s. The reason is visible in
+the numbers above: a backlog of up to ten thousand events forms, so most of
+that latency is queue wait rather than processing. It clears completely once
+the offered rate stops. On a laptop sharing ten cores between the generator,
+three workers, Postgres, Redis and the API, that is the expected shape; the
+fix in a real deployment is more workers, which the consumer group supports
+without configuration.
+
+### Two bugs this test found, which nothing else did
+
+**A case-insensitive lookup was defeating a database index.** Every ingested
+detection resolves a camera *code* to a camera *id*, deliberately
+case-insensitively — MediaMTX reports stream paths lowercased while the
+registry stores canonical uppercase. But `upper(camera_code) = ...` cannot use
+a plain index on `camera_code`. At the 281 cameras this repository develops
+against, the resulting sequential scan is sub-millisecond and invisible. At
+80,000 it was **106 ms per lookup, 80,278 rows discarded each time**, and it
+collapsed ingest from ~1,500 events/s to 140. Fixed by migration `0003`, an
+expression index. Throughput recovered 7.5×.
+
+**Two API replicas would have split the live event feed between them.** One
+class both persisted events and fanned them out to operators, and it did both
+through a Redis *consumer group* — which delivers each entry to exactly one
+member. That is correct for persistence and exactly wrong for a shared
+operations picture: two replicas would have shown each half of their operators
+half the state's traffic, with nothing anywhere reporting a fault. The platform
+was correct only while exactly one API process ran, and nobody had written that
+down. Live fan-out (`EventTailer`, a plain `XREAD`) is now separate from
+durable consumption (`EventConsumer`, the group), and alerts travel on their
+own pub/sub channel so one raised by any worker reaches operators on every
+replica.
+
+Both are the reason to run a load test at all. A load test that finds nothing
+was not a load test.
 
 ---
 

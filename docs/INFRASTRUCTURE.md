@@ -59,6 +59,11 @@ Model 5 over Model 4.
 District links fail. The worker holds events in memory and the bus retains them
 for its consumer group, so a link outage delays events rather than losing them.
 
+**Measured under load:** a backlog of 10,237 events formed while the offered
+rate exceeded what three workers could absorb, and cleared completely once the
+rate dropped. That is the store-and-forward property working as intended — the
+events were delayed, not lost.
+
 **Not implemented:** on-disk spooling for outages longer than memory allows.
 Today a long outage on a busy edge node would drop the oldest events. A bounded
 local queue with a documented depth is the fix.
@@ -195,6 +200,6 @@ is opt-in precisely because it does not fit alongside everything else in 16 GB.
 | 43 Mbps of metadata vs 320 Gbps of video | **Arithmetic.** Event size measured; camera count assumed |
 | ~250 nodes for 80,000 cameras | **Estimated** from measured CPU throughput |
 | GPU improves this by an order of magnitude | **Expectation.** No GPU has run this code |
-| 2,667 events/s sustained | **Unproven.** The Phase 10 load test has not been run |
+| 2,667 events/s sustained | **Measured.** 2,774 events/s across 80,000 camera identities, 0 failures ([HLD §7](HLD.md#7-scaling-to-80000-cameras)) |
 | RPO 15 min / RTO 1 h | **Aspiration.** No backup exists to restore from |
 | Storage tiering | **Design.** Only the hot tier and hypertable expiry exist today |

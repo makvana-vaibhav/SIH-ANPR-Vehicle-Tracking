@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -149,15 +150,25 @@ class TestMomentThree:
         """
         recent = (
             await client.get(
-                f"/api/v1/detections?limit=5&since={_since(10)}&readable_only=true",
+                f"/api/v1/detections?limit=200&since={_since(20)}&readable_only=true",
                 headers=admin,
             )
         ).json()
         if not recent["items"]:
             pytest.skip("nothing being read right now")
 
-        plate = recent["items"][0]["plate"]
-        assert plate
+        # The plate seen *most often*, not the most recent one. The test waits
+        # for the chosen plate to be read again, and the newest read is
+        # frequently a one-off — a vehicle that passed once and is gone. Picking
+        # the most frequent plate picks one the pipeline keeps seeing, which is
+        # the difference between testing the alert chain and testing whether a
+        # particular car came back.
+        counts = Counter(
+            item["plate"] for item in recent["items"] if item.get("plate")
+        )
+        if not counts:
+            pytest.skip("no readable plates in the recent window")
+        plate = counts.most_common(1)[0][0]
 
         # Start from a known state.
         existing = (
@@ -344,3 +355,33 @@ class TestTheInterfaceIsHonest:
         assert "***" in body or "@" not in body.split("rtsp://")[-1][:60], (
             "the stream grant appears to carry credentials in its RTSP URL"
         )
+
+
+class TestTheDemoDataIsActuallyThere:
+    """The seed must leave the platform in a state where the moments can fire.
+
+    Separate from the moment tests above, which create whatever they need and
+    clean up after themselves. That independence is right for a test but it
+    means they pass against a database a judge would find empty — which is
+    exactly what happened: `data/seed/watchlist.csv` existed from Phase 2 and
+    nothing ever read it, so every watchlist entry on this machine had been
+    typed in by hand and then deactivated by test runs.
+    """
+
+    async def test_the_watchlist_has_active_entries(self, client, admin):
+        entries = (await client.get("/api/v1/watchlist", headers=admin)).json()
+        assert entries, (
+            "the watchlist is empty — judge moments 3 and 4 have nothing to "
+            "fire on. Run `python scripts/seed.py --only watchlist`."
+        )
+
+    async def test_the_demo_plate_is_on_the_watchlist_and_critical(self, client, admin):
+        """`GJ03AB1234` is the plate the demo script types. It has to be there."""
+        entries = (await client.get("/api/v1/watchlist?plate=GJ03AB1234", headers=admin)).json()
+        match = [e for e in entries if e["plate_normalised"] == "GJ03AB1234"]
+        assert match, "GJ03AB1234 is not on the watchlist; docs/DEMO_SCRIPT.md depends on it"
+        assert match[0]["category"] == "stolen"
+        assert match[0]["priority"] == "critical"
+        # A watchlist entry with no case reference is a question waiting to be
+        # asked, and SECURITY.md §7 claims purpose limitation is visible.
+        assert match[0]["case_ref"], "the demo watchlist entry carries no case reference"

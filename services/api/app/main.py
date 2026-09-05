@@ -38,7 +38,14 @@ from app.routers import (
     vehicles,
     watchlist,
 )
-from app.services import event_consumer, fleet_roster, retention, token_store
+from app.services import (
+    alert_fanout,
+    event_consumer,
+    event_tailer,
+    fleet_roster,
+    retention,
+    token_store,
+)
 
 configure_logging(service="api")
 log = get_logger("api")
@@ -74,10 +81,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if settings.environment == "development":
         log.debug("api.configuration", **settings.sanitised())
 
-    # Consume vehicle events from the AI workers. Started here rather than
-    # lazily on the first WebSocket connection, so detections are persisted
-    # whether or not an operator happens to be watching.
-    await event_consumer.consumer.start()
+    # The live operations picture: every replica tails the stream and fans
+    # every event out to its own sockets. Always on — an API process that
+    # cannot show operators what is happening has no reason to be running.
+    await event_tailer.tailer.start()
+    # And alerts raised by any ingest worker, wherever it runs.
+    await alert_fanout.subscriber.start()
+
+    # Durable ingest. Started here rather than lazily on the first WebSocket
+    # connection, so detections are persisted whether or not an operator
+    # happens to be watching. Disabled on replicas of a deployment with
+    # dedicated ingest workers; see Settings.ingest_enabled.
+    if settings.ingest_enabled:
+        await event_consumer.consumer.start()
+    else:
+        log.info("api.ingest_delegated", reason="dedicated ingest workers")
     fleet_roster.publisher.start()
     retention.enforcer.start()
 
@@ -87,6 +105,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await retention.enforcer.stop()
     await fleet_roster.publisher.stop()
     await event_consumer.consumer.stop()
+    await alert_fanout.subscriber.stop()
+    await event_tailer.tailer.stop()
     await token_store.close()
     await dispose_engine()
     log.info("api.stopped")

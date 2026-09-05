@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     event_bus_backend: EventBusBackend = "redis"
     event_stream_key: str = "sentinel:events:detections"
     event_consumer_group: str = "sentinel-processors"
+    #: Whether this process persists events as well as serving operators.
+    #: True on a single-node deployment, which is the demo and the default.
+    #: Set false on the API replicas of a deployment that runs dedicated
+    #: ingest workers, so serving capacity and ingest capacity scale
+    #: independently instead of every added API replica also adding a
+    #: consumer nobody asked for.
+    ingest_enabled: bool = True
     kafka_bootstrap_servers: str = "redpanda:9092"
     kafka_topic_detections: str = "sentinel.detections"
 

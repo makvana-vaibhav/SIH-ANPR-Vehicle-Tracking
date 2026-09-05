@@ -59,7 +59,7 @@ FAILURE_CODES = frozenset({400, 401, 403, 422})
 #: Never limited: the container healthcheck runs every few seconds and a
 #: throttled probe would report the service unhealthy and restart it, turning a
 #: rate limit into an outage.
-EXEMPT_PATHS = ("/health", "/ready")
+EXEMPT_PATHS = ("/health", "/ready", "/metrics")
 
 
 @dataclass(frozen=True, slots=True)

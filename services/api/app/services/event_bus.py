@@ -71,6 +71,13 @@ class EventBroadcaster:
 
 broadcaster = EventBroadcaster()
 
+#: Alerts are raised by whichever ingest worker happened to persist the
+#: detection, but they must reach *every* operator, on every API replica. The
+#: detection stream cannot carry them — an alert is created after the commit,
+#: not read from the bus — so they travel on their own pub/sub channel, which
+#: every replica subscribes to and nobody consumes exclusively.
+ALERT_CHANNEL = "sentinel:alerts:fanout"
+
 
 def parse_event(raw: dict[str, Any]) -> dict[str, Any] | None:
     """Decode one Redis Stream entry into an event dict."""

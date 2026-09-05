@@ -76,18 +76,48 @@ async def create_entry(
             detail=f"{payload.plate} is already on the watchlist (entry {existing.id})",
         )
 
-    entry = Watchlist(
-        plate_normalised=payload.plate,
-        category=payload.category,
-        priority=payload.priority.value,
-        case_ref=payload.case_ref,
-        remarks=payload.remarks,
-        valid_from=payload.valid_from,
-        valid_to=payload.valid_to,
-        added_by=user.id,
-        active=True,
-    )
-    session.add(entry)
+    # A retired entry for the same plate *and* case reference still occupies the
+    # unique constraint, so inserting alongside it raises an integrity error the
+    # caller sees as "Internal server error". Retiring is the only removal this
+    # API offers — deleting a watchlist entry deactivates it, because a
+    # surveillance decision that can be erased cannot be reviewed — so an
+    # operator re-issuing a BOLO under the same FIR would hit a 500 with no way
+    # forward. Re-issuing it is the intent, so re-issue it.
+    retired = (
+        await session.execute(
+            select(Watchlist).where(
+                Watchlist.plate_normalised == payload.plate,
+                Watchlist.case_ref == payload.case_ref,
+                Watchlist.active.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+
+    operation = "create"
+    if retired is not None:
+        operation = "reinstate"
+        entry = retired
+        entry.category = payload.category
+        entry.priority = payload.priority.value
+        entry.remarks = payload.remarks
+        entry.valid_from = payload.valid_from
+        entry.valid_to = payload.valid_to
+        entry.added_by = user.id
+        entry.active = True
+    else:
+        entry = Watchlist(
+            plate_normalised=payload.plate,
+            category=payload.category,
+            priority=payload.priority.value,
+            case_ref=payload.case_ref,
+            remarks=payload.remarks,
+            valid_from=payload.valid_from,
+            valid_to=payload.valid_to,
+            added_by=user.id,
+            active=True,
+        )
+        session.add(entry)
+
     await session.commit()
     await session.refresh(entry)
 
@@ -97,7 +127,9 @@ async def create_entry(
     await audit.record_watchlist_change(
         request=request,
         user=user,
-        operation="create",
+        # Recorded distinctly: reinstating a retired BOLO is a different act
+        # from raising a new one, and the trail should say which happened.
+        operation=operation,
         plate=entry.plate_normalised,
         watchlist_id=entry.id,
     )

@@ -1,0 +1,54 @@
+# Scale profile — ingest that scales sideways.
+#
+#   make scale            bring it up
+#   make load             measure it
+#
+# What changes from the base stack:
+#
+#   * `api` stops persisting events (INGEST_ENABLED=false) and does only what
+#     an API is for — serving operators and tailing the stream for their live
+#     feed.
+#   * `consumer` appears, with replicas. Redis hands each stream entry to
+#     exactly one member of the consumer group, so N replicas share the
+#     fleet's events N ways with no configuration naming which cameras belong
+#     to which worker, and no coordination between them.
+#
+# This is the deployment shape the 80,000-camera argument assumes, and it is
+# the reason `EventTailer` and `EventConsumer` are separate classes: durable
+# processing must happen exactly once across the fleet, while the live picture
+# must reach every operator on every replica. One consumer group cannot do
+# both, and until they were split the platform was correct only while exactly
+# one API process ran.
+#
+# Deliberately opt-in: on 16 GB alongside Postgres, OpenSearch and MinIO, this
+# does not leave room for the AI worker as well. Scale or analyse, not both.
+
+services:
+  api:
+    environment:
+      # Serving only. Ingest belongs to the consumer replicas below; leaving
+      # it on here would mean the API competes with them for the same events
+      # and for the same CPU.
+      INGEST_ENABLED: "false"
+
+  consumer:
+    image: sentinel-gj/api:dev
+    command: ["python", "-m", "app.consumer_main"]
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_dev_pw}@postgres:5432/${POSTGRES_DB:-sentinel}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./services/api:/app/services/api
+    working_dir: /app/services/api
+    deploy:
+      # Three: enough to show the rate scales with workers rather than being
+      # pinned by one process, and few enough to leave cores for Postgres,
+      # which is where the ceiling moves to next.
+      replicas: 3
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      api: { condition: service_healthy }
+    networks: [sentinel]

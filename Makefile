@@ -211,9 +211,22 @@ scale: ## Start the scale profile (Redpanda, replicas, Grafana)
 	@printf "\033[32mscale profile up\033[0m — Grafana http://localhost:3000\n"
 
 .PHONY: load
-load: ## Run the 80,000-camera load test
-	@$(COMPOSE_SCALE) exec -T simulator python -m app.load_mode
-	@cd tests/load/k6 && k6 run api_load.js
+load: ## Run the 80,000-camera load test (ingest throughput + latency)
+	@python3 tests/load/run_load_test.py $(ARGS)
+
+.PHONY: load-quick
+load-quick: ## A 30s sanity run of the load test, for checking it still works
+	@python3 tests/load/run_load_test.py --cameras 2000 --rate 1000 --duration 30 \
+		--sample-interval 5 --drain-timeout 60
+
+.PHONY: load-operators
+load-operators: ## k6: can operators still work while ingest runs at full rate?
+	@# Containerised so no k6 install is needed, and on the compose network so
+	@# it reaches the API by service name rather than through the host.
+	@docker run --rm -i --network sentinel-net \
+		-e API_URL=http://api:8000 -e API_PASSWORD="$${BOOTSTRAP_ADMIN_PASSWORD:-Sentinel@2026}" \
+		-v "$(PWD)/tests/load/k6:/scripts:ro" \
+		grafana/k6:0.54.0 run /scripts/api_load.js
 
 # ── Development ───────────────────────────────────────────────────────
 

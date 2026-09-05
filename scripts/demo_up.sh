@@ -113,7 +113,11 @@ ok "$ANPR cameras in the ANPR fleet"
 printf '  %s…waiting up to 90s for the first plate read%s\n' "$DIM" "$RESET"
 PLATES=0
 for _ in $(seq 1 18); do
-    PLATES=$(api "/api/v1/detections?limit=1&since=$(python3 -c 'import datetime;print((datetime.datetime.now(datetime.UTC)-datetime.timedelta(minutes=10)).isoformat())')" \
+    # %Y-%m-%dT%H:%M:%SZ, not isoformat(): isoformat emits "+00:00" and an
+    # unencoded "+" in a query string decodes to a space, so the API rejects
+    # the whole request and this check silently reports zero plate reads.
+    SINCE=$(python3 -c 'import datetime;print((datetime.datetime.now(datetime.UTC)-datetime.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
+    PLATES=$(api "/api/v1/detections?limit=1&since=$SINCE" \
         | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total",0))' 2>/dev/null || echo 0)
     [ "${PLATES:-0}" -gt 0 ] && break
     sleep 5
@@ -121,8 +125,12 @@ done
 [ "${PLATES:-0}" -gt 0 ] && ok "$PLATES plate reads in the last 10 minutes" \
     || warn "no plates yet — the worker may still be starting. Check: docker compose logs ai-worker"
 
+# Asserted, not printed. This reported "0 plates on the watchlist" as a
+# success for as long as it existed, while judge moments 3 and 4 had nothing
+# to fire on — the seed had never loaded data/seed/watchlist.csv at all.
 WL=$(api "/api/v1/watchlist" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)
-ok "$WL plates on the watchlist"
+[ "${WL:-0}" -gt 0 ] && ok "$WL plates on the watchlist" \
+    || fail "watchlist is empty — the alert and route moments cannot fire"
 
 curl -sf "$WEB" >/dev/null 2>&1 && ok "command centre reachable" || fail "web is not responding"
 

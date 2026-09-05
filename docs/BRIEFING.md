@@ -836,10 +836,11 @@ Be able to list these. It is a strength.
 
 | # | Item | Why it matters |
 |---|---|---|
-| 1 | **Phase 12 — demo hardening** | `make demo` full path, PANIC.md, headless e2e of the 5 moments. Protects the day |
-| 2 | **Phase 10 — load test** | Judge Moment 5 has no measured number behind it |
-| 3 | **Detector re-export at 1280** | YOLOv8n is fixed at 640×640, so 1080p is downscaled and distant vehicles vanish. ~8% recall on grid night scenes |
-| 4 | Phase 8 — real fuzzy search | Exact + prefix works; ranked fuzzy does not exist |
+| ~~1~~ | ~~Phase 12 — demo hardening~~ | **Done.** `make demo` verifies each judge moment; PANIC.md; 35 headless e2e tests |
+| ~~2~~ | ~~Phase 10 — load test~~ | **Done.** 2,774 events/s across 80,000 identities, 0 failures — and it found three real bugs |
+| 1 | **Detector re-export at 1280** | YOLOv8n is fixed at 640×640, so 1080p is downscaled and distant vehicles vanish. ~8% recall on grid night scenes |
+| 2 | Phase 8 — real fuzzy search | Exact + prefix works; ranked fuzzy does not exist |
+| 3 | p95 ingest latency | 5.7 s under full statewide load against a 3 s goal. It is queue wait and it clears; more workers is the fix |
 
 ### For production
 

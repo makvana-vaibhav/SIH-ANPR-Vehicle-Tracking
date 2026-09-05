@@ -27,6 +27,7 @@ document, because it stops anyone looking.
 | Retention enforcement (actual deletion) | ✅ | `app/services/retention.py` |
 | Secrets kept out of git | ✅ | `.env.example` committed, `.env` ignored |
 | Security headers + CSP | ✅ | `web/nginx.conf` |
+| Scrape endpoint carries no personal data | ✅ | `app/routers/health.py` |
 | **TLS** | ❌ **not implemented** | see §8 |
 | **Encryption at rest** | ❌ **not implemented** | see §8 |
 | **Backups / DR** | ❌ **not implemented** | see §8 |
@@ -200,6 +201,13 @@ worse failure.
 * `X-Forwarded-For` is trusted **only** because nginx sets it and nothing else
   can reach the API. Exposed directly, that header is caller-controlled and the
   rate limiter's client key would need revisiting.
+* `GET /metrics` is **unauthenticated and exempt from rate limiting**, and
+  deliberately so: a scraper that needs a token is a scraper that stops working
+  when the token expires, and a throttled probe reports the service unhealthy.
+  It carries aggregate counters only — no plate, no camera, no user. It does
+  reveal *volume*, which is not nothing in a surveillance system, so a
+  deployment exposing it beyond the internal network should restrict it at the
+  ingress rather than behind application auth.
 
 ### Federated sources
 
