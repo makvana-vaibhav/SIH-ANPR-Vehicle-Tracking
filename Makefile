@@ -18,7 +18,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 COMPOSE          := docker compose
-COMPOSE_AI       := docker compose -f docker-compose.yml -f docker-compose.ai.yml
+COMPOSE_AI       := docker compose --profile ai
 COMPOSE_SCALE    := docker compose -f docker-compose.yml -f docker-compose.scale.yml
 WEB_PORT         ?= 8080
 API_PORT         ?= 8000

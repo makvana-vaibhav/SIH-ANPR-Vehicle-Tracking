@@ -6,7 +6,8 @@
 #  publish linux/arm64 as well as linux/amd64, so this runs natively on
 #  Apple Silicon and on x86 servers with no emulation.
 #
-#  Heavier profiles live in docker-compose.ai.yml and docker-compose.scale.yml.
+#  The ai-worker is gated behind the `ai` profile below; the scale profile
+#  lives in docker-compose.scale.yml.
 # ══════════════════════════════════════════════════════════════════════
 
 name: nagarnetra
