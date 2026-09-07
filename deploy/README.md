@@ -2,7 +2,7 @@
 
 This directory contains a full two-environment deployment setup for one EC2 host:
 
-- staging environment from branch `build/sentinel-gj`
+- staging environment from branch `build/nagarnetra`
 - main environment from branch `main`
 - GitHub Actions based CI and CD
 - host-level nginx reverse proxy routing each domain to the right environment
@@ -12,7 +12,7 @@ This directory contains a full two-environment deployment setup for one EC2 host
 - `deploy/docker-compose.ec2.yml`: compose overrides for EC2
 - `deploy/env/staging.env.example`: staging runtime env template
 - `deploy/env/main.env.example`: main runtime env template
-- `deploy/nginx/sentinel-edge.conf`: nginx config for both environments
+- `deploy/nginx/nagarnetra-edge.conf`: nginx config for both environments
 - `deploy/scripts/bootstrap_ec2.sh`: one-time host setup
 - `deploy/scripts/update_and_deploy.sh`: idempotent pull/build/restart script
 - `.github/workflows/ci.yml`: lint + checks
@@ -24,17 +24,17 @@ This directory contains a full two-environment deployment setup for one EC2 host
 Run this on a fresh Ubuntu EC2 instance:
 
 ```bash
-git clone https://github.com/<your-org-or-user>/SENTINEL-GJ.git
-cd SENTINEL-GJ
+git clone https://github.com/<your-org-or-user>/SIH-ANPR-Vehicle-Tracking.git
+cd SIH-ANPR-Vehicle-Tracking
 chmod +x deploy/scripts/bootstrap_ec2.sh deploy/scripts/update_and_deploy.sh
-./deploy/scripts/bootstrap_ec2.sh https://github.com/<your-org-or-user>/SENTINEL-GJ.git
+./deploy/scripts/bootstrap_ec2.sh https://github.com/<your-org-or-user>/SIH-ANPR-Vehicle-Tracking.git
 ```
 
 Then edit:
 
-- `/etc/sentinel-gj/staging.env`
-- `/etc/sentinel-gj/main.env`
-- `/etc/nginx/sites-available/sentinel-gj.conf` (set real domains)
+- `/etc/nagarnetra/staging.env`
+- `/etc/nagarnetra/main.env`
+- `/etc/nginx/sites-available/nagarnetra.conf` (set real domains)
 
 Reload nginx:
 
@@ -47,10 +47,10 @@ sudo systemctl reload nginx
 
 ```bash
 # staging
-bash /opt/sentinel-gj/staging/deploy/scripts/update_and_deploy.sh staging build/sentinel-gj
+bash /opt/nagarnetra/staging/deploy/scripts/update_and_deploy.sh staging build/nagarnetra
 
 # main
-bash /opt/sentinel-gj/main/deploy/scripts/update_and_deploy.sh main main
+bash /opt/nagarnetra/main/deploy/scripts/update_and_deploy.sh main main
 ```
 
 ## GitHub secrets required

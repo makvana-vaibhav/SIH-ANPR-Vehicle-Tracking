@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "ap
 
 from sqlalchemy import select  # noqa: E402
 
-from app.adapters.sandbox import GRID_ID_TAG, SentinelSandboxAdapter  # noqa: E402
+from app.adapters.sandbox import GRID_ID_TAG, HostedGridAdapter  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.db.session import SessionLocal, dispose_engine  # noqa: E402
 from app.models.enums import AdapterType  # noqa: E402
@@ -75,7 +75,7 @@ async def main() -> int:
             (
                 await session.execute(
                     select(VmsInstance).where(
-                        VmsInstance.adapter_type == AdapterType.SENTINEL_SANDBOX.value
+                        VmsInstance.adapter_type == AdapterType.HOSTED_GRID.value
                     )
                 )
             )
@@ -95,7 +95,7 @@ async def main() -> int:
             .all()
         )
 
-        adapter = SentinelSandboxAdapter(name="retarget", base_url=args.base_url)
+        adapter = HostedGridAdapter(name="retarget", base_url=args.base_url)
         changed = 0
         for camera in cameras:
             grid_id = inferred_grid_id(camera.camera_code)

@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for the Sentinel-GJ API test suite.
+"""Shared pytest fixtures for the NagarNetra API test suite.
 
 Tests run inside the api container (``make test``), so the live infrastructure
 from docker-compose is reachable. Tests that require it are marked
@@ -75,7 +75,7 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport,
-        base_url="http://sentinel.test",
+        base_url="http://nagarnetra.test",
     ) as async_client:
         yield async_client
 
@@ -90,7 +90,7 @@ def settings() -> Settings:
 # The seeded demo accounts (scripts/seed.py) give one user per role, which is
 # exactly what the RBAC matrix tests need.
 
-DEMO_PASSWORD = "Sentinel@2026"
+DEMO_PASSWORD = "NagarNetra@2026"
 
 DEMO_ACCOUNTS = {
     "admin": "admin",

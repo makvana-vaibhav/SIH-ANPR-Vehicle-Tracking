@@ -14,7 +14,7 @@ const DEMO_ACCOUNTS = [
 export default function Login() {
   const { signIn } = useAuth()
   const [username, setUsername] = useState('admin')
-  const [password, setPassword] = useState('Sentinel@2026')
+  const [password, setPassword] = useState('NagarNetra@2026')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -37,15 +37,15 @@ export default function Login() {
         {/* Identity panel */}
         <div className="border-b border-border bg-gradient-to-br from-secondary/60 to-card p-8 md:border-b-0 md:border-r">
           <h1 className="text-3xl font-semibold tracking-tight text-primary">
-            Sentinel<span className="text-foreground">-GJ</span>
+            Nagar<span className="text-foreground">Netra</span>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            સેન્ટિનલ — રાજ્યવ્યાપી સીસીટીવી ગુપ્તચર મંચ
+            નગરનેત્ર — શહેરવ્યાપી વાહન ગુપ્તચર મંચ
           </p>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-            Statewide CCTV intelligence platform for the Gujarat Police and Home
-            Department. Federates existing departmental CCTV rather than
-            replacing it.
+            City-wide vehicle intelligence platform. Connects observations from
+            hundreds of city cameras into searchable vehicle journeys, traffic
+            intelligence and real-time alerts.
           </p>
 
           <div className="mt-8">
@@ -59,7 +59,7 @@ export default function Login() {
                     type="button"
                     onClick={() => {
                       setUsername(account.username)
-                      setPassword('Sentinel@2026')
+                      setPassword('NagarNetra@2026')
                     }}
                     className="w-full rounded-md border border-border/60 px-3 py-2 text-left transition hover:border-primary/50 hover:bg-secondary/40"
                   >
@@ -75,7 +75,7 @@ export default function Login() {
             </ul>
             <p className="mt-3 text-xs text-muted-foreground">
               All demo accounts use{' '}
-              <span className="font-mono text-foreground/80">Sentinel@2026</span>
+              <span className="font-mono text-foreground/80">NagarNetra@2026</span>
             </p>
           </div>
         </div>

@@ -1,1 +1,1 @@
-"""Sentinel-GJ API — core: configuration, logging, security primitives."""
+"""NagarNetra API — core: configuration, logging, security primitives."""

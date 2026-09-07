@@ -3,7 +3,7 @@ name: Deploy Staging
 on:
   push:
     branches:
-      - build/sentinel-gj
+      - build/nagarnetra
   workflow_dispatch:
 
 jobs:
@@ -23,9 +23,9 @@ jobs:
             set -euo pipefail
             export GITHUB_REPOSITORY='${{ github.repository }}'
             export REPO_URL='https://github.com/${{ github.repository }}.git'
-            if [ ! -d /opt/sentinel-gj/staging/.git ]; then
-              sudo mkdir -p /opt/sentinel-gj
-              sudo chown -R "$USER":"$USER" /opt/sentinel-gj
-              git clone --branch build/sentinel-gj "$REPO_URL" /opt/sentinel-gj/staging
+            if [ ! -d /opt/nagarnetra/staging/.git ]; then
+              sudo mkdir -p /opt/nagarnetra
+              sudo chown -R "$USER":"$USER" /opt/nagarnetra
+              git clone --branch build/nagarnetra "$REPO_URL" /opt/nagarnetra/staging
             fi
-            bash /opt/sentinel-gj/staging/deploy/scripts/update_and_deploy.sh staging build/sentinel-gj
+            bash /opt/nagarnetra/staging/deploy/scripts/update_and_deploy.sh staging build/nagarnetra

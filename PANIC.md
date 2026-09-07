@@ -61,7 +61,7 @@ make down && make demo
 This is the most likely failure and it is almost always the worker.
 
 ```bash
-docker logs sentinel-ai-worker --tail 20
+docker logs nagarnetra-ai-worker --tail 20
 ```
 
 | Log says | Do |
@@ -93,7 +93,7 @@ docker compose up -d --force-recreate api ingest ai-worker
 
 The API publishes it every 30 s. If the API restarted recently, wait 30 s.
 ```bash
-docker compose exec redis redis-cli GET sentinel:fleet:anpr | head -c 200
+docker compose exec redis redis-cli GET nagarnetra:fleet:anpr | head -c 200
 ```
 Empty? Restart the API and wait: `docker compose restart api`
 
@@ -132,7 +132,7 @@ If it still has not fired after two minutes:
 
 ```bash
 # Is the plate actually being read?
-docker compose exec postgres psql -U sentinel -d sentinel -c \
+docker compose exec postgres psql -U nagarnetra -d nagarnetra -c \
   "SELECT plate_normalised, ts FROM detections WHERE ts > now() - interval '3 min' \
    AND plate_normalised <> '' ORDER BY ts DESC LIMIT 5;"
 ```
@@ -142,7 +142,7 @@ to match exactly.
 
 **The terminal fallback — this always works and is genuinely impressive:**
 ```bash
-docker compose exec -e SENTINEL_API_URL=http://api:8000 api \
+docker compose exec -e NAGARNETRA_API_URL=http://api:8000 api \
     python /app/scripts/demo_anpr.py --plate NA13NRU
 ```
 It prints every step: what the AI read, the watchlist entry, the wait, then the

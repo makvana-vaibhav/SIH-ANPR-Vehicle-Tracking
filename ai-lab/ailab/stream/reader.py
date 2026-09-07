@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import os
 
-# Set before OpenCV opens any FFmpeg capture. The Sentinel integration guide is
+# Set before OpenCV opens any FFmpeg capture. The NagarNetra integration guide is
 # explicit that UDP "fails across NAT and most corporate firewalls" and that
 # partial UDP delivery "produces corrupt frames that look like model bugs" —
 # which is the worst failure mode available, because it sends you debugging the
@@ -131,7 +131,7 @@ def diagnose(url: str, timeout: float = 6.0) -> str:
             request = (
                 f"DESCRIBE {url} RTSP/1.0\r\n"
                 "CSeq: 1\r\n"
-                "User-Agent: sentinel-gj/diagnose\r\n"
+                "User-Agent: nagarnetra/diagnose\r\n"
                 "Accept: application/sdp\r\n\r\n"
             )
             sock.sendall(request.encode("ascii"))
@@ -262,7 +262,7 @@ class StreamReader:
     def _read_pts(self, capture: cv2.VideoCapture) -> tuple[float, bool]:
         """Presentation timestamp for the frame just read, and whether it jumped.
 
-        The Sentinel integration guide is emphatic about this and it is not a
+        The NagarNetra integration guide is emphatic about this and it is not a
         style preference: when a client connects the gateway "replays its
         buffered group-of-pictures so the decoder can start at a keyframe", so
         the first second or two arrives *faster than real time*. A tracker that

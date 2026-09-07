@@ -1,4 +1,4 @@
-# Sentinel-GJ — where the build stands
+# NagarNetra — where the build stands
 
 *Written 25 August 2026, after Phase 4. Event is 10–11 September.*
 
@@ -9,7 +9,7 @@ simulated, and what comes next.
 
 ## 1. What the platform does today
 
-Sign in at **http://localhost:8080** (`admin` / `Sentinel@2026`) and you get:
+Sign in at **http://localhost:8080** (`admin` / `NagarNetra@2026`) and you get:
 
 | Screen | What it does |
 |---|---|
@@ -42,7 +42,7 @@ interface. None are stubs; all make real network calls.
 | `RtspAdapter` | Spawns `ffprobe`, negotiates a real RTSP session, reads codec, resolution, frame rate and bitrate off the wire. Classifies failures into groupable codes (`unauthorized`, `stream_not_found`, `connection_refused`…). |
 | `OnvifAdapter` | Real SOAP calls to ONVIF Device and Media services — `GetDeviceInformation`, `GetProfiles`, `GetStreamUri`. Parses with `defusedxml`, because camera-VLAN XML is untrusted input. |
 | `VendorVmsAdapter` | Real REST federation: token auth with expiry-aware caching, camera-list sync, per-request stream resolution, playback lookup. Field-mapped so one class covers Milestone, Genetec, CP Plus and Hikvision. |
-| `SentinelSandboxAdapter` | Reads the **organisers' own** `GET /api/ingest` catalogue and their `rtsp://host:8554/stream/<id>` + `:8889/whep` + `/live/.../index.m3u8` endpoints. |
+| `HostedGridAdapter` | Reads the **organisers' own** `GET /api/ingest` catalogue and their `rtsp://host:8554/stream/<id>` + `:8889/whep` + `/live/.../index.m3u8` endpoints. |
 | `SimulatedVmsAdapter` | Queries MediaMTX's control API for which paths are genuinely publishing. |
 
 Point any of the first four at a real endpoint and it works. That is not a

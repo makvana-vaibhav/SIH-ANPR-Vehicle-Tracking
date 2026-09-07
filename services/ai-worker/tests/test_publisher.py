@@ -31,7 +31,7 @@ class FakeRedis:
 def sink(monkeypatch) -> RedisEventSink:
     fake = FakeRedis()
     monkeypatch.setattr(redis.Redis, "from_url", staticmethod(lambda *a, **k: fake))
-    s = RedisEventSink("redis://x", "sentinel:events:detections")
+    s = RedisEventSink("redis://x", "nagarnetra:events:detections")
     s._fake = fake  # type: ignore[attr-defined]
     return s
 
@@ -44,7 +44,7 @@ class TestRedisEventSink:
     def test_publishes_json(self, sink: RedisEventSink) -> None:
         sink.emit(event())
         key, fields = sink._fake.entries[0]  # type: ignore[attr-defined]
-        assert key == "sentinel:events:detections"
+        assert key == "nagarnetra:events:detections"
         assert json.loads(fields["payload"])["plate"]["text"] == "GJ03AB1234"
 
     def test_counts_by_kind(self, sink: RedisEventSink) -> None:

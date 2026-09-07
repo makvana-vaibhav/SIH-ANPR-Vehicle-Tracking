@@ -13,7 +13,7 @@
   </defs>
 
   <rect width="1400" height="980" fill="#f8fafc"/>
-  <text x="48" y="52" font-size="30" font-weight="700" fill="#0f172a">Sentinel-GJ — Statewide CCTV Intelligence Platform</text>
+  <text x="48" y="52" font-size="30" font-weight="700" fill="#0f172a">NagarNetra — Statewide CCTV Intelligence Platform</text>
   <text x="48" y="80" font-size="16" fill="#475569">Model 5 (Hybrid) = Model 1 Registry + GIS · Model 3 Federation middleware · selective Model 2 unified viewing</text>
   <text x="48" y="104" font-size="15" font-weight="600" fill="#0e7490">The central tier carries events, not video — 80,000 cameras: ~320 Gbps of video becomes ~43 Mbps of metadata</text>
 
@@ -30,7 +30,7 @@
     <rect x="708" y="172" width="200" height="66" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
     <text x="724" y="196" font-weight="600">Transport / RTO</text><text x="724" y="216" font-size="12" fill="#475569">Vendor REST API</text>
     <rect x="924" y="172" width="216" height="66" rx="8" fill="#ecfeff" stroke="#0891b2"/>
-    <text x="940" y="196" font-weight="600" fill="#0e7490">Sentinel Camera Grid</text><text x="940" y="216" font-size="12" fill="#0e7490">organisers' feed · live</text>
+    <text x="940" y="196" font-weight="600" fill="#0e7490">Hosted Camera Grid</text><text x="940" y="216" font-size="12" fill="#0e7490">organisers' feed · live</text>
     <rect x="1156" y="172" width="184" height="66" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
     <text x="1172" y="196" font-weight="600">Private / CSR</text><text x="1172" y="216" font-size="12" fill="#475569">self-registered</text>
   </g>

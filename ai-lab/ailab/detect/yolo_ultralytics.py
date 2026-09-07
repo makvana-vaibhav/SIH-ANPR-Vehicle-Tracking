@@ -5,7 +5,7 @@ the ONNX export cost us accuracy?" is a question we answer by measurement:
 run the same footage through both engines and diff the results.
 
 Ultralytics is AGPL-3.0. It is a development dependency of this lab and never
-ships in a deployed Sentinel-GJ artifact — see the licence note in README.md.
+ships in a deployed NagarNetra artifact — see the licence note in README.md.
 """
 
 from __future__ import annotations

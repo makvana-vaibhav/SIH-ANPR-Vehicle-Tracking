@@ -1,6 +1,6 @@
 # High-Level Design
 
-Sentinel-GJ is a **federation platform** for CCTV that already exists across
+NagarNetra is a **federation platform** for CCTV that already exists across
 Gujarat's departments and vendors. ANPR is one capability inside it, not the
 product.
 
@@ -64,7 +64,7 @@ identities, with zero failures. See §7.*
           │ RTSP / ONVIF / vendor REST           │ HTTPS + WebSocket
           ▼                                      ▼
    ┌──────────────────────────────────────────────────────┐
-   │                    SENTINEL-GJ                       │
+   │                    NagarNetra                        │
    │                                                      │
    │   Integration ──▶ Stream gateway ──▶ AI workers      │
    │        │                                   │         │

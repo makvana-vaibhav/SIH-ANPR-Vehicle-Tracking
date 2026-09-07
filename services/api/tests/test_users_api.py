@@ -70,7 +70,7 @@ class TestPasswordPolicy:
 
     def test_the_documented_demo_credential_is_refused(self) -> None:
         with pytest.raises(PasswordRejected, match="documented demo credential"):
-            validate_password("Sentinel@2026")
+            validate_password("NagarNetra@2026")
 
     def test_a_password_containing_the_username_is_refused(self) -> None:
         with pytest.raises(PasswordRejected, match="username"):
@@ -116,7 +116,7 @@ class TestAccountCreation:
             headers=headers,
             json={
                 "username": a_username(),
-                "password": "Sentinel@2026",
+                "password": "NagarNetra@2026",
                 "role": "operator",
             },
         )

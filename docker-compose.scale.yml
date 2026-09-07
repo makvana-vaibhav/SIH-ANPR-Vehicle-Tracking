@@ -32,12 +32,12 @@ services:
       INGEST_ENABLED: "false"
 
   consumer:
-    image: sentinel-gj/api:dev
+    image: nagarnetra/api:dev
     command: ["python", "-m", "app.consumer_main"]
     restart: unless-stopped
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_dev_pw}@postgres:5432/${POSTGRES_DB:-sentinel}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nagarnetra}:${POSTGRES_PASSWORD:-nagarnetra_dev_pw}@postgres:5432/${POSTGRES_DB:-nagarnetra}
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./services/api:/app/services/api
@@ -51,4 +51,4 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       api: { condition: service_healthy }
-    networks: [sentinel]
+    networks: [nagarnetra]

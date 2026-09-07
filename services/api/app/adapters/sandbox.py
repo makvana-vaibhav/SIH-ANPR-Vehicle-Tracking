@@ -66,10 +66,10 @@ WHEP_PORT = 8889
 DEFAULT_MEDIA_HOST = "103.250.160.189"
 
 
-class SentinelSandboxAdapter(CameraAdapter):
+class HostedGridAdapter(CameraAdapter):
     """Federates the challenge sandbox camera grid."""
 
-    adapter_type = "sentinel_sandbox"
+    adapter_type = "hosted_grid"
 
     def _host(self) -> str:
         """Bare hostname of the sandbox, without scheme or port."""

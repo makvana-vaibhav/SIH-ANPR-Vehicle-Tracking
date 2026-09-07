@@ -1,6 +1,6 @@
 # BUILD_STATE.md
 
-Living checklist for the Sentinel-GJ build. **Updated after every phase.**
+Living checklist for the NagarNetra build. **Updated after every phase.**
 Written for a session that remembers nothing about previous sessions — read this, then `CLAUDE.md`,
 then continue at the first unchecked phase.
 
@@ -210,7 +210,7 @@ Fetched the challenge site and its resource guide. Findings that changed the bui
 | Finding | Action taken |
 |---|---|
 | Real departments are **Health, Police, GSRTC, Panchayat, Municipal** (+ SCRB) | Replaced the assumed POLICE/RTO/MUNI/HIGHWAY codes in `models/enums.py` and the seed |
-| Sandbox exposes `GET /api/ingest` returning every camera with id, location, codec, live status and all three stream URLs | Phase 3 gains a `SentinelSandboxAdapter`; `AdapterType.SENTINEL_SANDBOX` and `VmsVendor.SENTINEL_SANDBOX` already added |
+| Sandbox exposes `GET /api/ingest` returning every camera with id, location, codec, live status and all three stream URLs | Phase 3 gains a `HostedGridAdapter`; `AdapterType.HOSTED_GRID` and `VmsVendor.HOSTED_GRID` already added |
 | Stream URLs: `rtsp://<host>:8554/stream/<id>`, `http://<host>:8889/stream/<id>/whep`, `http://<host>/live/stream/<id>/index.m3u8` | **Our MediaMTX ports already match exactly** (8554/8889) — the adapter is a thin mapping, not a translation layer |
 | Exact catalogue JSON schema is **not published**; ids "can change" | Phase 3 adapter must parse defensively and re-sync, never assume field names or a fixed id set |
 | Scale: 30+ live cameras, 12 h footage each, 5 departments → 80,000+ target | Confirms the Phase 10 load-test target |
@@ -339,8 +339,8 @@ covered.
 ### What Phase 3 needs from here
 - `app/models/registry.py` — `VmsInstance.adapter_type` is what the adapter
   registry resolves on; `CameraHealth` is a hypertable ready for probe writes.
-- `AdapterType`/`VmsVendor` already include `SENTINEL_SANDBOX`, and the seeded
-  "Sentinel Sandbox Grid" VMS points at `https://sentinel.gujarat.gov.in`.
+- `AdapterType`/`VmsVendor` already include `HOSTED_GRID`, and the seeded
+  "Hosted Camera Grid" VMS points at `https://sentinel.gujarat.gov.in`.
 - `app/services/camera.py::bulk_upload` is the reusable path for adapters that
   sync a camera list in from a federated VMS.
 - **Sandbox adapter caveat:** the exact `/api/ingest` JSON schema is not
@@ -353,7 +353,7 @@ covered.
 - [x] `RtspAdapter` — real ffprobe session negotiation, errors classified into groupable codes
 - [x] `OnvifAdapter` — SOAP device/media services, profile enumeration, **defusedxml**
 - [x] `VendorVmsAdapter` — token auth, field-mapped normalisation covering 4 vendors
-- [x] `SentinelSandboxAdapter` — the challenge's own `/api/ingest` grid
+- [x] `HostedGridAdapter` — the challenge's own `/api/ingest` grid
 - [x] `SimulatedVmsAdapter` — MediaMTX-backed, powers the demo
 - [x] Adapter registry resolving by `vms_instances.adapter_type`, degrading to RTSP
 - [x] Health monitor daemon (own container), staggered + bounded concurrency
@@ -448,7 +448,7 @@ identical offline.
 ### Demo adapter note (important, and honest)
 The four vendor VMS rows keep their real `vendor` and `base_url`, but their
 `adapter_type` is `simulated` on the demo path, because those hosts do not
-exist on a laptop. Production is a one-field change per row. "Sentinel Sandbox
+exist on a laptop. Production is a one-field change per row. "Hosted Grid
 Grid" keeps its real adapter — that endpoint is genuinely remote.
 
 ## Phase 5 — AI pipeline ✅
@@ -746,7 +746,7 @@ the platform looked broken while the grid was fine:
 
 The RTSP credentials are not accepted by the CDN — Basic auth there returns a
 302 to the login page. The CDN wants the form POST a browser makes and returns
-a `sentinel=` cookie. Media paths additionally refuse any request that does not
+a `nagarnetra=` cookie. Media paths additionally refuse any request that does not
 look like a browser; the 403 body is literally `browser required`.
 
 That explained both visible symptoms at once:
@@ -895,7 +895,7 @@ port shut, and recorded that the grid was RTSP-blocked and HLS-only. The port
 was never blocked — we were knocking on the CDN. Both 8554 and 8889 are open
 and always were.
 
-- [x] `SentinelSandboxAdapter` models the two hosts separately, with the reason
+- [x] `HostedGridAdapter` models the two hosts separately, with the reason
       in the docstring so it cannot be "simplified" back
 - [x] Catalogue path falls back `/cameras.json` → `/api/ingest`; a redirect to
       a login page is reported as a login page, not as "unreachable"
@@ -1140,7 +1140,7 @@ swappable by a test double.
 `scripts/demo_anpr.py` — run it inside the api container, which has the dependencies:
 
 ```
-docker compose exec -e SENTINEL_API_URL=http://api:8000 api \
+docker compose exec -e NAGARNETRA_API_URL=http://api:8000 api \
     python /app/scripts/demo_anpr.py --plate NA13NRU
 ```
 
@@ -1150,7 +1150,7 @@ Prerequisites: `make videos` (fetches and cuts `anpr_demo.mp4`), the simulator p
 ```
 docker compose --profile ai run -d --rm \
     -e AI_WORKER_SOURCE=mediamtx -e AI_WORKER_CAMERAS=cam-00001 \
-    -e AI_CONFIG=stream_demo --name sentinel-ai-demo ai-worker
+    -e AI_CONFIG=stream_demo --name nagarnetra-ai-demo ai-worker
 ```
 
 What it proves, and why each step is not staged:

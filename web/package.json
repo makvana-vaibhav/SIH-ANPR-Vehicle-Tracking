@@ -1,9 +1,9 @@
 {
-  "name": "sentinel-gj-web",
+  "name": "nagarnetra-web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Sentinel-GJ command centre — statewide CCTV intelligence platform",
+  "description": "NagarNetra command centre — city-wide vehicle intelligence platform",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=20.0.0 <21"

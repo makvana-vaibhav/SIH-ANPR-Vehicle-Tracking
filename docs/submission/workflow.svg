@@ -11,7 +11,7 @@
     </marker>
   </defs>
   <rect width="1400" height="1020" fill="#ffffff"/>
-  <text x="48" y="50" font-size="28" font-weight="700" fill="#0f172a">Sentinel-GJ — Workflow &amp; Integration</text>
+  <text x="48" y="50" font-size="28" font-weight="700" fill="#0f172a">NagarNetra — Workflow &amp; Integration</text>
   <text x="48" y="76" font-size="15" fill="#475569">Onboarding a camera · a vehicle passing it · a watchlist hit · a route reconstructed. Timings are measured on one laptop, CPU only.</text>
 
   <!-- ── A: ONBOARDING ── -->

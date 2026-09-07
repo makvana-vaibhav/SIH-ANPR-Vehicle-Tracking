@@ -1,8 +1,8 @@
-"""Sentinel-GJ API — application entrypoint.
+"""NagarNetra API — application entrypoint.
 
-Statewide CCTV intelligence platform for the Gujarat Police / Home Department.
-This tier owns the camera registry, GIS queries, auth and audit, the event and
-alert engines, search, and cross-camera correlation.
+City-wide vehicle intelligence platform (SIH26127). This tier owns the camera
+registry, GIS queries, auth and audit, the event and alert engines, search,
+and cross-camera trajectory correlation.
 
 Phases are built in order (see BUILD_STATE.md); routers are mounted here as
 each phase lands.
@@ -52,7 +52,7 @@ configure_logging(service="api")
 log = get_logger("api")
 
 DESCRIPTION = """
-**Sentinel-GJ** — statewide CCTV intelligence platform.
+**NagarNetra** — city-wide vehicle intelligence platform.
 
 Federates existing multi-vendor, multi-department CCTV rather than replacing it
 (reference Model 5 — Hybrid). Departmental VMS remain authoritative for their own
@@ -125,7 +125,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
-    contact={"name": "Sentinel-GJ", "url": "https://sentinel.gujarat.gov.in"},
+    contact={"name": "NagarNetra", "url": "https://github.com/makvana-vaibhav/SIH-ANPR-Vehicle-Tracking"},
     license_info={"name": "Apache-2.0"},
 )
 
@@ -229,7 +229,7 @@ async def root() -> dict[str, object]:
     """Human-readable entrypoint pointing at the interactive docs."""
     return {
         "service": settings.app_name,
-        "description": "Statewide CCTV intelligence platform — Gujarat",
+        "description": "City-wide vehicle intelligence platform — SIH26127",
         "version": app.version,
         "model": "Hybrid (Model 5): Registry+GIS + Federation middleware + selective unified viewing",
         "docs": "/docs",

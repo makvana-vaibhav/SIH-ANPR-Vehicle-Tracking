@@ -20,7 +20,7 @@ import { Trend, Rate } from 'k6/metrics'
 
 const BASE = __ENV.API_URL || 'http://api:8000'
 const USERNAME = __ENV.API_USER || 'admin'
-const PASSWORD = __ENV.API_PASSWORD || 'Sentinel@2026'
+const PASSWORD = __ENV.API_PASSWORD || 'NagarNetra@2026'
 
 const searchLatency = new Trend('plate_search_ms')
 const mapLatency = new Trend('map_load_ms')

@@ -45,7 +45,7 @@ from app.services.event_bus import parse_event
 
 log = get_logger("event_consumer")
 
-CONSUMER_GROUP = "sentinel-api"
+CONSUMER_GROUP = "nagarnetra-api"
 # How long to block waiting for events before looping. Long enough that an idle
 # stream costs nothing, short enough that shutdown is prompt.
 BLOCK_MS = 2000
@@ -71,7 +71,7 @@ IDLE_CONSUMER_MS = 300_000
 #: — so the platform looked unmeasurable exactly when it was working hardest.
 #: Staleness is carried in the value and filtered by the reader, since fields
 #: within a hash cannot expire individually.
-WORKER_STATS_KEY = "sentinel:ingest:workers"
+WORKER_STATS_KEY = "nagarnetra:ingest:workers"
 WORKER_STATS_TTL_S = 30
 WORKER_STATS_EVERY_S = 5.0
 

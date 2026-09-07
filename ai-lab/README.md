@@ -1,7 +1,7 @@
-# Sentinel-GJ AI Lab
+# NagarNetra AI Lab
 
 A standalone environment for building, measuring and improving the CCTV vision
-pipeline — **deliberately not connected to the Sentinel-GJ platform.**
+pipeline — **deliberately not connected to the NagarNetra platform.**
 
 Give it footage, get back everything the AI understood about it: every vehicle,
 every track, every plate region, every OCR attempt including the wrong ones, the
@@ -24,7 +24,7 @@ The platform's job is to be reliable. The lab's job is to find out what is true.
 Those need different rules, so they get different code:
 
 * The lab may carry heavy or AGPL-licensed dependencies (Ultralytics, PyTorch)
-  that must never ship in a deployed Sentinel-GJ artifact.
+  that must never ship in a deployed NagarNetra artifact.
 * The lab keeps everything — every failed read, every rejected crop. The
   platform would drown in that.
 * The lab is allowed to be slow. The platform is not.
@@ -219,7 +219,7 @@ help our footage?" with counts rather than intuition.
 The COCO and plate detection weights are Ultralytics exports under **AGPL-3.0**,
 and the optional torch profile installs Ultralytics itself. This is a development
 and evaluation tool: those artifacts are used here and do not ship in any
-deployed Sentinel-GJ container. That separation is the reason the production
+deployed NagarNetra container. That separation is the reason the production
 `ai-worker` image is torch-free and carries only ONNX Runtime — see the main
 repository's `CLAUDE.md` §9, deviation 3.
 

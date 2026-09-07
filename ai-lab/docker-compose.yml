@@ -1,10 +1,10 @@
 # The AI lab runs as its own compose project, with its own network and no
-# dependency on the Sentinel-GJ platform stack. Nothing here talks to the
+# dependency on the NagarNetra platform stack. Nothing here talks to the
 # platform's database, bus or API — that separation is the point at this stage.
 #
 #   docker compose run --rm lab doctor
 #   docker compose run --rm lab run /data/videos/road_cctv.mp4
-name: sentinel-ailab
+name: nagarnetra-ailab
 
 services:
   lab:
@@ -12,7 +12,7 @@ services:
       context: .
       args:
         PROFILE: ${AILAB_PROFILE:-core}
-    image: sentinel-ailab:${AILAB_PROFILE:-core}
+    image: nagarnetra-ailab:${AILAB_PROFILE:-core}
     volumes:
       # Source is mounted, not baked in. This is an experimentation environment:
       # editing a scoring rule and re-running must not require an image rebuild.

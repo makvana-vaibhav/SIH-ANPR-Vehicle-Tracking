@@ -1,5 +1,5 @@
 /**
- * API client for the Sentinel-GJ backend.
+ * API client for the NagarNetra backend.
  *
  * Holds the access token, refreshes it transparently when it expires, and
  * gives every request a bounded timeout — per the UI rule in CLAUDE.md that
@@ -36,8 +36,8 @@ import type {
 export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
-const ACCESS_KEY = 'sentinel.access_token'
-const REFRESH_KEY = 'sentinel.refresh_token'
+const ACCESS_KEY = 'nagarnetra.access_token'
+const REFRESH_KEY = 'nagarnetra.refresh_token'
 
 export class ApiError extends Error {
   constructor(

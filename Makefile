@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════
-#  Sentinel-GJ — statewide CCTV intelligence platform
+#  NagarNetra — city-wide vehicle intelligence platform
 #
 #  A judge needs exactly three commands:
 #      make up      → bring the platform online
@@ -28,7 +28,7 @@ HEALTH_TIMEOUT   ?= 300
 
 .PHONY: help
 help: ## Show this help
-	@printf "\033[1mSentinel-GJ\033[0m — statewide CCTV intelligence platform\n\n"
+	@printf "\033[1mNagarNetra\033[0m — city-wide vehicle intelligence platform\n\n"
 	@printf "\033[1mQuick start for a judge:\033[0m\n"
 	@printf "  make up      bring the platform online\n"
 	@printf "  make demo    seed data and open the command centre\n"
@@ -69,7 +69,7 @@ preflight: ## Check Docker is running and has enough memory
 
 .PHONY: up
 up: env preflight ## Build and start the platform, wait for healthy
-	@printf "\033[1mStarting Sentinel-GJ\033[0m\n"
+	@printf "\033[1mStarting NagarNetra\033[0m\n"
 	@$(COMPOSE) up -d --build --remove-orphans
 	@$(MAKE) --no-print-directory wait-healthy
 	@printf "\n\033[1;32mPlatform online\033[0m\n"
@@ -223,8 +223,8 @@ load-quick: ## A 30s sanity run of the load test, for checking it still works
 load-operators: ## k6: can operators still work while ingest runs at full rate?
 	@# Containerised so no k6 install is needed, and on the compose network so
 	@# it reaches the API by service name rather than through the host.
-	@docker run --rm -i --network sentinel-net \
-		-e API_URL=http://api:8000 -e API_PASSWORD="$${BOOTSTRAP_ADMIN_PASSWORD:-Sentinel@2026}" \
+	@docker run --rm -i --network nagarnetra-net \
+		-e API_URL=http://api:8000 -e API_PASSWORD="$${BOOTSTRAP_ADMIN_PASSWORD:-NagarNetra@2026}" \
 		-v "$(PWD)/tests/load/k6:/scripts:ro" \
 		grafana/k6:0.54.0 run /scripts/api_load.js
 
@@ -240,7 +240,7 @@ shell-api: ## Open a shell in the API container
 
 .PHONY: shell-db
 shell-db: ## Open psql in the database container
-	@$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-sentinel} -d $${POSTGRES_DB:-sentinel}
+	@$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-nagarnetra} -d $${POSTGRES_DB:-nagarnetra}
 
 .PHONY: config
 config: ## Validate the compose configuration

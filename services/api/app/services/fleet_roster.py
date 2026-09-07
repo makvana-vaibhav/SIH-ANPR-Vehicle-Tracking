@@ -51,7 +51,7 @@ log = get_logger(__name__)
 
 #: Where the roster lives. A plain key, not a stream: this is current state,
 #: not a history, and a worker joining late wants the roster as it is now.
-ROSTER_KEY = "sentinel:fleet:anpr"
+ROSTER_KEY = "nagarnetra:fleet:anpr"
 
 #: Republish this often. Fast enough that a newly onboarded camera is picked up
 #: within a discovery cycle or two, slow enough to be irrelevant to load.

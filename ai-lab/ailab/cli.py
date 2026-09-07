@@ -656,7 +656,7 @@ def cmd_models(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ailab",
-        description="Sentinel-GJ AI lab — CCTV vehicle and licence-plate pipeline, "
+        description="NagarNetra AI lab — CCTV vehicle and licence-plate pipeline, "
                     "built to be measured rather than trusted.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,

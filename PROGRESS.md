@@ -1,4 +1,4 @@
-# Sentinel-GJ — progress & next steps
+# NagarNetra — progress & next steps
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
@@ -185,8 +185,8 @@ appears and the demo fails, which is the point of running it.
 make videos                              # fetches and cuts anpr_demo.mp4, once
 docker compose --profile ai run -d --rm \
     -e AI_WORKER_SOURCE=mediamtx -e AI_WORKER_CAMERAS=cam-00001 \
-    -e AI_CONFIG=stream_demo --name sentinel-ai-demo ai-worker
-docker compose exec -e SENTINEL_API_URL=http://api:8000 api \
+    -e AI_CONFIG=stream_demo --name nagarnetra-ai-demo ai-worker
+docker compose exec -e NAGARNETRA_API_URL=http://api:8000 api \
     python /app/scripts/demo_anpr.py --plate NA13NRU
 ```
 
@@ -363,9 +363,9 @@ Watch a plate become an alert — the whole chain, nothing staged:
 # One camera carrying the ANPR footage, one worker reading it
 docker compose --profile ai run -d --rm \
     -e AI_WORKER_SOURCE=mediamtx -e AI_WORKER_CAMERAS=cam-00001 \
-    -e AI_CONFIG=stream_demo --name sentinel-ai-demo ai-worker
+    -e AI_CONFIG=stream_demo --name nagarnetra-ai-demo ai-worker
 
-docker compose exec -e SENTINEL_API_URL=http://api:8000 api \
+docker compose exec -e NAGARNETRA_API_URL=http://api:8000 api \
     python /app/scripts/demo_anpr.py --plate NA13NRU
 ```
 
@@ -378,7 +378,7 @@ wscat -c "ws://localhost:8000/ws/events?token=$TOKEN"
 
 | Surface | URL |
 |---|---|
-| Command centre | http://localhost:8080 — `admin` / `Sentinel@2026` |
+| Command centre | http://localhost:8080 — `admin` / `NagarNetra@2026` |
 | API docs | http://localhost:8000/docs |
 | Simulator control | http://localhost:9100/streams |
 

@@ -1,4 +1,4 @@
-# ── Sentinel-GJ AI worker ────────────────────────────────────────────
+# ── NagarNetra AI worker ────────────────────────────────────────────
 # Runs the ai-lab pipeline against live RTSP cameras and publishes vehicle
 # events to the platform's Redis Stream.
 #

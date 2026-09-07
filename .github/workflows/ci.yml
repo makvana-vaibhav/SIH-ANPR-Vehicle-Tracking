@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - build/sentinel-gj
+      - build/nagarnetra
 
 jobs:
   validate:

@@ -47,7 +47,7 @@ STATE_CODES = frozenset({
     "UP", "WB", "UA", "BH",
 })
 
-# Gujarat RTO districts run GJ-01 to GJ-39. Sentinel-GJ is a Gujarat system, so
+# Gujarat RTO districts run GJ-01 to GJ-39. NagarNetra is a Gujarat system, so
 # a GJ plate with an out-of-range district code is worth flagging even though
 # the string is otherwise well-formed.
 GUJARAT_RTO_MAX = 39

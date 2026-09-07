@@ -42,7 +42,7 @@ than one nervous continuous take.
 > an island. Tracking one vehicle across three districts today means three
 > phone calls.
 >
-> Sentinel-GJ does not replace any of them. It federates them. This is 281
+> NagarNetra does not replace any of them. It federates them. This is 281
 > cameras from multiple departments and multiple vendors, on one map."
 
 **Do:** filter by department. Filter by status. Let them see it respond.
@@ -73,7 +73,7 @@ Show the per-row error report.
 
 **This is the section that must use their data.** Say so out loud:
 
-> "This is the Sentinel Camera Grid you provided, live."
+> "This is the Hosted Camera Grid you provided, live."
 
 **Do:** show plates being read, bounding boxes drawn, the plate feed updating.
 

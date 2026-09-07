@@ -24,8 +24,8 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-API = os.environ.get("SENTINEL_API", "http://localhost:8000")
-ADMIN_PW = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "Sentinel@2026")
+API = os.environ.get("NAGARNETRA_API", "http://localhost:8000")
+ADMIN_PW = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "NagarNetra@2026")
 
 pytestmark = pytest.mark.asyncio
 

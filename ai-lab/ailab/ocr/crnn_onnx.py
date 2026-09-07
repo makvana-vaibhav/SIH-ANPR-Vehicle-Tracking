@@ -1,6 +1,6 @@
 """CRNN + CTC recognition on ONNX Runtime.
 
-This is the engine shape the production Sentinel-GJ worker targets: a single
+This is the engine shape the production NagarNetra worker targets: a single
 small recognition network, no text-detection stage, run on a crop that the plate
 detector has already isolated. It is the only engine here that exposes genuine
 per-character confidence, because CTC gives a probability distribution per time

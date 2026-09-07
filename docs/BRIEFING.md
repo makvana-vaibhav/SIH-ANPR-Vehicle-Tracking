@@ -1,4 +1,4 @@
-# Sentinel-GJ — your briefing
+# NagarNetra — your briefing
 
 Everything you need to answer any question a judge asks. Written for you, not
 for them.
@@ -9,7 +9,7 @@ for them.
 
 ## 1. The one-sentence answer
 
-> Sentinel-GJ is a federation platform that lets Gujarat see, search and reason
+> NagarNetra is a federation platform that lets Gujarat see, search and reason
 > about CCTV it already owns across departments and vendors — without replacing
 > a single existing system, because the central tier carries **events, not
 > video**.
@@ -114,7 +114,7 @@ the deployed artifact** — a licensing answer, not just a size one.
      ┌─────────────────┐
      │  Integration    │  5 adapters behind one interface
      │  layer          │  RtspAdapter · OnvifAdapter · VendorVmsAdapter
-     └────────┬────────┘  SentinelSandboxAdapter · SimulatedVmsAdapter
+     └────────┬────────┘  HostedGridAdapter · SimulatedVmsAdapter
               │
       ┌───────┴────────┐
       ▼                ▼
@@ -464,7 +464,7 @@ Three properties worth stating:
 
 ### Password policy
 
-Rejects **`Sentinel@2026`** — this repository's own demo credential, published
+Rejects **`NagarNetra@2026`** — this repository's own demo credential, published
 in `scripts/seed.py`. Length alone admitted it. Also rejects passwords
 containing the username, repeated characters, and keyboard runs.
 
@@ -717,10 +717,10 @@ Full script with click paths: **`docs/DEMO_SCRIPT.md`**. The essentials:
 ```bash
 docker compose ps                                  # all healthy
 curl -s localhost:9100/streams | grep CAM-DEMO     # demo publishing
-docker logs sentinel-ai-worker --tail 5 | grep watching
+docker logs nagarnetra-ai-worker --tail 5 | grep watching
 ```
 
-In the browser at **localhost:8080**, sign in as `admin` / `Sentinel@2026` and
+In the browser at **localhost:8080**, sign in as `admin` / `NagarNetra@2026` and
 confirm the dashboard says **event feed live** (green).
 
 ### The eight minutes
@@ -865,7 +865,7 @@ finding — thank them.
 
 | | |
 |---|---|
-| UI | `http://localhost:8080` — `admin` / `Sentinel@2026` |
+| UI | `http://localhost:8080` — `admin` / `NagarNetra@2026` |
 | API docs | `http://localhost:8000/docs` |
 | Simulator | `http://localhost:9100/streams` |
 | Start | `make demo` |
@@ -873,7 +873,7 @@ finding — thank them.
 | Regenerate API docs | `make docs` |
 
 **Roles for the demo:** `admin`, `supervisor`, `operator`, `analyst`, `auditor`
-— all password `Sentinel@2026`.
+— all password `NagarNetra@2026`.
 
 ### The documents, and what each is for
 

@@ -12,7 +12,7 @@ why the platform looked broken while the grid was working:
 
 The RTSP credentials are not accepted by the CDN — Basic auth there returns a
 302 to the login page. The CDN wants the form POST that a browser makes, and
-gives back a `sentinel=` cookie.
+gives back a `nagarnetra=` cookie.
 
 So the API logs in once, keeps the cookie, and re-logs when it stops working.
 This is the only place in the platform that holds those credentials.
@@ -96,7 +96,7 @@ class GridSession:
             return None
 
         # A successful login redirects; a rejected one renders the form again.
-        cookie = response.cookies.get("sentinel")
+        cookie = response.cookies.get("nagarnetra")
         if not cookie:
             log.warning(
                 "grid.login_rejected",
@@ -105,7 +105,7 @@ class GridSession:
             )
             return None
 
-        self._cookie = f"sentinel={cookie}"
+        self._cookie = f"nagarnetra={cookie}"
         self._obtained_at = datetime.now(UTC)
         log.info("grid.login_ok", status=response.status_code)
         return self._cookie

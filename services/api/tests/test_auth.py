@@ -18,7 +18,7 @@ from app.core.security import (
 pytestmark = pytest.mark.integration
 
 VALID_USER = "admin"
-VALID_PASSWORD = "Sentinel@2026"
+VALID_PASSWORD = "NagarNetra@2026"
 
 
 class TestPasswordHashing:

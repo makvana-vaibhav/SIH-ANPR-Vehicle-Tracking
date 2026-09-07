@@ -1,6 +1,6 @@
 # Security
 
-Sentinel-GJ processes vehicle movements across a state. That makes it a
+NagarNetra processes vehicle movements across a state. That makes it a
 surveillance system, and the controls that matter are not only the ones that
 keep attackers out — they are the ones that make misuse by authorised users
 visible.
@@ -78,7 +78,7 @@ Two deliberate splits:
 
 ### Password policy
 
-`app/core/password_policy.py`. Length alone admitted `Sentinel@2026` — this
+`app/core/password_policy.py`. Length alone admitted `NagarNetra@2026` — this
 repository's own documented demo credential, published in `scripts/seed.py`.
 Enforced:
 

@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════
-#  Sentinel-GJ — base profile
+#  NagarNetra — base profile
 #  Everything a judge needs: `make up` → all healthy → `make demo`.
 #
 #  Every image is pinned to an explicit version. All tags verified to
@@ -9,7 +9,7 @@
 #  Heavier profiles live in docker-compose.ai.yml and docker-compose.scale.yml.
 # ══════════════════════════════════════════════════════════════════════
 
-name: sentinel-gj
+name: nagarnetra
 
 x-logging: &default-logging
   driver: json-file
@@ -27,12 +27,12 @@ services:
   # timescaledb-ha:*-all ships PostGIS and TimescaleDB together.
   postgres:
     image: timescale/timescaledb-ha:pg16.14-ts2.29.2-all
-    container_name: sentinel-postgres
+    container_name: nagarnetra-postgres
     <<: *default-restart
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
-      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinel_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-nagarnetra}
+      POSTGRES_USER: ${POSTGRES_USER:-nagarnetra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nagarnetra_dev_pw}
       # Enable both extensions at first boot
       POSTGRES_INITDB_ARGS: "--data-checksums"
       TZ: UTC
@@ -62,18 +62,18 @@ services:
       - -c
       - timezone=UTC
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sentinel} -d ${POSTGRES_DB:-sentinel}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nagarnetra} -d ${POSTGRES_DB:-nagarnetra}"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 30s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── Redis 7 — cache + event bus (Streams w/ consumer groups) ────────
   redis:
     image: redis:7.4.11-alpine
-    container_name: sentinel-redis
+    container_name: nagarnetra-redis
     <<: *default-restart
     command:
       - redis-server
@@ -94,17 +94,17 @@ services:
       retries: 10
       start_period: 5s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── MinIO — S3-compatible store for plate crops, frames, clips ──────
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    container_name: sentinel-minio
+    container_name: nagarnetra-minio
     <<: *default-restart
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-sentinel}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-sentinel_dev_pw}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-nagarnetra}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-nagarnetra_dev_pw}
       MINIO_BROWSER_REDIRECT_URL: http://localhost:${MINIO_CONSOLE_HOST_PORT:-9001}
     ports:
       - "${MINIO_API_HOST_PORT:-9000}:9000"
@@ -118,37 +118,37 @@ services:
       retries: 20
       start_period: 10s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── MinIO bucket bootstrap — creates the media bucket, then exits ───
   minio-init:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    container_name: sentinel-minio-init
+    container_name: nagarnetra-minio-init
     depends_on:
       minio:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-sentinel} ${MINIO_ROOT_PASSWORD:-sentinel_dev_pw} &&
-      mc mb --ignore-existing local/${MINIO_BUCKET:-sentinel-media} &&
-      mc anonymous set download local/${MINIO_BUCKET:-sentinel-media} &&
-      echo 'minio bucket ready: ${MINIO_BUCKET:-sentinel-media}'
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-nagarnetra} ${MINIO_ROOT_PASSWORD:-nagarnetra_dev_pw} &&
+      mc mb --ignore-existing local/${MINIO_BUCKET:-nagarnetra-media} &&
+      mc anonymous set download local/${MINIO_BUCKET:-nagarnetra-media} &&
+      echo 'minio bucket ready: ${MINIO_BUCKET:-nagarnetra-media}'
       "
     restart: "no"
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── OpenSearch — fuzzy/partial plate search ─────────────────────────
   # Apache-2.0. Postgres pg_trgm takes over at runtime if this is down,
   # so the demo survives losing this container (proven in Phase 8).
   opensearch:
     image: opensearchproject/opensearch:2.19.6
-    container_name: sentinel-opensearch
+    container_name: nagarnetra-opensearch
     <<: *default-restart
     environment:
       discovery.type: single-node
-      cluster.name: sentinel-search
-      node.name: sentinel-os-01
+      cluster.name: nagarnetra-search
+      node.name: nagarnetra-os-01
       bootstrap.memory_lock: "true"
       OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms512m -Xmx512m}
       # Local-only demo stack on an isolated bridge network; TLS and the
@@ -169,14 +169,14 @@ services:
       retries: 30
       start_period: 40s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── MediaMTX — RTSP in → WebRTC (WHEP) / HLS out ────────────────────
   # On-demand publishing: a camera is only pulled while someone watches.
   # That is a real bandwidth argument, not a demo trick (see docs/HLD.md).
   mediamtx:
     image: bluenviron/mediamtx:1.20.1-ffmpeg
-    container_name: sentinel-mediamtx
+    container_name: nagarnetra-mediamtx
     <<: *default-restart
     environment:
       # `protocols` was renamed `rtspTransports` in MediaMTX 1.x.
@@ -200,7 +200,7 @@ services:
       retries: 12
       start_period: 15s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── API — FastAPI: registry, GIS, auth, events, search, alerts ──────
   api:
@@ -212,12 +212,12 @@ services:
         # The demo image doubles as the test/lint runner (`make test`,
         # `make lint`), so it carries pytest, ruff and mypy.
         INSTALL_DEV: "true"
-    image: sentinel-gj/api:dev
-    container_name: sentinel-api
+    image: nagarnetra/api:dev
+    container_name: nagarnetra-api
     <<: *default-restart
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_dev_pw}@postgres:5432/${POSTGRES_DB:-sentinel}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nagarnetra}:${POSTGRES_PASSWORD:-nagarnetra_dev_pw}@postgres:5432/${POSTGRES_DB:-nagarnetra}
       REDIS_URL: redis://redis:6379/0
       OPENSEARCH_URL: http://opensearch:9200
       MINIO_ENDPOINT: minio:9000
@@ -250,7 +250,7 @@ services:
       retries: 12
       start_period: 20s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── Web — React command centre, served by nginx ─────────────────────
   web:
@@ -262,8 +262,8 @@ services:
         NODE_VERSION: "20"
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
         VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000/ws/events}
-    image: sentinel-gj/web:dev
-    container_name: sentinel-web
+    image: nagarnetra/web:dev
+    container_name: nagarnetra-web
     <<: *default-restart
     ports:
       - "${WEB_HOST_PORT:-8080}:80"
@@ -276,7 +276,7 @@ services:
       retries: 12
       start_period: 10s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── Ingest — fleet health monitor ───────────────────────────────────
   # Runs the staggered probe loop against every camera through its VMS
@@ -285,13 +285,13 @@ services:
   # the ORM models and adapters, and one image build protects the 5-minute
   # demo (see CLAUDE.md section 9).
   ingest:
-    image: sentinel-gj/api:dev
-    container_name: sentinel-ingest
+    image: nagarnetra/api:dev
+    container_name: nagarnetra-ingest
     <<: *default-restart
     command: ["python", "-m", "app.ingest.monitor"]
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_dev_pw}@postgres:5432/${POSTGRES_DB:-sentinel}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nagarnetra}:${POSTGRES_PASSWORD:-nagarnetra_dev_pw}@postgres:5432/${POSTGRES_DB:-nagarnetra}
       REDIS_URL: redis://redis:6379/0
       MEDIAMTX_API_URL: http://mediamtx:9997
     volumes:
@@ -310,7 +310,7 @@ services:
       retries: 5
       start_period: 20s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── AI worker — live ANPR on camera streams ─────────────────────────
   # Pulls RTSP from MediaMTX, runs vehicle detection, tracking, plate
@@ -326,14 +326,14 @@ services:
     build:
       context: .
       dockerfile: services/ai-worker/Dockerfile
-    image: sentinel-gj/ai-worker:dev
-    container_name: sentinel-ai-worker
+    image: nagarnetra/ai-worker:dev
+    container_name: nagarnetra-ai-worker
     <<: *default-restart
     profiles: ["ai"]
     env_file: [.env]
     environment:
       REDIS_URL: redis://redis:6379/0
-      EVENT_STREAM_KEY: sentinel:events:detections
+      EVENT_STREAM_KEY: nagarnetra:events:detections
       MEDIAMTX_API_URL: http://mediamtx:9997
       MEDIAMTX_HOST: mediamtx
       AI_CONFIG: stream
@@ -388,22 +388,22 @@ services:
       retries: 3
       start_period: 20s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
   # ── Simulator — synthetic camera fleet ──────────────────────────────
   # Replays footage into MediaMTX as real RTSP, so the platform has live
   # cameras without hardware. This is the same technique the challenge
   # sandbox uses to expose its 30+ government feeds (FAQ Q39-40).
   simulator:
-    image: sentinel-gj/api:dev
-    container_name: sentinel-simulator
+    image: nagarnetra/api:dev
+    container_name: nagarnetra-simulator
     <<: *default-restart
     command:
       ["uvicorn", "simulator.main:app", "--host", "0.0.0.0", "--port", "9100",
        "--app-dir", "/app/services/simulator"]
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_dev_pw}@postgres:5432/${POSTGRES_DB:-sentinel}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nagarnetra}:${POSTGRES_PASSWORD:-nagarnetra_dev_pw}@postgres:5432/${POSTGRES_DB:-nagarnetra}
       SIM_VIDEO_DIR: /data/videos
       # 0 = publish only the cameras with footage pinned below. Raise it to
       # replay clips across the fleet for load testing, where synthetic video
@@ -429,11 +429,11 @@ services:
       retries: 10
       start_period: 30s
     logging: *default-logging
-    networks: [sentinel]
+    networks: [nagarnetra]
 
 networks:
-  sentinel:
-    name: sentinel-net
+  nagarnetra:
+    name: nagarnetra-net
     driver: bridge
     # Fixed subnet so MediaMTX can grant control-API access to the internal
     # tier by CIDR rather than to the world (see infra/mediamtx/mediamtx.yml).

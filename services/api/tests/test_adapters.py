@@ -28,7 +28,7 @@ from app.adapters.rtsp import (
     _parse_frame_rate,
 )
 from app.adapters.sandbox import (
-    SentinelSandboxAdapter,
+    HostedGridAdapter,
     _external_id_of,
     _extract_location,
     _extract_resolution,
@@ -43,7 +43,7 @@ class TestAdapterRegistry:
 
     def test_every_adapter_type_is_registered(self) -> None:
         registered = available_adapters()
-        assert set(registered) >= {"rtsp", "onvif", "vendor_api", "sentinel_sandbox", "simulated"}
+        assert set(registered) >= {"rtsp", "onvif", "vendor_api", "hosted_grid", "simulated"}
 
     @pytest.mark.parametrize(
         ("adapter_type", "expected"),
@@ -51,7 +51,7 @@ class TestAdapterRegistry:
             ("rtsp", RtspAdapter),
             ("onvif", OnvifAdapter),
             ("vendor_api", VendorVmsAdapter),
-            ("sentinel_sandbox", SentinelSandboxAdapter),
+            ("hosted_grid", HostedGridAdapter),
             ("simulated", SimulatedVmsAdapter),
         ],
     )
@@ -90,10 +90,10 @@ class TestAdapterRegistry:
             name="V",
             adapter_type="vendor_api",
             base_url="http://v",
-            credentials_ref="vault://sentinel/vms/v",
+            credentials_ref="vault://nagarnetra/vms/v",
         )
         adapter = adapter_for(vms)
-        assert adapter.credentials_ref == "vault://sentinel/vms/v"
+        assert adapter.credentials_ref == "vault://nagarnetra/vms/v"
 
     def test_every_adapter_implements_the_contract(self) -> None:
         for adapter_type in available_adapters():
@@ -264,9 +264,9 @@ class TestVendorNormalisation:
 class TestSandboxAdapter:
     """The challenge's own grid (sentinel.gujarat.gov.in)."""
 
-    def _adapter(self) -> SentinelSandboxAdapter:
-        return SentinelSandboxAdapter(
-            name="Sentinel Sandbox Grid", base_url="https://sentinel.gujarat.gov.in"
+    def _adapter(self) -> HostedGridAdapter:
+        return HostedGridAdapter(
+            name="Hosted Camera Grid", base_url="https://sentinel.gujarat.gov.in"
         )
 
     def test_media_is_not_served_from_the_catalogue_host(self) -> None:
@@ -371,7 +371,7 @@ class TestSecretsAreNeverInlined:
         from app.services.secrets import resolve_credentials
 
         assert resolve_credentials(None) is None
-        assert resolve_credentials("vault://sentinel/vms/absent") is None
+        assert resolve_credentials("vault://nagarnetra/vms/absent") is None
         assert resolve_credentials("nonsense") is None
 
     def test_env_reference_resolves(self, monkeypatch: pytest.MonkeyPatch) -> None:

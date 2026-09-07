@@ -25,7 +25,7 @@ WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
 # Wikimedia requires a descriptive User-Agent and refuses generic ones.
-UA="sentinel-gj/0.1 (Gujarat Police CCTV hackathon; +https://sentinel.gujarat.gov.in)"
+UA="nagarnetra/0.1 (SIH26127 city ANPR research; +https://github.com/makvana-vaibhav/SIH-ANPR-Vehicle-Tracking)"
 
 # Target encode: 1280x720 is a realistic municipal CCTV resolution and keeps
 # ffmpeg cheap enough to run ~24 concurrent streams on a laptop.

@@ -76,7 +76,7 @@ broadcaster = EventBroadcaster()
 #: detection stream cannot carry them — an alert is created after the commit,
 #: not read from the bus — so they travel on their own pub/sub channel, which
 #: every replica subscribes to and nobody consumes exclusively.
-ALERT_CHANNEL = "sentinel:alerts:fanout"
+ALERT_CHANNEL = "nagarnetra:alerts:fanout"
 
 
 def parse_event(raw: dict[str, Any]) -> dict[str, Any] | None:

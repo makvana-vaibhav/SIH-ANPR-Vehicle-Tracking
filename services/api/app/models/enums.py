@@ -53,7 +53,7 @@ class VmsVendor(StrEnum):
     HIKVISION = "hikvision"
     GENERIC_RTSP = "generic_rtsp"
     ONVIF = "onvif"
-    SENTINEL_SANDBOX = "sentinel_sandbox"  # the challenge's own camera grid
+    HOSTED_GRID = "hosted_grid"  # the challenge's own camera grid
     SIMULATED = "simulated"
 
 
@@ -63,7 +63,7 @@ class AdapterType(StrEnum):
     RTSP = "rtsp"
     ONVIF = "onvif"
     VENDOR_API = "vendor_api"
-    SENTINEL_SANDBOX = "sentinel_sandbox"
+    HOSTED_GRID = "hosted_grid"
     SIMULATED = "simulated"
 
 

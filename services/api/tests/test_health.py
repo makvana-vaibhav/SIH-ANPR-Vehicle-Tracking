@@ -22,7 +22,7 @@ class TestLiveness:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "alive"
-        assert body["service"] == "Sentinel-GJ"
+        assert body["service"] == "NagarNetra"
 
     async def test_reports_uptime_and_utc_timestamps(self, client: AsyncClient) -> None:
         """Timestamps are timezone-aware UTC (CLAUDE.md §5)."""
@@ -150,6 +150,6 @@ class TestOpenAPI:
 
         assert response.status_code == 200
         schema = response.json()
-        assert schema["info"]["title"] == "Sentinel-GJ"
+        assert schema["info"]["title"] == "NagarNetra"
         assert "/health" in schema["paths"]
         assert "/ready" in schema["paths"]

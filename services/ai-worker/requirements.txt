@@ -1,4 +1,4 @@
-# ── Sentinel-GJ AI worker ────────────────────────────────────────────
+# ── NagarNetra AI worker ────────────────────────────────────────────
 # Torch-free, as recorded in CLAUDE.md deviation 3: the shipped worker carries
 # ONNX Runtime and OpenCV only. Ultralytics (AGPL-3.0) is used at model-export
 # time in the lab, never here.

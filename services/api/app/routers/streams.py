@@ -122,7 +122,7 @@ async def open_stream(
     # browser has no session for. Point it at our authenticated proxy instead;
     # the grid's credentials stay on the server. See routers/grid_media.py.
     hls_url = endpoints.hls
-    if adapter.adapter_type == "sentinel_sandbox" and hls_url:
+    if adapter.adapter_type == "hosted_grid" and hls_url:
         hls_url = f"/api/v1/grid/{camera.id}/{token}/index.m3u8"
 
     # The RTSP URL carries the grid's username and password — RTSP has nowhere

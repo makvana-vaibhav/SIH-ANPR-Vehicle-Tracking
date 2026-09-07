@@ -15,7 +15,7 @@ class WorkerSettings(BaseSettings):
 
     # ── where events go ──
     redis_url: str = "redis://redis:6379/0"
-    event_stream_key: str = "sentinel:events:detections"
+    event_stream_key: str = "nagarnetra:events:detections"
     # Trim the stream to roughly this many entries. The API consumes it within
     # milliseconds; the cap exists so a stopped consumer cannot fill Redis.
     event_stream_maxlen: int = 100_000

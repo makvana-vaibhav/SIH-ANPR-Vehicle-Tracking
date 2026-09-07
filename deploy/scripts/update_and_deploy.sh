@@ -8,7 +8,7 @@ fi
 
 ENV_NAME="$1"
 case "$ENV_NAME" in
-  staging) DEFAULT_BRANCH="build/sentinel-gj" ;;
+  staging) DEFAULT_BRANCH="build/nagarnetra" ;;
   main) DEFAULT_BRANCH="main" ;;
   *)
     echo "Invalid environment: $ENV_NAME (allowed: staging, main)"
@@ -17,10 +17,10 @@ case "$ENV_NAME" in
 esac
 
 BRANCH="${2:-$DEFAULT_BRANCH}"
-APP_ROOT="/opt/sentinel-gj"
+APP_ROOT="/opt/nagarnetra"
 TARGET_DIR="$APP_ROOT/$ENV_NAME"
-ENV_FILE="/etc/sentinel-gj/${ENV_NAME}.env"
-REPO_URL="${REPO_URL:-https://github.com/${GITHUB_REPOSITORY:-makvana-vaibhav/SENTINEL-GJ}.git}"
+ENV_FILE="/etc/nagarnetra/${ENV_NAME}.env"
+REPO_URL="${REPO_URL:-https://github.com/${GITHUB_REPOSITORY:-makvana-vaibhav/SIH-ANPR-Vehicle-Tracking}.git}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is not installed"

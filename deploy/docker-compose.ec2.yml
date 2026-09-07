@@ -1,30 +1,30 @@
 services:
   postgres:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-postgres
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-postgres
     ports:
       - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
 
   redis:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-redis
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-redis
     ports:
       - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_HOST_PORT:-6379}:6379"
 
   minio:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-minio
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-minio
     ports:
       - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_HOST_PORT:-9000}:9000"
       - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
 
   minio-init:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-minio-init
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-minio-init
 
   opensearch:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-opensearch
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-opensearch
     ports:
       - "${OPENSEARCH_BIND_ADDRESS:-127.0.0.1}:${OPENSEARCH_HOST_PORT:-9200}:9200"
 
   mediamtx:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-mediamtx
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-mediamtx
     ports:
       - "${MEDIAMTX_BIND_ADDRESS:-127.0.0.1}:${MEDIAMTX_RTSP_PORT:-8554}:8554"
       - "${MEDIAMTX_BIND_ADDRESS:-127.0.0.1}:${MEDIAMTX_HLS_PORT:-8888}:8888"
@@ -33,7 +33,7 @@ services:
       - "${MEDIAMTX_BIND_ADDRESS:-127.0.0.1}:8189:8189/udp"
 
   api:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-api
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-api
     build:
       args:
         INSTALL_DEV: "false"
@@ -44,7 +44,7 @@ services:
       - ./data/videos:/data/videos
 
   web:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-web
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-web
     build:
       args:
         VITE_API_BASE_URL: ""
@@ -53,11 +53,11 @@ services:
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_HOST_PORT:-8080}:80"
 
   ingest:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-ingest
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-ingest
     volumes: []
 
   simulator:
-    container_name: ${COMPOSE_PROJECT_NAME:-sentinel}-simulator
+    container_name: ${COMPOSE_PROJECT_NAME:-nagarnetra}-simulator
     ports:
       - "${SIMULATOR_BIND_ADDRESS:-127.0.0.1}:${SIMULATOR_HOST_PORT:-9100}:9100"
     volumes:

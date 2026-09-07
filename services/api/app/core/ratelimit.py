@@ -129,7 +129,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         window = int(time.time()) // budget.window_seconds
         failures_only = path.startswith(AUTH_PATHS)
         scope = "auth" if failures_only else "api"
-        key = f"sentinel:ratelimit:{scope}:{client_key(request)}:{window}"
+        key = f"nagarnetra:ratelimit:{scope}:{client_key(request)}:{window}"
 
         try:
             client = await self._redis()

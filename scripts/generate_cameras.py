@@ -216,7 +216,7 @@ VMS_INSTANCES = (
     "Ahmedabad Smart City VMS",  # genetec
     "GSRTC Depot Surveillance",  # cpplus
     "Gujarat Highway ANPR Grid",  # hikvision
-    "Sentinel Sandbox Grid",  # the challenge's own camera grid
+    "Hosted Camera Grid",  # the challenge's own camera grid
 )
 
 CAMERA_TYPES = ("fixed", "anpr", "ptz", "dome")
@@ -344,7 +344,7 @@ def build_rows() -> list[dict[str, object]]:
                         ("POLICE", "GSRTC", "PANCHAYAT"), weights=(64, 24, 12)
                     )[0],
                     "vms_name": rng.choice(
-                        ("Gujarat Highway ANPR Grid", "Sentinel Sandbox Grid")
+                        ("Gujarat Highway ANPR Grid", "Hosted Camera Grid")
                     ),
                     "district": nearest.district,
                     "city": nearest.name,

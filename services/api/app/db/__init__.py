@@ -1,1 +1,1 @@
-"""Sentinel-GJ API — database engine, session, and ORM base."""
+"""NagarNetra API — database engine, session, and ORM base."""

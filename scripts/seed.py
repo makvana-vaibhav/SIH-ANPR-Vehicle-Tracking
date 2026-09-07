@@ -95,12 +95,12 @@ VMS_INSTANCES: list[dict[str, str]] = [
     {
         # The challenge sandbox (sentinel.gujarat.gov.in) publishes a camera
         # catalogue at /api/ingest and serves RTSP/WHEP/HLS. Phase 3's
-        # SentinelSandboxAdapter federates it through this record.
-        "name": "Sentinel Sandbox Grid",
-        "vendor": VmsVendor.SENTINEL_SANDBOX.value,
-        "adapter_type": AdapterType.SENTINEL_SANDBOX.value,
+        # HostedGridAdapter federates it through this record.
+        "name": "Hosted Camera Grid",
+        "vendor": VmsVendor.HOSTED_GRID.value,
+        "adapter_type": AdapterType.HOSTED_GRID.value,
         "base_url": "https://sentinel.gujarat.gov.in",
-        "credentials_ref": "vault://sentinel/vms/sandbox-grid",
+        "credentials_ref": "vault://nagarnetra/vms/sandbox-grid",
         "department": "SCRB",
     },
 ]
@@ -110,7 +110,7 @@ VMS_INSTANCES: list[dict[str, str]] = [
 # take effect. The admin password comes from the environment; the rest share
 # a documented demo password. In production these accounts would not exist —
 # see docs/SECURITY.md on account provisioning.
-DEMO_PASSWORD = "Sentinel@2026"  # noqa: S105 - documented demo credential
+DEMO_PASSWORD = "NagarNetra@2026"  # noqa: S105 - documented demo credential
 
 DEMO_USERS: list[dict[str, str | None]] = [
     {
@@ -260,7 +260,7 @@ async def seed_vms(department_ids: dict[str, object]) -> None:
 #: what it is.
 DEMO_CODE = "CAM-DEMO"
 DEMO_NAME = "ANPR Demonstration Feed (recorded)"
-DEMO_VMS = "Sentinel ANPR Demonstration"
+DEMO_VMS = "NagarNetra ANPR Demonstration"
 #: Ahmedabad city centre. It has to be somewhere to appear on the map at all,
 #: and the name says it is a demonstration, so nothing here claims the footage
 #: was shot at this point.
@@ -415,7 +415,7 @@ def _timestamp(value: str | None) -> datetime | None:
 
 
 async def main() -> int:
-    parser = argparse.ArgumentParser(description="Seed Sentinel-GJ demo data")
+    parser = argparse.ArgumentParser(description="Seed NagarNetra demo data")
     parser.add_argument(
         "--only",
         choices=["departments", "users", "vms", "demo-camera", "watchlist", "all"],
@@ -424,7 +424,7 @@ async def main() -> int:
     )
     args = parser.parse_args()
 
-    print("Seeding Sentinel-GJ")
+    print("Seeding NagarNetra")
     try:
         department_ids = await seed_departments()
         if args.only in ("users", "all"):

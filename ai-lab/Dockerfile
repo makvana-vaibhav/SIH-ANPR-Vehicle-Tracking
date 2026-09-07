@@ -1,7 +1,7 @@
-# ── Sentinel-GJ AI Lab ───────────────────────────────────────────────
+# ── NagarNetra AI Lab ───────────────────────────────────────────────
 # Deliberately a separate image from the platform services. The lab is a
 # development tool: it may carry heavier, AGPL-licensed, or experiment-only
-# dependencies that must never reach a deployed Sentinel-GJ artifact.
+# dependencies that must never reach a deployed NagarNetra artifact.
 #
 # The default build is torch-free — the whole pipeline runs on ONNX Runtime.
 # Build with `--build-arg PROFILE=torch` to add Ultralytics/PyTorch/EasyOCR for

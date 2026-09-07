@@ -22,7 +22,7 @@ from app.adapters.base import (
 )
 from app.adapters.onvif import OnvifAdapter
 from app.adapters.rtsp import RtspAdapter
-from app.adapters.sandbox import SentinelSandboxAdapter
+from app.adapters.sandbox import HostedGridAdapter
 from app.adapters.simulated import SimulatedVmsAdapter
 from app.adapters.vendor import VendorVmsAdapter
 from app.core.logging import get_logger
@@ -34,7 +34,7 @@ _ADAPTERS: dict[str, type[CameraAdapter]] = {
     AdapterType.RTSP.value: RtspAdapter,
     AdapterType.ONVIF.value: OnvifAdapter,
     AdapterType.VENDOR_API.value: VendorVmsAdapter,
-    AdapterType.SENTINEL_SANDBOX.value: SentinelSandboxAdapter,
+    AdapterType.HOSTED_GRID.value: HostedGridAdapter,
     AdapterType.SIMULATED.value: SimulatedVmsAdapter,
 }
 
@@ -81,9 +81,9 @@ __all__ = [
     "CameraAdapter",
     "DiscoveredCamera",
     "HealthProbe",
+    "HostedGridAdapter",
     "OnvifAdapter",
     "RtspAdapter",
-    "SentinelSandboxAdapter",
     "SimulatedVmsAdapter",
     "StreamEndpoints",
     "VendorVmsAdapter",

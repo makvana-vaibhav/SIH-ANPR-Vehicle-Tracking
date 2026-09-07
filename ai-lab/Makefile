@@ -1,4 +1,4 @@
-# Sentinel-GJ AI Lab
+# NagarNetra AI Lab
 #
 # Everything runs in a container so the lab needs no Python on the host.
 # macOS ships GNU Make 3.81, which has no .ONESHELL — recipes use `; \`.
@@ -13,7 +13,7 @@ PROFILE ?= core
 .PHONY: help build models doctor run fast accurate sweep ablation report evaluate mine test lint shell clean footage validate
 
 help:
-	@echo "Sentinel-GJ AI Lab"
+	@echo "NagarNetra AI Lab"
 	@echo ""
 	@echo "  make build              build the lab image (PROFILE=core|torch)"
 	@echo "  make models             download ONNX weights (~22 MB)"

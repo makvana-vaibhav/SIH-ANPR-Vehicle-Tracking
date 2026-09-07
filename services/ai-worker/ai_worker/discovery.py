@@ -114,7 +114,7 @@ async def discover(
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Sentinel sandbox grid
+# hosted grid grid
 # ─────────────────────────────────────────────────────────────────────
 async def sandbox_catalogue(base_url: str, timeout: float = 15.0) -> list[dict]:
     """The organisers' camera catalogue.
@@ -240,7 +240,7 @@ async def discover_sandbox(
 # ─────────────────────────────────────────────────────────────────────
 #: Where the API publishes the ANPR fleet. See app/services/fleet_roster.py for
 #: why the roster travels through Redis rather than the database or the API.
-ROSTER_KEY = "sentinel:fleet:anpr"
+ROSTER_KEY = "nagarnetra:fleet:anpr"
 
 
 async def rtsp_reachable(host: str, port: int = 8554, timeout: float = 4.0) -> bool:

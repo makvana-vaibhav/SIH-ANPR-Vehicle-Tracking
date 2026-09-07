@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════
-#  Sentinel-GJ API — development & test dependencies
+#  NagarNetra API — development & test dependencies
 #  Tests belong to the phase that creates the code, so these ship
 #  with the image used by `make test`.
 # ══════════════════════════════════════════════════════════════

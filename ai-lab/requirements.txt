@@ -1,4 +1,4 @@
-# ── Sentinel-GJ AI Lab — core runtime ────────────────────────────────
+# ── NagarNetra AI Lab — core runtime ────────────────────────────────
 # Torch-free by default. The entire pipeline (vehicle detection, tracking,
 # plate detection, OCR, consensus, reporting, evaluation) runs on ONNX
 # Runtime alone. See requirements-torch.txt for the optional experiment

@@ -24,7 +24,7 @@ fail()  { printf '  %s✗%s %s\n' "$RED" "$RESET" "$1"; }
 
 API=${API_URL:-http://localhost:8000}
 WEB=${WEB_URL:-http://localhost:8080}
-ADMIN_PW=${BOOTSTRAP_ADMIN_PASSWORD:-Sentinel@2026}
+ADMIN_PW=${BOOTSTRAP_ADMIN_PASSWORD:-NagarNetra@2026}
 
 wait_for() {  # wait_for <url> <seconds> <label>
     local url=$1 limit=$2 label=$3 waited=0

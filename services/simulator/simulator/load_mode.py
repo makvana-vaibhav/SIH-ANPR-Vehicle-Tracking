@@ -248,7 +248,7 @@ def main() -> int:
     parser.add_argument("--prefix", default="CAM-LOAD", help="camera code prefix")
     parser.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis:6379/0"))
     parser.add_argument("--stream", default=os.getenv("EVENT_STREAM_KEY",
-                                                      "sentinel:events:detections"))
+                                                      "nagarnetra:events:detections"))
     parser.add_argument("--watchlist", default="", help="comma-separated plates to inject")
     args = parser.parse_args()
 

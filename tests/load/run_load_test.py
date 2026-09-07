@@ -50,7 +50,7 @@ def compose(*args: str, capture: bool = True, check: bool = True) -> str:
 
 
 def psql(sql: str) -> str:
-    return compose("exec", "-T", "postgres", "psql", "-U", "sentinel", "-d", "sentinel",
+    return compose("exec", "-T", "postgres", "psql", "-U", "nagarnetra", "-d", "nagarnetra",
                    "-v", "ON_ERROR_STOP=1", "-tAc", sql).strip()
 
 
@@ -92,7 +92,7 @@ def ingest_stats(base_url: str) -> dict:
 def seed_fleet(count: int) -> int:
     """Create the load fleet, and report how many cameras exist afterwards."""
     sql = (HERE / "fixture.sql").read_text().replace(":count", str(count))
-    compose("exec", "-T", "postgres", "psql", "-U", "sentinel", "-d", "sentinel",
+    compose("exec", "-T", "postgres", "psql", "-U", "nagarnetra", "-d", "nagarnetra",
             "-v", "ON_ERROR_STOP=1", "-c", sql)
     return int(psql("SELECT count(*) FROM cameras WHERE 'loadtest' = ANY(tags);"))
 
@@ -103,23 +103,23 @@ def teardown() -> dict[str, int]:
         "detections": int(psql("SELECT count(*) FROM detections WHERE track_id LIKE 'CAM-LOAD-%';")),
     }
     sql = (HERE / "teardown.sql").read_text()
-    compose("exec", "-T", "postgres", "psql", "-U", "sentinel", "-d", "sentinel",
+    compose("exec", "-T", "postgres", "psql", "-U", "nagarnetra", "-d", "nagarnetra",
             "-v", "ON_ERROR_STOP=1", "-c", sql)
     # Reclaim what the run churned. Inserting and deleting 80,000 rows leaves
     # the table and its indexes bloated — three runs took `cameras` to 64 MB
     # for 281 surviving rows — and the next run then measures scans over dead
     # space. VACUUM FULL rather than plain VACUUM because the space should go
     # back to the disk, not just onto the free list.
-    compose("exec", "-T", "postgres", "psql", "-U", "sentinel", "-d", "sentinel",
+    compose("exec", "-T", "postgres", "psql", "-U", "nagarnetra", "-d", "nagarnetra",
             "-c", "VACUUM FULL cameras")
-    compose("exec", "-T", "postgres", "psql", "-U", "sentinel", "-d", "sentinel",
+    compose("exec", "-T", "postgres", "psql", "-U", "nagarnetra", "-d", "nagarnetra",
             "-c", "ANALYZE cameras")
 
     remaining = int(psql("SELECT count(*) FROM cameras WHERE 'loadtest' = ANY(tags);"))
     return {**before, "cameras_remaining": remaining}
 
 
-def stream_lag(stream_key: str, group: str = "sentinel-api") -> int:
+def stream_lag(stream_key: str, group: str = "nagarnetra-api") -> int:
     """Entries added to the stream that the consumer group has not read.
 
     The single most useful number in the run. A backlog that grows steadily
@@ -142,7 +142,7 @@ def stream_lag(stream_key: str, group: str = "sentinel-api") -> int:
     return 0
 
 
-def abandon_backlog(stream_key: str, group: str = "sentinel-api") -> None:
+def abandon_backlog(stream_key: str, group: str = "nagarnetra-api") -> None:
     """Fast-forward the consumer group past anything still queued.
 
     The measurement is over; the remaining backlog is load-test events with no
@@ -395,7 +395,7 @@ def main() -> int:
     parser.add_argument("--rate", type=float, default=2667.0)
     parser.add_argument("--duration", type=float, default=120.0)
     parser.add_argument("--api-url", default="http://localhost:8000")
-    parser.add_argument("--stream", default="sentinel:events:detections")
+    parser.add_argument("--stream", default="nagarnetra:events:detections")
     parser.add_argument("--watchlist", default="GJ03AB1234")
     parser.add_argument("--sample-interval", type=float, default=5.0)
     parser.add_argument("--drain-timeout", type=float, default=300.0)

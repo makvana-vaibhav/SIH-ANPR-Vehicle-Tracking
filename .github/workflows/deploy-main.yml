@@ -22,9 +22,9 @@ jobs:
             set -euo pipefail
             export GITHUB_REPOSITORY='${{ github.repository }}'
             export REPO_URL='https://github.com/${{ github.repository }}.git'
-            if [ ! -d /opt/sentinel-gj/main/.git ]; then
-              sudo mkdir -p /opt/sentinel-gj
-              sudo chown -R "$USER":"$USER" /opt/sentinel-gj
-              git clone --branch main "$REPO_URL" /opt/sentinel-gj/main
+            if [ ! -d /opt/nagarnetra/main/.git ]; then
+              sudo mkdir -p /opt/nagarnetra
+              sudo chown -R "$USER":"$USER" /opt/nagarnetra
+              git clone --branch main "$REPO_URL" /opt/nagarnetra/main
             fi
-            bash /opt/sentinel-gj/main/deploy/scripts/update_and_deploy.sh main main
+            bash /opt/nagarnetra/main/deploy/scripts/update_and_deploy.sh main main

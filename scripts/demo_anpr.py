@@ -50,8 +50,8 @@ DEMO_CAMERA = "CAM-DEMO"
 #: for up to a minute.
 #: Inside the compose network this is the api service; from the host it is
 #: the published port. Overridable so the demo can be driven either way.
-API_URL = os.environ.get("SENTINEL_API_URL", "http://localhost:8000") + "/api/v1"
-DEMO_USER, DEMO_PASSWORD = "supervisor", "Sentinel@2026"  # noqa: S105 — seeded demo credential
+API_URL = os.environ.get("NAGARNETRA_API_URL", "http://localhost:8000") + "/api/v1"
+DEMO_USER, DEMO_PASSWORD = "supervisor", "NagarNetra@2026"  # noqa: S105 — seeded demo credential
 #: How long to let the pipeline run before giving up on seeing the vehicle.
 PASS_TIMEOUT_S = 180.0
 
@@ -217,7 +217,7 @@ async def main() -> int:
     args = parser.parse_args()
     camera_code = args.camera.upper()
 
-    print(f"{BOLD}Sentinel-GJ — ANPR end to end{RESET}")
+    print(f"{BOLD}NagarNetra — ANPR end to end{RESET}")
     print(f"{DIM}Every number below is produced by the running platform.{RESET}")
 
     # ── 1 ────────────────────────────────────────────────────────────────────

@@ -48,7 +48,7 @@ def asset_url(index_response: httpx.Response) -> str:
 class TestApplicationRoute:
     def test_serves_the_spa(self, index_response: httpx.Response) -> None:
         assert index_response.status_code == 200
-        assert "Sentinel-GJ" in index_response.text
+        assert "NagarNetra" in index_response.text
 
     @pytest.mark.parametrize("header", sorted(REQUIRED_HEADERS))
     def test_security_header_present(

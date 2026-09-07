@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════
-#  Sentinel-GJ API — pinned dependencies (Python 3.11)
+#  NagarNetra API — pinned dependencies (Python 3.11)
 #  Every version is exact. No ranges, no floating tags.
 # ══════════════════════════════════════════════════════════════
 

@@ -15,7 +15,7 @@ class LoginRequest(BaseModel):
     """Credentials presented at /auth/login."""
 
     username: str = Field(min_length=1, max_length=64, examples=["admin"])
-    password: str = Field(min_length=1, max_length=256, examples=["Sentinel@2026"])
+    password: str = Field(min_length=1, max_length=256, examples=["NagarNetra@2026"])
 
 
 class TokenPair(BaseModel):

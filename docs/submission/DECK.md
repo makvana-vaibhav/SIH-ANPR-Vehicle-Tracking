@@ -1,4 +1,4 @@
-# Sentinel-GJ — Solution Presentation
+# NagarNetra — Solution Presentation
 
 **How to use this file.** Every slide below gives you: a title, the exact text
 to put on the slide, what visual belongs there, and speaker notes. Hand the
@@ -22,7 +22,7 @@ is worth more than a bigger number would be.
 
 ## Slide 1 — Title
 
-> # Sentinel-GJ
+> # NagarNetra
 > ### Statewide CCTV Intelligence Platform
 > **Gujarat Police / Home Department — CCTV Challenge**
 >

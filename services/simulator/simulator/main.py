@@ -234,7 +234,7 @@ async def lifespan(_app: FastAPI):  # noqa: ANN201
 
 
 app = FastAPI(
-    title="Sentinel-GJ Simulator",
+    title="NagarNetra Simulator",
     description=(
         "Synthetic camera fleet. Replays footage into MediaMTX as RTSP so the "
         "platform has live streams without hardware — the same technique the "

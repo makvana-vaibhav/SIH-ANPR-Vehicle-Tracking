@@ -291,7 +291,7 @@ and fine-tuning on; <code>ailab mine</code> exports them as a training set.</div
 </details>
 
 <div class="sub" style="margin-top:40px">
-  Sentinel-GJ AI Lab · standalone evaluation environment · not connected to the platform.
+  NagarNetra AI Lab · standalone evaluation environment · not connected to the platform.
 </div>
 </div></body></html>"""
 )

@@ -3,7 +3,7 @@
 ## Why not just a length rule
 
 `min_length=12` was the whole policy, and length alone admits
-`Sentinel@2026` — the documented demo credential, which is exactly the string
+`NagarNetra@2026` — the documented demo credential, which is exactly the string
 an attacker tries first against a system whose seed script is on GitHub.
 
 The rules below are deliberately modest. Long, arbitrary complexity
@@ -31,13 +31,13 @@ MAX_LENGTH = 256
 #: README and in the demo script, so they must never survive into a deployment.
 KNOWN_CREDENTIALS = frozenset(
     {
-        "sentinel@2026",
-        "sentinel@2025",
+        "nagarnetra@2026",
+        "nagarnetra@2025",
         "changeme",
         "password",
         "admin",
-        "sentinel-gj",
-        "sentinelgj",
+        "nagarnetra",
+        "nagarnetra-web",
     }
 )
 

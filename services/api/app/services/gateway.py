@@ -48,7 +48,7 @@ TIMEOUT_S = 6.0
 #: Adapters whose cameras live on somebody else's gateway. Their video is read
 #: from that gateway directly, by the worker and by the media proxy; pulling it
 #: through ours as well would double the bandwidth for no gain.
-FEDERATED_ADAPTERS = frozenset({"sentinel_sandbox", "vendor_api"})
+FEDERATED_ADAPTERS = frozenset({"hosted_grid", "vendor_api"})
 
 
 def path_for(camera_code: str) -> str:

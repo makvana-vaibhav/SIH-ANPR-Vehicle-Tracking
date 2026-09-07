@@ -110,7 +110,7 @@ function Shell() {
       <header className="flex shrink-0 items-center gap-4 border-b border-border bg-card px-4 py-2.5">
         <div className="flex shrink-0 items-baseline gap-2">
           <span className="text-lg font-semibold tracking-tight text-primary">
-            Sentinel<span className="text-foreground">-GJ</span>
+            NagarNetra<span className="text-foreground">-GJ</span>
           </span>
           <span className="hidden text-xs text-muted-foreground sm:inline">
             સેન્ટિનલ

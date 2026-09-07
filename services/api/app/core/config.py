@@ -20,7 +20,7 @@ EventBusBackend = Literal["redis", "kafka"]
 
 
 class Settings(BaseSettings):
-    """Runtime configuration for the Sentinel-GJ API tier."""
+    """Runtime configuration for the NagarNetra API tier."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # ── Core ──────────────────────────────────────────────────────────
     environment: Environment = "development"
     log_level: LogLevel = "INFO"
-    app_name: str = "Sentinel-GJ"
+    app_name: str = "NagarNetra"
     api_v1_prefix: str = "/api/v1"
 
     # Storage and transport are UTC everywhere. This is the *display* zone,
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     display_timezone: str = Field(default="Asia/Kolkata", alias="TZ")
 
     # ── Database ──────────────────────────────────────────────────────
-    database_url: str = "postgresql+asyncpg://sentinel:sentinel_dev_pw@postgres:5432/sentinel"
+    database_url: str = "postgresql+asyncpg://nagarnetra:nagarnetra_dev_pw@postgres:5432/nagarnetra"
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_pool_timeout_seconds: int = 30
@@ -49,8 +49,8 @@ class Settings(BaseSettings):
     # ── Redis / event bus ─────────────────────────────────────────────
     redis_url: str = "redis://redis:6379/0"
     event_bus_backend: EventBusBackend = "redis"
-    event_stream_key: str = "sentinel:events:detections"
-    event_consumer_group: str = "sentinel-processors"
+    event_stream_key: str = "nagarnetra:events:detections"
+    event_consumer_group: str = "nagarnetra-processors"
     #: Whether this process persists events as well as serving operators.
     #: True on a single-node deployment, which is the demo and the default.
     #: Set false on the API replicas of a deployment that runs dedicated
@@ -59,15 +59,15 @@ class Settings(BaseSettings):
     #: consumer nobody asked for.
     ingest_enabled: bool = True
     kafka_bootstrap_servers: str = "redpanda:9092"
-    kafka_topic_detections: str = "sentinel.detections"
+    kafka_topic_detections: str = "nagarnetra.detections"
 
     # ── Object store ──────────────────────────────────────────────────
     minio_endpoint: str = "minio:9000"
-    minio_root_user: str = "sentinel"
+    minio_root_user: str = "nagarnetra"
     # Required, never defaulted. A credential with a default in source is a
     # credential that ships to production when someone forgets to set it.
     minio_root_password: str = Field(..., min_length=8)
-    minio_bucket: str = "sentinel-media"
+    minio_bucket: str = "nagarnetra-media"
     minio_secure: bool = False
     minio_public_endpoint: str = "http://localhost:9000"
 

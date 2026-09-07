@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Onboard the Sentinel sandbox camera grid into the registry.
+"""Onboard the hosted grid camera grid into the registry.
 
 Reads the organisers' catalogue at ``GET <base>/api/ingest`` and creates or
 updates one camera row per entry, carrying the coordinates the catalogue
@@ -29,12 +29,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "ap
 from sqlalchemy import select  # noqa: E402
 
 from app.adapters.base import AdapterError  # noqa: E402
-from app.adapters.sandbox import SentinelSandboxAdapter  # noqa: E402
+from app.adapters.sandbox import HostedGridAdapter  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
 from app.models.enums import CameraStatus, CameraType, Protocol  # noqa: E402
 from app.models.registry import Camera, VmsInstance  # noqa: E402
 
-VMS_NAME = "Sentinel Sandbox Grid"
+VMS_NAME = "Hosted Camera Grid"
 CODE_PREFIX = "SBX"
 GAZETTEER = (
     Path(__file__).resolve().parent.parent / "data" / "seed" / "gujarat_places.csv"
@@ -108,7 +108,7 @@ async def reachable_transport(base_url: str, cameras: list) -> str:
 
 
 async def sync(base_url: str, dry_run: bool = False) -> int:
-    adapter = SentinelSandboxAdapter(name=VMS_NAME, base_url=base_url)
+    adapter = HostedGridAdapter(name=VMS_NAME, base_url=base_url)
 
     print(f"reading catalogue from {base_url.rstrip('/')}/api/ingest ...")
     try:
@@ -168,8 +168,8 @@ async def sync(base_url: str, dry_run: bool = False) -> int:
         if vms is None:
             vms = VmsInstance(
                 name=VMS_NAME,
-                vendor="sentinel",
-                adapter_type="sentinel_sandbox",
+                vendor="nagarnetra",
+                adapter_type="hosted_grid",
                 base_url=base_url,
                 # A pointer, never a secret: see CLAUDE.md on credentials_ref.
                 credentials_ref="env:SANDBOX_CREDENTIALS",
@@ -293,7 +293,7 @@ def _placement_note(item, precision: str | None, transport: str) -> str:
         where = f"placed at settlement centre from '{source}' — town, not junction"
     else:
         where = f"no coordinates; '{source}' did not identify a settlement"
-    return f"Sentinel sandbox. {where}. Watched over {transport.upper()}."
+    return f"hosted grid. {where}. Watched over {transport.upper()}."
 
 
 def main() -> int:

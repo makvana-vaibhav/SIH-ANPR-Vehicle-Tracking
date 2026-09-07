@@ -171,7 +171,7 @@ class TestIntegrationAdapters:
             await client.get("/api/v1/integration/adapters", headers=await auth_headers("operator"))
         ).json()
 
-        assert {"rtsp", "onvif", "vendor_api", "sentinel_sandbox"} <= body["adapters"].keys()
+        assert {"rtsp", "onvif", "vendor_api", "hosted_grid"} <= body["adapters"].keys()
 
 
 class TestStreamGateway:

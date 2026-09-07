@@ -15,11 +15,11 @@ skip it — three of the five moments depend on a worker being up, and it takes
 docker compose ps            # every service healthy
 curl -s localhost:8000/health
 curl -s localhost:9100/streams | grep CAM-DEMO      # the demo feed is publishing
-docker logs sentinel-ai-worker --tail 5 | grep watching
+docker logs nagarnetra-ai-worker --tail 5 | grep watching
 ```
 
 Then in the browser at **http://localhost:8080**, sign in as `admin` /
-`Sentinel@2026` and check:
+`NagarNetra@2026` and check:
 
 - [ ] Dashboard shows **event feed live** (green, top right)
 - [ ] "Reading now" is producing plates
@@ -87,7 +87,7 @@ the correct behaviour.
 **Timing note:** the alert fires when the vehicle next passes — measured at
 **33–99 s**. Fill the gap with §4; do not stand and wait.
 
-**Fallback:** `docker compose exec -e SENTINEL_API_URL=http://api:8000 api
+**Fallback:** `docker compose exec -e NAGARNETRA_API_URL=http://api:8000 api
 python /app/scripts/demo_anpr.py --plate NA13NRU` runs the same chain in a
 terminal and prints each step.
 

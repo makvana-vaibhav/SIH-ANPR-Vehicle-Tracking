@@ -204,8 +204,8 @@ def test_event_carries_the_vehicle_bounding_box() -> None:
     assert event["vehicle"]["bbox"]["w"] == 400.0
 
 
-class TestSentinelIntegrationRules:
-    """The rules the Sentinel sandbox integration guide is explicit about.
+class TestNagarNetraIntegrationRules:
+    """The rules the hosted grid integration guide is explicit about.
 
     Each of these was a real defect in the first implementation, and each fails
     in a way that looks like a model bug rather than a transport bug — which is

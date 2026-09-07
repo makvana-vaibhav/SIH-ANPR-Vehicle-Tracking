@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sentinel-ailab"
+name = "nagarnetra-ailab"
 version = "0.1.0"
-description = "Standalone AI evaluation lab for the Sentinel-GJ CCTV platform"
+description = "Standalone AI evaluation lab for the NagarNetra CCTV platform"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 

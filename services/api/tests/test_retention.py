@@ -212,7 +212,7 @@ class TestRateLimiting:
             settings.rate_limit_requests = original
             # Leave no counter behind for the next test.
             client_redis = await ratelimit.RateLimitMiddleware(None)._redis()
-            keys = await client_redis.keys("sentinel:ratelimit:*")
+            keys = await client_redis.keys("nagarnetra:ratelimit:*")
             if keys:
                 await client_redis.delete(*keys)
 

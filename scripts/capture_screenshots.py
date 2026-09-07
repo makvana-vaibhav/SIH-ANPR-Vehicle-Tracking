@@ -28,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "docs" / "submission" / "screenshots"
 WEB = "http://localhost:8080"
-ADMIN_PASSWORD = "Sentinel@2026"
+ADMIN_PASSWORD = "NagarNetra@2026"
 
 # Each shot: file name, the path to visit, and the selector that proves the
 # screen actually has content in it.
