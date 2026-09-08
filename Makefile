@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════
-#  Sentinel-GJ — statewide CCTV intelligence platform
+#  NagarNetra — city-wide vehicle intelligence platform
 #
 #  A judge needs exactly three commands:
 #      make up      → bring the platform online
@@ -18,7 +18,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 COMPOSE          := docker compose
-COMPOSE_AI       := docker compose -f docker-compose.yml -f docker-compose.ai.yml
+COMPOSE_AI       := docker compose --profile ai
 COMPOSE_SCALE    := docker compose -f docker-compose.yml -f docker-compose.scale.yml
 WEB_PORT         ?= 8080
 API_PORT         ?= 8000
@@ -28,7 +28,7 @@ HEALTH_TIMEOUT   ?= 300
 
 .PHONY: help
 help: ## Show this help
-	@printf "\033[1mSentinel-GJ\033[0m — statewide CCTV intelligence platform\n\n"
+	@printf "\033[1mNagarNetra\033[0m — city-wide vehicle intelligence platform\n\n"
 	@printf "\033[1mQuick start for a judge:\033[0m\n"
 	@printf "  make up      bring the platform online\n"
 	@printf "  make demo    seed data and open the command centre\n"
@@ -69,7 +69,7 @@ preflight: ## Check Docker is running and has enough memory
 
 .PHONY: up
 up: env preflight ## Build and start the platform, wait for healthy
-	@printf "\033[1mStarting Sentinel-GJ\033[0m\n"
+	@printf "\033[1mStarting NagarNetra\033[0m\n"
 	@$(COMPOSE) up -d --build --remove-orphans
 	@$(MAKE) --no-print-directory wait-healthy
 	@printf "\n\033[1;32mPlatform online\033[0m\n"
@@ -140,11 +140,8 @@ seed: ## Seed cameras, watchlist, and users
 	@$(COMPOSE) exec -T api python -m scripts.seed
 
 .PHONY: demo
-demo: ## Full judge demo: fresh data, simulator, browser
-	@$(MAKE) --no-print-directory up
-	@$(MAKE) --no-print-directory migrate
-	@$(MAKE) --no-print-directory seed
-	@printf "\n\033[1;32mDemo ready\033[0m → $(WEB_URL)\n"
+demo: ## Full judge demo: fresh data, fleet, worker, verified
+	@./scripts/demo_up.sh
 	@command -v open >/dev/null 2>&1 && open "$(WEB_URL)" || true
 
 .PHONY: models
@@ -167,16 +164,30 @@ contracts: ## Regenerate Pydantic + TypeScript types from JSON Schema
 
 .PHONY: test
 test: ## Run backend and frontend test suites
-	@printf "\033[1mBackend tests\033[0m\n"
-	@$(COMPOSE) exec -T api python -m pytest tests -v
+	@printf "\033[1mAPI tests\033[0m\n"
+	@$(COMPOSE) exec -T -w /app/services/api api python -m pytest tests -q
+	@printf "\n\033[1mAI worker tests\033[0m\n"
+	@$(COMPOSE) exec -T -e PYTHONPATH=/app/services/ai-worker api \
+		python -m pytest /app/services/ai-worker/tests -q
+	@printf "\n\033[1mEnd-to-end: the five judge moments\033[0m\n"
+	@# Run from the suite's own directory so tests/e2e/pytest.ini applies —
+	@# without it async fixtures are never awaited and every test fails.
+	@$(COMPOSE) exec -T -w /app/tests/e2e -e WEB_URL=http://web api \
+		python -m pytest . -q
 	@printf "\n\033[1mFrontend tests\033[0m\n"
 	@cd web && npm run test
+
+.PHONY: docs
+docs: ## Regenerate docs/API.md from the running API
+	@python3 scripts/generate_api_docs.py
 
 .PHONY: lint
 lint: ## Lint and type-check everything
 	@printf "\033[1mPython\033[0m\n"
 	@$(COMPOSE) exec -T -w /app/services/api api ruff check .
 	@$(COMPOSE) exec -T -w /app/services/api api ruff format --check .
+	@$(COMPOSE) exec -T -w /app -e RUFF_CACHE_DIR=/tmp/ruff api ruff check services/ai-worker services/simulator scripts
+	@$(COMPOSE) exec -T -w /app -e RUFF_CACHE_DIR=/tmp/ruff api ruff format --check services/ai-worker services/simulator scripts
 	@printf "\n\033[1mTypeScript\033[0m\n"
 	@cd web && npm run typecheck
 
@@ -184,6 +195,8 @@ lint: ## Lint and type-check everything
 format: ## Auto-format Python sources
 	@$(COMPOSE) exec -T -w /app/services/api api ruff format .
 	@$(COMPOSE) exec -T -w /app/services/api api ruff check --fix .
+	@$(COMPOSE) exec -T -w /app -e RUFF_CACHE_DIR=/tmp/ruff api ruff format services/ai-worker services/simulator scripts
+	@$(COMPOSE) exec -T -w /app -e RUFF_CACHE_DIR=/tmp/ruff api ruff check --fix services/ai-worker services/simulator scripts
 
 # ── Profiles ──────────────────────────────────────────────────────────
 
@@ -198,9 +211,22 @@ scale: ## Start the scale profile (Redpanda, replicas, Grafana)
 	@printf "\033[32mscale profile up\033[0m — Grafana http://localhost:3000\n"
 
 .PHONY: load
-load: ## Run the 80,000-camera load test
-	@$(COMPOSE_SCALE) exec -T simulator python -m app.load_mode
-	@cd tests/load/k6 && k6 run api_load.js
+load: ## Run the 80,000-camera load test (ingest throughput + latency)
+	@python3 tests/load/run_load_test.py $(ARGS)
+
+.PHONY: load-quick
+load-quick: ## A 30s sanity run of the load test, for checking it still works
+	@python3 tests/load/run_load_test.py --cameras 2000 --rate 1000 --duration 30 \
+		--sample-interval 5 --drain-timeout 60
+
+.PHONY: load-operators
+load-operators: ## k6: can operators still work while ingest runs at full rate?
+	@# Containerised so no k6 install is needed, and on the compose network so
+	@# it reaches the API by service name rather than through the host.
+	@docker run --rm -i --network nagarnetra-net \
+		-e API_URL=http://api:8000 -e API_PASSWORD="$${BOOTSTRAP_ADMIN_PASSWORD:-NagarNetra@2026}" \
+		-v "$(PWD)/tests/load/k6:/scripts:ro" \
+		grafana/k6:0.54.0 run /scripts/api_load.js
 
 # ── Development ───────────────────────────────────────────────────────
 
@@ -214,7 +240,7 @@ shell-api: ## Open a shell in the API container
 
 .PHONY: shell-db
 shell-db: ## Open psql in the database container
-	@$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-sentinel} -d $${POSTGRES_DB:-sentinel}
+	@$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-nagarnetra} -d $${POSTGRES_DB:-nagarnetra}
 
 .PHONY: config
 config: ## Validate the compose configuration

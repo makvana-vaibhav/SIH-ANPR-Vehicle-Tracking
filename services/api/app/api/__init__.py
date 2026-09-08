@@ -1,1 +1,1 @@
-"""Sentinel-GJ API — shared HTTP dependencies."""
+"""NagarNetra API — shared HTTP dependencies."""

@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 
-// Sentinel-GJ command centre theme.
+// NagarNetra command centre theme.
 //
 // Dark by default: this is a wall-mounted operations display in a control room,
 // not a document. The palette is shadcn/ui-compatible (HSL CSS variables in

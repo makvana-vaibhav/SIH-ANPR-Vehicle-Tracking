@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 
-// Sentinel-GJ command centre build configuration.
+// NagarNetra command centre build configuration.
 //
 // The production bundle is served by nginx (see Dockerfile). In development the
 // dev server proxies /api and /ws to the API container so the browser talks to a

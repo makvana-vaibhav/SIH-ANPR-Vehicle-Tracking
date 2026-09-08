@@ -20,7 +20,7 @@ EventBusBackend = Literal["redis", "kafka"]
 
 
 class Settings(BaseSettings):
-    """Runtime configuration for the Sentinel-GJ API tier."""
+    """Runtime configuration for the NagarNetra API tier."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # ── Core ──────────────────────────────────────────────────────────
     environment: Environment = "development"
     log_level: LogLevel = "INFO"
-    app_name: str = "Sentinel-GJ"
+    app_name: str = "NagarNetra"
     api_v1_prefix: str = "/api/v1"
 
     # Storage and transport are UTC everywhere. This is the *display* zone,
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     display_timezone: str = Field(default="Asia/Kolkata", alias="TZ")
 
     # ── Database ──────────────────────────────────────────────────────
-    database_url: str = "postgresql+asyncpg://sentinel:sentinel_dev_pw@postgres:5432/sentinel"
+    database_url: str = "postgresql+asyncpg://nagarnetra:nagarnetra_dev_pw@postgres:5432/nagarnetra"
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_pool_timeout_seconds: int = 30
@@ -49,18 +49,25 @@ class Settings(BaseSettings):
     # ── Redis / event bus ─────────────────────────────────────────────
     redis_url: str = "redis://redis:6379/0"
     event_bus_backend: EventBusBackend = "redis"
-    event_stream_key: str = "sentinel:events:detections"
-    event_consumer_group: str = "sentinel-processors"
+    event_stream_key: str = "nagarnetra:events:detections"
+    event_consumer_group: str = "nagarnetra-processors"
+    #: Whether this process persists events as well as serving operators.
+    #: True on a single-node deployment, which is the demo and the default.
+    #: Set false on the API replicas of a deployment that runs dedicated
+    #: ingest workers, so serving capacity and ingest capacity scale
+    #: independently instead of every added API replica also adding a
+    #: consumer nobody asked for.
+    ingest_enabled: bool = True
     kafka_bootstrap_servers: str = "redpanda:9092"
-    kafka_topic_detections: str = "sentinel.detections"
+    kafka_topic_detections: str = "nagarnetra.detections"
 
     # ── Object store ──────────────────────────────────────────────────
     minio_endpoint: str = "minio:9000"
-    minio_root_user: str = "sentinel"
+    minio_root_user: str = "nagarnetra"
     # Required, never defaulted. A credential with a default in source is a
     # credential that ships to production when someone forgets to set it.
     minio_root_password: str = Field(..., min_length=8)
-    minio_bucket: str = "sentinel-media"
+    minio_bucket: str = "nagarnetra-media"
     minio_secure: bool = False
     minio_public_endpoint: str = "http://localhost:9000"
 
@@ -107,10 +114,44 @@ class Settings(BaseSettings):
     health_probe_timeout_seconds: int = 5
     health_offline_after_failures: int = 2
 
-    # ── Retention (surfaced in docs/SECURITY.md) ──────────────────────
+    # ── Retention (enforced by app/services/retention.py) ─────────────
+    # Under the DPDP Act the stated period is the lawful basis for holding the
+    # data at all, so these are not advisory. See docs/SECURITY.md.
     retention_detections_days: int = 365
     retention_media_days: int = 90
+    retention_camera_health_days: int = 90
     retention_audit_days: int = 1825
+    # Off only for a deployment that has an external purge process. When false
+    # the sweep still runs and reports what it *would* delete, so the gap
+    # between policy and practice is visible rather than silent.
+    retention_enforce: bool = True
+
+    # ── The challenge's camera grid ───────────────────────────────────
+    # Two hosts, deliberately. The catalogue and HLS are behind a CDN; RTSP and
+    # WebRTC are not, because a CDN cannot proxy either — so the organisers
+    # publish those on a direct address. Deriving all four from one hostname is
+    # what made port 8554 appear closed for weeks.
+    sandbox_base_url: str = "https://cctv.corp8.cloud"
+    sandbox_media_host: str = "103.250.160.189"
+    # The grid began requiring RTSP/WHEP credentials on 3 Sep 2026; it was open
+    # the day before. Empty means anonymous, which is what the original guide
+    # described — so an empty value is a valid configuration, not a missing one.
+    #
+    # These live in `.env` (gitignored) and are redacted wherever a stream URL
+    # is logged. They are a real secret: anyone holding them can pull video
+    # from a government camera network.
+    sandbox_rtsp_username: str = ""
+    sandbox_rtsp_password: str = ""
+
+    # ── Rate limiting ─────────────────────────────────────────────────
+    # Counted in Redis, so the limit is per-deployment rather than per-replica.
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 300
+    rate_limit_window_seconds: int = 60
+    # Authentication is limited far harder: it is the endpoint worth guessing
+    # against, and a legitimate operator signs in once a shift.
+    rate_limit_auth_requests: int = 10
+    rate_limit_auth_window_seconds: int = 300
 
     # ── Validators ────────────────────────────────────────────────────
     @field_validator("database_url")

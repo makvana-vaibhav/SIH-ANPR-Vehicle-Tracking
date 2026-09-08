@@ -1,1 +1,1 @@
-"""Sentinel-GJ API — test suite."""
+"""NagarNetra API — test suite."""

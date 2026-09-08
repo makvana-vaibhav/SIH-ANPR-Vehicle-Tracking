@@ -1,0 +1,16 @@
+# ── NagarNetra AI Lab — core runtime ────────────────────────────────
+# Torch-free by default. The entire pipeline (vehicle detection, tracking,
+# plate detection, OCR, consensus, reporting, evaluation) runs on ONNX
+# Runtime alone. See requirements-torch.txt for the optional experiment
+# profile that adds Ultralytics/PyTorch for ONNX export and fine-tuning.
+
+numpy==1.26.4
+opencv-python-headless==4.11.0.86
+onnxruntime==1.29.0
+scipy==1.14.1                 # Hungarian assignment for ByteTrack
+rapidocr-onnxruntime==1.4.4   # PP-OCRv4 detection+recognition as ONNX, models bundled
+pydantic==2.9.2
+PyYAML==6.0.2
+Jinja2==3.1.4                 # self-contained HTML reports
+rich==13.9.4                  # CLI tables and progress
+python-Levenshtein==0.26.1    # CER / edit distance in evaluation

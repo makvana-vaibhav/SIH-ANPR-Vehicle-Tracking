@@ -1,1 +1,1 @@
-"""Sentinel-GJ API — ASGI middleware."""
+"""NagarNetra API — ASGI middleware."""

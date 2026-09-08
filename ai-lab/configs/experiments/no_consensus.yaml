@@ -1,0 +1,15 @@
+# Ablation: take the single best read per vehicle instead of voting.
+#
+#   ailab sweep input.mp4 --configs default,experiments/no_consensus --ground-truth gt.csv
+#
+# This is the control that proves multi-frame consensus is worth its complexity.
+# If accuracy is unchanged, the voting machinery is dead weight and should go.
+extends: ../default.yaml
+name: no_consensus
+description: Ablation — single best read, no character voting, no confusion correction.
+
+consensus:
+  # A weight floor of 1.0 admits only the strongest read, so the character vote
+  # has a single voter and degenerates to "take the best one".
+  relative_weight_floor: 1.0
+  apply_confusion_correction: false

@@ -1,0 +1,12 @@
+# YOLO11n instead of YOLOv8n for object detection, everything else identical.
+#
+#   ailab sweep input.mp4 --configs default,experiments/detector_yolo11
+#
+# Newer architecture, similar size. Whether it is better on grainy CCTV rather
+# than on COCO is exactly the kind of thing that has to be measured locally.
+extends: ../default.yaml
+name: detector_yolo11
+description: Identical to default except the object detector.
+
+detector:
+  weights: models/yolo11n.onnx

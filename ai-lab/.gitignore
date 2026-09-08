@@ -1,0 +1,19 @@
+# Model weights: fetch script is committed, payloads are not.
+models/*
+!models/.gitkeep
+!models/README.md
+
+# Run outputs: every processed video writes a timestamped directory here.
+runs/*
+!runs/.gitkeep
+
+# Mined training datasets
+datasets/
+
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.DS_Store

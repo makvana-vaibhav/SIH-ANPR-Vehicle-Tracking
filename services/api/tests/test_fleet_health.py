@@ -9,6 +9,16 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
+#: Cameras created by scripts/seed.py; federated sources add to this.
+#: The registry holds only cameras with a real video source: the organisers'
+#: grid plus one demonstration camera. It used to be seeded with 250 synthetic
+#: rows so this number could be large, and 251 of the 281 had no stream URL at
+#: all — they could never be watched, analysed, or be unhealthy. Asserting a
+#: count in the hundreds tested that a CSV had loaded, not that the platform
+#: worked. What matters is that a real fleet is onboarded and every screen
+#: agrees about its size.
+ONBOARDED_FLEET = 10
+
 pytestmark = pytest.mark.integration
 
 
@@ -18,8 +28,10 @@ class TestFleetHealthEndpoint:
             await client.get("/api/v1/health/fleet", headers=await auth_headers("operator"))
         ).json()
 
-        assert body["total"] == 250
-        assert body["online"] + body["offline"] + body["degraded"] + body["unknown"] == 250
+        assert body["total"] >= ONBOARDED_FLEET
+        assert (body["online"] + body["offline"] + body["degraded"] + body["unknown"]) == body[
+            "total"
+        ]
 
     async def test_separates_integrated_from_registered(
         self, client: AsyncClient, auth_headers
@@ -43,10 +55,29 @@ class TestFleetHealthEndpoint:
             await client.get("/api/v1/health/fleet", headers=await auth_headers("supervisor"))
         ).json()
 
-        assert len(body["by_department"]) >= 4
-        assert sum(r["total"] for r in body["by_department"]) == 250
-        # Multi-vendor federation is the architecture's claim; assert it holds.
-        assert len({r["vendor"] for r in body["by_vendor"]}) >= 3
+        assert len(body["by_department"]) >= 1
+        assert sum(r["total"] for r in body["by_department"]) >= ONBOARDED_FLEET
+        # Two, not three. The seed used to register four more VMS instances —
+        # Milestone, Genetec, CP Plus, Hikvision — every one with
+        # `adapter_type: simulated` and not a single camera behind it. They
+        # made this assertion pass while representing no integration at all.
+        #
+        # The multi-vendor claim is asserted where it is true: the adapter
+        # registry below reports the interface's real implementations, which
+        # are code and are unit-tested. What is federated today is the
+        # organisers' grid and one demonstration source.
+        assert len({r["vendor"] for r in body["by_vendor"]}) >= 2
+
+    async def test_the_adapter_interface_covers_more_than_is_connected(
+        self, client: AsyncClient, auth_headers
+    ) -> None:
+        """Capability and deployment are different claims and are reported apart."""
+        body = (
+            await client.get(
+                "/api/v1/integration/adapters", headers=await auth_headers("supervisor")
+            )
+        ).json()
+        assert set(body["adapters"]) >= {"rtsp", "onvif", "vendor_api"}
 
     async def test_groups_failure_causes(self, client: AsyncClient, auth_headers) -> None:
         """Grouping by error code turns many symptoms into one root cause."""
@@ -108,7 +139,7 @@ class TestGapAnalysis:
             await client.get("/api/v1/health/gaps", headers=await auth_headers("analyst"))
         ).json()
 
-        assert sum(d["cameras"] for d in body["district_coverage"]) == 250
+        assert sum(d["cameras"] for d in body["district_coverage"]) >= ONBOARDED_FLEET
 
 
 class TestCameraHealthHistory:
@@ -140,7 +171,7 @@ class TestIntegrationAdapters:
             await client.get("/api/v1/integration/adapters", headers=await auth_headers("operator"))
         ).json()
 
-        assert {"rtsp", "onvif", "vendor_api", "sentinel_sandbox"} <= body["adapters"].keys()
+        assert {"rtsp", "onvif", "vendor_api", "hosted_grid"} <= body["adapters"].keys()
 
 
 class TestStreamGateway:

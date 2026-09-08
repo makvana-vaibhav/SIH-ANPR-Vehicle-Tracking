@@ -1,1 +1,1 @@
-"""Sentinel-GJ camera simulator."""
+"""NagarNetra camera simulator."""

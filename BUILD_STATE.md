@@ -1,12 +1,20 @@
 # BUILD_STATE.md
 
-Living checklist for the Sentinel-GJ build. **Updated after every phase.**
+Living checklist for the NagarNetra build. **Updated after every phase.**
 Written for a session that remembers nothing about previous sessions — read this, then `CLAUDE.md`,
 then continue at the first unchecked phase.
 
 - **Cadence:** stop after every phase and wait for the user. 12 review gates.
 - **Commits:** one per phase, conventional (`feat(ai): multi-frame plate consensus`).
 - **A phase is complete only when its gate command passes with real output shown.**
+- **Commits carry the repository owner's name only** — no co-author trailers.
+
+**Where the AI lives.** Phase 5 produced two things: `ai-lab/`, a standalone
+evaluation environment that is *not* part of the deployed system, and
+`services/ai-worker/`, which consumes the lab as a library and runs live
+cameras. Read `ai-lab/README.md`, `ai-lab/PERFORMANCE.md` and
+`ai-lab/ARCHITECTURE.md` before changing anything in the vision pipeline — they
+record what was measured and why the defaults are what they are.
 
 ---
 
@@ -15,17 +23,17 @@ then continue at the first unchecked phase.
 | Phase | Title | State |
 |---|---|---|
 | 0 | Foundation & self-documentation | ✅ **complete** |
-| 1 | Auth, RBAC, audit | ✅ **complete** |
+| 1 | Auth, RBAC, audit | ✅ **complete** — accounts, audit viewer and UI enforcement added Sep 2 |
 | 2 | Camera registry + GIS + bulk onboarding | ✅ **complete** |
 | 3 | Integration layer (adapters) + health monitoring | ✅ **complete** |
 | 4 | Stream gateway | ✅ **complete** |
-| 5 | AI pipeline | ⬜ not started |
-| 6 | Event engine, watchlist, alerts | ⬜ not started |
-| 7 | Correlator: cross-camera tracking & routes | ⬜ not started |
+| 5 | AI pipeline | ✅ **complete** |
+| 6 | Event engine, watchlist, alerts | ✅ **complete** |
+| 7 | Correlator: cross-camera tracking & routes | 🟡 **built and tested; gate blocked on data** |
 | 8 | Search | ⬜ not started |
-| 9 | Command centre UI | ⬜ not started |
+| 9 | Command centre UI | 🟡 **operator screens complete**, rest pending |
 | 10 | Scale profile & 80,000-camera proof | ⬜ not started |
-| 11 | Documentation & submission artifacts | ⬜ not started |
+| 11 | Documentation & submission artifacts | ✅ **complete** |
 | 12 | Demo hardening | ⬜ not started |
 | **13** | **Person & face detection, crowd counting** | ⬜ **added — see below** |
 | **14** | **Government database integration (VAHAN/SARTHI/eGujCop)** | ⬜ **added — see below** |
@@ -202,7 +210,7 @@ Fetched the challenge site and its resource guide. Findings that changed the bui
 | Finding | Action taken |
 |---|---|
 | Real departments are **Health, Police, GSRTC, Panchayat, Municipal** (+ SCRB) | Replaced the assumed POLICE/RTO/MUNI/HIGHWAY codes in `models/enums.py` and the seed |
-| Sandbox exposes `GET /api/ingest` returning every camera with id, location, codec, live status and all three stream URLs | Phase 3 gains a `SentinelSandboxAdapter`; `AdapterType.SENTINEL_SANDBOX` and `VmsVendor.SENTINEL_SANDBOX` already added |
+| Sandbox exposes `GET /api/ingest` returning every camera with id, location, codec, live status and all three stream URLs | Phase 3 gains a `HostedGridAdapter`; `AdapterType.HOSTED_GRID` and `VmsVendor.HOSTED_GRID` already added |
 | Stream URLs: `rtsp://<host>:8554/stream/<id>`, `http://<host>:8889/stream/<id>/whep`, `http://<host>/live/stream/<id>/index.m3u8` | **Our MediaMTX ports already match exactly** (8554/8889) — the adapter is a thin mapping, not a translation layer |
 | Exact catalogue JSON schema is **not published**; ids "can change" | Phase 3 adapter must parse defensively and re-sync, never assume field names or a fixed id set |
 | Scale: 30+ live cameras, 12 h footage each, 5 departments → 80,000+ target | Confirms the Phase 10 load-test target |
@@ -331,8 +339,8 @@ covered.
 ### What Phase 3 needs from here
 - `app/models/registry.py` — `VmsInstance.adapter_type` is what the adapter
   registry resolves on; `CameraHealth` is a hypertable ready for probe writes.
-- `AdapterType`/`VmsVendor` already include `SENTINEL_SANDBOX`, and the seeded
-  "Sentinel Sandbox Grid" VMS points at `https://sentinel.gujarat.gov.in`.
+- `AdapterType`/`VmsVendor` already include `HOSTED_GRID`, and the seeded
+  "Hosted Camera Grid" VMS points at `https://sentinel.gujarat.gov.in`.
 - `app/services/camera.py::bulk_upload` is the reusable path for adapters that
   sync a camera list in from a federated VMS.
 - **Sandbox adapter caveat:** the exact `/api/ingest` JSON schema is not
@@ -345,7 +353,7 @@ covered.
 - [x] `RtspAdapter` — real ffprobe session negotiation, errors classified into groupable codes
 - [x] `OnvifAdapter` — SOAP device/media services, profile enumeration, **defusedxml**
 - [x] `VendorVmsAdapter` — token auth, field-mapped normalisation covering 4 vendors
-- [x] `SentinelSandboxAdapter` — the challenge's own `/api/ingest` grid
+- [x] `HostedGridAdapter` — the challenge's own `/api/ingest` grid
 - [x] `SimulatedVmsAdapter` — MediaMTX-backed, powers the demo
 - [x] Adapter registry resolving by `vms_instances.adapter_type`, degrading to RTSP
 - [x] Health monitor daemon (own container), staggered + bounded concurrency
@@ -440,62 +448,228 @@ identical offline.
 ### Demo adapter note (important, and honest)
 The four vendor VMS rows keep their real `vendor` and `base_url`, but their
 `adapter_type` is `simulated` on the demo path, because those hosts do not
-exist on a laptop. Production is a one-field change per row. "Sentinel Sandbox
+exist on a laptop. Production is a one-field change per row. "Hosted Grid
 Grid" keeps its real adapter — that endpoint is genuinely remote.
 
-## Phase 5 — AI pipeline
+## Phase 5 — AI pipeline ✅
 
-- [ ] Async frame-reader pool, drop-to-latest, 8–12 analysed fps
-- [ ] YOLO vehicle detector (car/truck/bus/motorcycle/auto/tractor)
-- [ ] ByteTrack (pure NumPy) → persistent `track_id` per camera session
-- [ ] Plate detector on per-track ROI
-- [ ] Rectification: 4-point perspective warp + CLAHE + upscale
-- [ ] ONNX CRNN OCR → per-frame candidates
-- [ ] **Multi-frame consensus:** normalise → char-position voting weighted by OCR confidence ×
-      crop sharpness (variance of Laplacian) → position-aware confusion correction
-      (`0↔O 1↔I 8↔B 5↔S 2↔Z 6↔G` by slot) → grammar validation → one event per track
-- [ ] Grammar: `^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$` + BH `^[0-9]{2}BH[0-9]{4}[A-Z]{1,2}$`;
-      failures flagged `grammar_valid=false`, **not dropped**
-- [ ] Confidence gating (emit ≥ 0.55, auto-alert ≥ 0.80)
-- [ ] Duplicate suppression (same plate + camera within 60 s)
-- [ ] Plate crop + full frame → MinIO
-- [ ] GPU auto-detect with CPU fallback; batch inference
-- [ ] `--benchmark` mode printing per-stage fps/latency
+Built as **`ai-lab/`** — a standalone, measurable environment kept separate from
+the platform — then deployed as the **`ai-worker`** service. The split is
+deliberate: the lab may carry heavy, AGPL-licensed, experiment-only
+dependencies; the worker may not.
 
-**Gate:** `python -m ai_worker --source data/videos/sample_traffic.mp4 --benchmark` produces events
-with correct plates and prints a per-stage latency table.
+- [x] Frame reader: drop-to-latest, threaded, live-stream aware
+- [x] YOLO vehicle detector (car/motorcycle/bus/truck/bicycle/person) on ONNX Runtime
+- [x] ByteTrack (pure NumPy + SciPy) → persistent `track_id`
+- [x] Plate detector on per-vehicle ROI; classical contour fallback needing no weights
+- [x] Rectification: 4-point warp + CLAHE + upscale, competing preprocessing variants
+- [x] OCR: RapidOCR (PP-OCRv4, ONNX, no torch); EasyOCR and CRNN selectable
+- [x] **Multi-frame consensus** — character-position voting weighted by OCR
+      confidence × crop quality, position-aware confusion correction by slot,
+      Indian plate grammar, one event per vehicle
+- [x] Grammar: standard + BH series + legacy; failures flagged, **never dropped**
+- [x] Deduplication and plate-ownership resolution across overlapping vehicles
+- [x] Track merging by plate identity — one physical vehicle, one event
+- [x] GPU provider selection written; **never executed** (no CUDA on this host)
+- [x] Benchmark modes: `diagnostic` / `accurate` / `default` / `fast` / `bench`
+
+### Gate — passed
+
+`ailab run <video> --ground-truth gt.csv` on footage with known plates:
+
+```
+exact plate match       100.0%
+character error rate    0.000
+missed                  0
+duplicate vehicles      0
+precision               0.83
+```
+
+Per-stage latency table printed on every run, with model **invocation counts**
+alongside — a stage's cost is rate × price, and a profile reporting only price
+cannot tell a slow model from one called too often.
+
+### What the profiling found (measured, not guessed)
+
+On 4K footage with ~20 vehicles per frame, throughput went from **7665 ms/frame
+to 1151 ms** (360 ms with diagnostics off):
+
+| fault | effect |
+|---|---|
+| ONNX Runtime default thread count | 452 ms → **126 ms** at four threads; its default was the worst setting available |
+| Plate input scaled with the crop | Fixed at 320px: a plate is a constant *fraction* of a vehicle, so scaling buys no detail |
+| OCR ran text detection first | **1334 ms → 74 ms** for the identical answer on an already-cropped plate |
+| Selective inference absent | Plate detection 13.3 → **1.45** calls/frame; OCR 14.2 → **0.7** |
+
+Every skip is counted by reason in `summary.json`, so the speedup is auditable
+rather than a silent quality change.
+
+### Live path
+
+Threaded drop-to-latest reader, continuous event emission, bounded memory.
+Measured **385 ms median capture-to-event latency** while dropping 70% of
+frames — latency stays bounded instead of growing, which is the difference
+between an alert and a historical record.
+
+Compliant with the organisers' streaming contract: RTSP forced over TCP, timing
+driven by PTS rather than arrival time, exponential reconnect backoff (2s→30s),
+and tracker state rebuilt at the loop-point scene discontinuity.
+
+### Problems hit and how they were fixed (do not re-introduce)
+
+* **`np.float16` is a scalar type, not a dtype instance.** `self.input_dtype.type(255.0)`
+  raised `AttributeError` on the first real frame. Use the type directly.
+* **Overlapping vehicle boxes handed the same plate to several tracks** — 76
+  cases in one clip at IoU up to 0.91, causing duplicate OCR *and* one car
+  reporting as three vehicles. Plate regions are now deduplicated per frame and
+  attributed to the smallest containing vehicle.
+* **Evaluation scored raw tracks, not merged vehicles**, so a fragmented car was
+  counted once as correct and once as spurious — penalising the pipeline for an
+  artefact the merge step had already repaired.
+* **The scheduler starved short tracks.** A vehicle visible for four frames got
+  one look before the cooldown silenced it. A vehicle that has never yielded a
+  plate now gets guaranteed attempts before any cooldown applies.
+* **The benchmark generator overlapped its own sprites**, occluding two of eight
+  plates so they could never be read. Several rounds of "missed plates" were the
+  test rig, not the pipeline. Vehicles are now placed in separated lanes.
+* **`inspect.py` as a filename shadows the stdlib**, breaking numpy's import.
 
 ---
 
-## Phase 6 — Event engine, watchlist, alerts
+## Phase 6 — Event engine, watchlist, alerts ✅
 
-- [ ] `EventBus` interface + `RedisStreamBus` implementation (consumer groups)
-- [ ] Consumer: validate against contract → persist detection → index to OpenSearch → watchlist check
-- [ ] Watchlist matcher: in-memory bloom filter refreshed on change; exact match on
-      `plate_normalised`; Levenshtein ≤ 1 as a **separate lower-priority "possible match"**
-- [ ] Alert raise → WebSocket push
-- [ ] Alert lifecycle: new → acknowledged → dispatched → closed / false_positive, with who and when
-- [ ] Deduplication window per (plate, camera)
+- [x] `EventBus` + Redis Streams with consumer groups; worker publishes, API consumes
+- [x] Consumer: parse → broadcast to operators → persist detection → match → alert
+- [x] Watchlist matcher: in-memory index refreshed on change, **deletion index**
+      for near matches so lookup is proportional to plate length, not list size
+- [x] Exact → `watchlist_hit` at the entry's priority; within one character →
+      `possible_match` **capped at medium**
+- [x] Validity windows enforced at match time, so a BOLO expiring between
+      refreshes stops matching immediately
+- [x] Alert raise → WebSocket push, broadcast **after** commit
+- [x] Lifecycle new → acknowledged → dispatched → closed / false_positive, every
+      transition recording who and when; illegal moves rejected
+- [x] Deduplication per (plate, camera) over 90s, repeats counted on the original
+- [x] Watchlist CRUD and alert triage endpoints, every mutation audited
 
-**Gate:** inject a watchlisted plate; alert appears on a connected WebSocket client in **under 2 s**
-end-to-end from event publish.
+### Gate — passed
+
+Watchlisted plate injected → alert on a connected WebSocket client in **24 ms**
+(budget: 2 s), carrying the case reference so no follow-up lookup is needed.
+
+Verified live against the running stack:
+
+| injected | result |
+|---|---|
+| `GJ03AB1234` (listed, stolen) | `watchlist_hit`, **critical** |
+| `GJ03AB1284` (one character off) | `possible_match`, **medium**, with a verify-before-acting note |
+| `GJ99ZZ0000` (unlisted) | no alert |
+| `GJ01XY7788` (expired BOLO) | no alert |
+| `GJ03AB1234` repeated, same camera | deduplicated into the original |
+
+### Design decisions worth keeping
+
+* **A near match is capped at medium however severe the entry.** OCR misreads a
+  character often enough that requiring exactness loses real hits, but raising a
+  maybe as critical teaches operators to distrust critical.
+* **The same plate at a different camera is a new alert.** That is the vehicle
+  moving, which is precisely what a cross-camera system exists to notice.
+* **`false_positive` is an outcome, not a delete.** A system where operators can
+  quietly erase mistakes cannot be audited, and those corrections are the data
+  that improves the models.
+* **Acknowledge / dispatch / close are separate permissions**, because in a
+  control room they are separate authorities.
+
+### Problems hit and how they were fixed (do not re-introduce)
+
+* **`CurrentUser` is a value object with no `has_permission`.** Permissions come
+  from the role matrix via `permissions_for(user.role)`.
+* **FastAPI rejects a 204 endpoint annotated `-> None`.** Return `Response(status_code=204)`.
+* **Watchlist entries must be stored normalised.** An entry typed
+  "GJ 03 AB 1234" that is not normalised silently never matches — the worst
+  possible failure for a BOLO.
 
 ---
 
-## Phase 7 — Correlator: cross-camera tracking & route reconstruction
+## Phase 7 — Correlator: cross-camera tracking & route reconstruction 🟡
 
-- [ ] Fetch detections by plate + window, ordered by ts
-- [ ] Cluster into hops, merging same-camera sightings within a dwell window
-- [ ] Great-circle distance + elapsed time → implied speed per consecutive pair
-- [ ] Plausibility scoring: > 150 km/h, or < 2 km/h over a long gap, or `heading_deg` contradicting
-      direction of travel → **marked low-confidence, not dropped**
-- [ ] Persist to `vehicle_tracks`; `GET /api/v1/vehicles/{plate}/route?from&to` → GeoJSON + hop table
-- [ ] Straight-line segments explicitly labelled as such
-- [ ] Convoy detection (2 plates co-occurring across ≥ 3 cameras in a tight window)
-- [ ] First-sighting / ANPR-gap analysis
+`app/services/correlator.py` + `app/routers/vehicles.py`. **50 tests** (35 unit on the
+pure logic, 15 over HTTP).
 
-**Gate:** seeded `GJ03AB1234` produces Rajkot → Gondal → Jetpur → Junagadh with sane implied speeds,
-rendered as valid GeoJSON.
+- [x] Fetch detections by plate + window, ordered by ts, camera position joined
+- [x] Cluster into hops, merging same-camera sightings within a 5-minute dwell window
+- [x] Great-circle distance + elapsed time → implied speed per consecutive pair
+- [x] Plausibility scoring — **marked, never dropped**
+- [x] `GET /api/v1/vehicles/{plate}/route?since&until&format=json|geojson`
+- [x] Straight-line segments explicitly labelled in the GeoJSON properties
+- [x] Convoy detection (`/convoy`, thresholds are the caller's to set)
+- [x] Unobserved-gap analysis (`unobserved_gap` flag)
+- [x] `/routable` — which plates have enough sightings to have a route at all
+- [x] `persist_route()` writes to `vehicle_tracks`
+- [x] **Vehicle Search screen** — plate in, journey drawn on a satellite map with a hop
+      table, plain-English reasons for every flag, and convoy partners
+- [ ] **Gate not run:** needs a plate seen on several *separated* cameras
+
+### The one argument this phase rests on
+
+Distance is great-circle, not road distance. A road is never shorter than the straight
+line between its endpoints, so **implied speed is a lower bound on the speed driven**.
+That asymmetry is load-bearing:
+
+* if the lower bound already exceeds what a car can do, the leg is **impossible** — the
+  cloned-plate and misread signature, and the most useful thing the correlator finds;
+* a leg that looks fine has only passed a weak test.
+
+So `implausible` is a finding and `plausible` is merely the absence of one. The API does
+not present them as symmetric, and the note travels in every response.
+
+### Flags, and what each means
+
+| Flag | Meaning | Makes the route implausible? |
+|---|---|---|
+| `implausible_speed` | Lower-bound speed exceeds 150 km/h | **Yes** |
+| `impossible_simultaneous` | Same plate at two separated cameras at one instant | **Yes** |
+| `revisit` | The vehicle returned to a camera it had already passed | No |
+| `co_located` | Two *different* cameras < 50 m apart; speed would be position error | No |
+| `unobserved_gap` | Over an hour between sightings — the vehicle went somewhere unwatched | No |
+| `heading_conflict` | Camera faces more than 100° away from the direction of travel | No |
+
+### Why the gate has not been run
+
+The gate wants `GJ03AB1234` walking Rajkot → Gondal → Jetpur → Junagadh. That needs one
+plate read on four separated cameras, and **no such data exists**: the organisers' grid
+is returning 502, and when it is up its cameras cannot resolve a plate at all. The only
+camera producing plates is the single demonstration feed.
+
+Verified instead against the real detections that do exist — `NA13NRU` across
+`CAM-00001` and `CAM-DEMO`: 4 hops clustered from 170 sightings, `co_located`,
+`unobserved_gap` and `heading_conflict` all raised correctly, valid GeoJSON with
+`[lon, lat]` ordering over Gujarat.
+
+**To close this gate, one of:** the grid comes back *and* an ANPR-class camera is
+available on it; or a second demonstration feed is added; or Phase 12's backfill lands,
+in which case the seeded detections **must be labelled synthetic** wherever the route is
+displayed.
+
+Until then the screen says so itself: a route whose sightings are all on one camera
+shows *"there is no journey to draw — a route needs the plate read on cameras in
+different places"* rather than drawing a dot and leaving the operator to work out why.
+
+### Two artefacts the screen had to be taught about
+
+Both were found by looking at the rendered page rather than the tests, and both would
+have embarrassed a live demo:
+
+* **A revisit is not a co-location.** Four sightings on one camera were being reported
+  as *"these cameras are within 50 m"* — a statement about camera installation, when
+  there was only one camera and what actually happened is that the vehicle came back.
+  Now a distinct `revisit` flag.
+* **A convoy of near-identical plates is one car, not six.** OCR reading the same
+  vehicle as `AP05JEO` and `AP05JE0` produces two plates that co-occur *perfectly* at
+  every camera — the exact signature of a convoy. Partners within one edit of the
+  subject are now marked `likely_same_vehicle`, sorted below genuine associations, and
+  collapsed behind a disclosure rather than deleted: how often the reader disagrees
+  with itself about a vehicle is worth an operator seeing.
 
 ---
 
@@ -514,75 +688,402 @@ fallback path proven by stopping the OpenSearch container mid-test.
 
 ---
 
-## Phase 9 — Command centre UI
+## Phase 9 — Command centre UI 🟡
 
-- [ ] Dark operations-centre theme, IST timestamps everywhere, Gujarati + English primary nav
-- [ ] Login (role-based)
-- [ ] Live Dashboard: fleet KPI strip, live event ticker, alert feed, mini map
-- [ ] GIS Map: clustered status-coloured markers, district choropleth, filters, popup →
-      [View Camera] [Analytics] [Events]
-- [ ] Camera Detail: WebRTC player, live detection overlay, health sparklines, recent events
-- [ ] Video Wall: 2×2 / 3×3 / 4×4, drag cameras in
-- [ ] Alerts: priority-sorted, red critical banner with plate crop, ack/dispatch/close
-- [ ] Vehicle Search + Vehicle Profile: sightings, thumbnail strip, route map with animated
-      playback, timeline scrubber
-- [ ] Watchlist Manager: CRUD, CSV import, category/priority, per-entry audit trail
-- [ ] Camera Onboarding: single form + CSV upload with row-level error display
-- [ ] Admin: users, roles, VMS instances, audit log viewer, system health
-- [ ] Architecture: HLD + scaling diagram + **live numbers from the load test**
-- [ ] Skeletons (never block on a slow request), WS reconnect with backoff, CSV/PDF export,
-      keyboard shortcuts for alert triage
+Brought forward ahead of Phase 7: the alerting backend was complete and had no
+screen, so three judge moments could only be performed in a terminal.
 
-**Gate:** full click-through of the five judge moments with no console errors.
+- [x] Dark operations-centre theme, IST timestamps everywhere, Gujarati + English primary nav
+- [x] Login (role-based)
+- [x] GIS Map: clustered status-coloured markers, district choropleth, filters
+- [x] **Live ANPR**: camera picker with provenance, video with plate overlay, live plate
+      feed with per-read evidence, prior sightings for the camera
+- [x] **Alerts**: priority-sorted, critical banner, live socket merged with the stored
+      list, ack / dispatch / close / false-positive
+- [x] **Watchlist Manager**: add with case reference and reason, amend priority, retire
+- [x] WS reconnect with backoff and a visible feed status
+- [x] **Dashboard** — the landing screen: honest KPI tiles, live plate ticker,
+      alerts needing attention, fleet by department
+- [x] Toasts replace inline error text; errors do not auto-dismiss
+- [x] Loading skeletons, so an unloaded table never reads as an empty one
+- [x] Keyboard triage on alerts (`j`/`k` move, `a`/`d`/`c`/`f` act)
+- [x] CSV export on the audit trail, with RFC 4180 quoting and a UTF-8 BOM
+- [ ] Video Wall: 2×2 / 3×3 / 4×4
+- [ ] Vehicle Search + Vehicle Profile with animated route playback — needs Phase 7/8
+- [ ] Camera Onboarding form + CSV with row-level errors
+- [ ] Admin: users, VMS, audit viewer
+- [ ] Architecture page — needs Phase 10's measured numbers
+- [ ] PDF export; CSV on the remaining tables
 
----
+**Verified in a browser:** login → 31 ANPR cameras listed with provenance badges →
+event feed live → plate cards streaming with evidence → overlay boxes rendering →
+watchlist add returns a correct 409 on a duplicate → alerts listed with criticals
+banner. Zero console errors, zero failed requests.
 
-## Phase 10 — Scale profile & the 80,000-camera proof
+### Bugs this surfaced
 
-- [ ] `docker-compose.scale.yml`: Redpanda behind the same `EventBus`, 3 AI workers,
-      2 API replicas behind nginx, Prometheus + Grafana
-- [ ] `services/simulator/load_mode.py`: 80,000 camera identities, configurable rate
-      (default 80k × 1/30 s ≈ 2,667 events/s)
-- [ ] k6 against the API concurrently
-- [ ] Batched DB writes (COPY) + OpenSearch bulk indexing
-- [ ] Benchmark script writes the measured table into `docs/HLD.md` automatically
-- [ ] Bandwidth arithmetic in the doc: 320 Gbps centralised vs ~43 Mbps metadata (~7,000×)
-- [ ] Edge GPU sizing derived from Phase 5's **measured** per-stream fps
+All were invisible to a passing suite, because nothing exercised the paths.
 
-**Gate:** scale profile sustains ≥ 2,000 events/sec for 10 minutes with p95 end-to-end latency
-under 3 s, numbers written into the docs by the benchmark script.
-
-**Honesty clause:** if the persistence tier caps below target, report the measured number, name the
-bottleneck, and extrapolate per-node. Do not tune the benchmark until it flatters us.
-
----
-
-## Phase 11 — Documentation & submission artifacts
-
-- [ ] `docs/HLD.md` — context/container/component/deployment mermaid diagrams, four reference models
-      + Model-5 justification, data flow, failure modes, measured performance table
-- [ ] `docs/INFRASTRUCTURE.md` — per-district bandwidth math, GPU sizing from measured fps,
-      storage tiering (hot 7 d NVMe / warm 90 d HDD / cold 1 y object) with capacity math,
-      store-and-forward for intermittent links, DR with RPO/RTO
-- [ ] `docs/SECURITY.md` — TLS, encryption at rest, RBAC matrix, audit trail, network segmentation,
-      API key lifecycle, retention & purge, lawful-use safeguards, DPDP-Act notes
-- [ ] `docs/API.md` — generated from OpenAPI
-- [ ] `docs/DEMO_SCRIPT.md` — minute-by-minute 8-minute walkthrough, exact click paths,
-      fallback action per component
-- [ ] `README.md` — three commands, screenshot strip, architecture image
+| Bug | Effect |
+|---|---|
+| Handlers annotated the user as `CurrentUser` (the bare model) instead of the `Annotated[…, Depends(…)]` alias | FastAPI expected it in the request body: **every mutating watchlist and alert endpoint returned 422** |
+| `watchlist` and `alerts` mounted at the root, every other router under `/api/v1` | Both **unreachable through the web container's nginx** |
+| `detection_id` read before flush, where a Python-side default assigns it | **Every watchlist alert recorded `detection_id=None`**, losing its link to the evidence |
+| nginx forwarded `/api/` with a trailing slash, stripping the prefix | Split-origin dev hid it; a same-origin deployment would 404 on every call |
+| `useCameraEvents` never cleared on camera change | The previous camera's plates showed under the new camera's name — for an unreachable feed, invented results |
 
 ---
 
-## Phase 12 — Demo hardening
+## The grid's two authentication systems ✅
 
-- [ ] `make demo`: fresh DB → 250 cameras → watchlist incl. `GJ03AB1234` HIGH/stolen →
-      simulator replaying 6 clips → backfill 30 days / 500k detections on a diurnal curve with the
-      demo vehicle's route planted → open browser
-- [ ] `scripts/generate_synthetic_plates.py` → accuracy report (precision / recall / CER) in the docs
-- [ ] `tests/e2e/test_judge_flow.py` — all five judge moments, headless
-- [ ] `PANIC.md` — projector / network / GPU failure, pre-recorded fallback video path
+The grid authenticates **two different ways**, and treating them as one is why
+the platform looked broken while the grid was fine:
 
-**Gate:** fresh clone → `make demo` → all five judge moments, timed under 5 minutes.
+| Path | Host | Authenticates with |
+|---|---|---|
+| RTSP (inference) | `103.250.160.189:8554` | username/password in the URL |
+| Catalogue + HLS | `cctv.corp8.cloud` | a **login session cookie** |
+
+The RTSP credentials are not accepted by the CDN — Basic auth there returns a
+302 to the login page. The CDN wants the form POST a browser makes and returns
+a `nagarnetra=` cookie. Media paths additionally refuse any request that does not
+look like a browser; the 403 body is literally `browser required`.
+
+That explained both visible symptoms at once:
+
+* **Health monitoring** fetched the catalogue, got a login page, and left all
+  30 cameras `unknown` — so the map showed 1 online out of 281.
+* **Video playback** pointed the browser straight at the CDN, where it has no
+  session, so the player reported *"No video is being published"* for a camera
+  that was publishing perfectly.
+
+- [x] `app/services/grid_session.py` — logs in, holds the cookie, re-logs when
+      it lapses. The only place in the platform holding those credentials
+- [x] The catalogue fetch uses it → **all 30 grid cameras now report online**
+- [x] `app/routers/grid_media.py` — an authenticated HLS proxy. The browser
+      presents the same short-lived, camera-scoped stream token it uses
+      everywhere else; the grid's credentials never leave the server
+- [x] Catalogue cached for 20 s → **30 fetches per health sweep became 4**.
+      The later requests in a sweep had been timing out and recording healthy
+      cameras as unreachable
+- [x] The dead `/grid/` nginx block and its `throughProxy` helper removed —
+      both pointed at a host that no longer serves us
+
+### Two bugs the work surfaced
+
+**The token was in the query string.** A player resolves `seg00123.ts` against
+the *path* of its playlist and drops the query doing so, so the playlist loaded
+and every segment then arrived unauthenticated — a 422 that looked like a
+malformed request and was really a lost credential. The token moved into the
+path, where relative resolution carries it for free and 7,200 segments do not
+each need a JWT appended.
+
+**The stream grant handed the browser the grid's password.** `rtsp_url` carries
+credentials because RTSP has nowhere else to put them, and it was being
+returned verbatim — undoing the entire point of proxying HLS with the field
+directly beneath it. Caught by a test written for exactly that, now redacted by
+`app/core/urls.py`.
+
+**Measured:** 31 cameras online (30 grid + demo), 0 offline. Playlist, AES key
+and segments all 200 through the proxy; a browser plays `SBX-00001` at
+1920×1080 with `readyState 4` and no console errors. A stream token for one
+camera returns 403 on another.
+
+---
+
+## The grid started requiring credentials ✅
+
+On 3 Sep the grid began rejecting anonymous RTSP with **401 Unauthorized**; it
+had been open the day before, and the integrator guide still describes it as
+needing no registration.
+
+**Our side reported this as "SBX-00001 is unreachable".** That single word cost
+the most: it sends whoever reads it to check the network when the real answer
+is a password. OpenCV returns a bare `False` for a refused connection, a DNS
+failure, an authentication rejection and a missing path alike, so nothing
+downstream could tell them apart.
+
+- [x] `reader.diagnose()` reproduces the first RTSP `DESCRIBE` (or an HTTP GET)
+      by hand and reports **unauthorized / not found / timeout / no route /
+      opened but no media**
+- [x] `StreamUnavailable` carries the reason; the worker prints what it means
+      for whoever is reading — *"the far end rejected our credentials"*
+- [x] `SANDBOX_RTSP_USERNAME` / `_PASSWORD`, read from `.env` (gitignored),
+      documented empty in `.env.example`. Empty is a valid configuration: the
+      grid was anonymous until this week
+- [x] **`reader.redact()` on every log line that prints a source**
+
+**The credentials leaked into the worker log on the first attempt** — 15
+occurrences, from three separate call sites that each had to be found by hand.
+`tests/test_stream.py::TestCredentialsNeverReachTheLog` now greps the source
+for any `log.*` call that prints a stream URL without redacting it, and was
+verified to fail against a reintroduced leak. It is scoped per file, because
+`self.source` is the URL in `reader.py` and a `SourceIdentity` object in
+`runner.py` — conflating them produced a confident false positive.
+
+**Measured after the fix:** 10 grid cameras producing detections within ten
+minutes, 0 occurrences of the token in any log, and the log showing
+`rtsp://vaibhav.r.makvana%40gmail.com:***@103.250.160.189:8554/…` — host and
+camera still legible for diagnosis.
+
+---
+
+## Accounts, RBAC in the interface, and the audit viewer ✅
+
+Three controls existed on paper and not in the product.
+
+**The interface ignored the RBAC the API enforces.** `hasPermission()` had been
+in `useAuth` since Phase 1 and no screen called it, so every role saw every tab:
+an auditor was offered Live ANPR and Vehicle Search and refused on arrival, and
+an analyst was shown the watchlist add form and refused on submit. Teaching a
+control room that this system's errors are noise is expensive.
+
+- [x] Navigation filtered by permission; `RequirePermission` guards each route
+      so a typed URL refuses cleanly and *names the missing permission*
+- [x] Write controls gated — no "Add to watchlist" for a role that will be
+      refused, no alert transition a role cannot make
+- [x] Verified per role in a browser: **0 unexpected 403s across all five**
+
+**There was no account administration at all.** No endpoint could create a
+user, assign a role, deactivate an account or reset a password.
+
+- [x] `/api/v1/users` — create, amend, reset, delete, all audited
+- [x] An administrator cannot deactivate or demote **themselves**
+- [x] An account that has acted **cannot be deleted** — it would orphan every
+      audit row naming it; the API insists on deactivation instead
+- [x] `must_change_password` (migration `0002`): a password an administrator
+      chose is a shared secret, and nothing the account does is attributable
+      until the holder replaces it
+- [x] Password policy rejects **the credential documented in this repository**,
+      passwords containing the username, repeated characters and keyboard runs
+
+**`AUDIT_READ` gated nothing.** It was a permission with no endpoint.
+
+- [x] `/api/v1/audit` with filters, and the screen behind it
+- [x] **Reading the trail is itself audited** — a reviewer who leaves no trace
+      is a hole in the control
+
+### Bugs this surfaced
+
+| Bug | Effect |
+|---|---|
+| Middleware derived actions from the URL path (`users.create`) while routers recorded the singular (`user.create`) | **Two names for one event.** A reviewer filtering `user.` silently saw half the entries |
+| `<select>` had no `api_client` option | The camera-onboarding machine identity **rendered as "admin"** |
+| `AuditEntry.ip` typed `str`, column is `INET` | Every audit read returned **500** |
+| Tests created accounts and never removed them | Ten `test.*` accounts accumulated **in the demo database** |
+
+**382 API tests pass** (29 new), `make lint` clean.
+
+---
+
+## The grid moved, and RTSP was never blocked ✅
+
+On 2 Sep the organisers published a revised integrator guide. The change that
+matters is not the new hostname but the **split of media from metadata**:
+
+    catalogue   https://cctv.corp8.cloud/cameras.json     (CDN, password)
+    HLS         https://cctv.corp8.cloud/<id>/index.m3u8  (CDN, password)
+    RTSP        rtsp://103.250.160.189:8554/stream/<id>   (direct)
+    WHEP        http://103.250.160.189:8889/stream/<id>/whep (direct)
+
+Their guide states the reason plainly: RTSP and WebRTC "carry media over
+TCP/UDP that a CDN cannot proxy", so they are served on a static IP.
+
+**This invalidates a conclusion held since Phase 5.** The adapter derived all
+four URLs from one hostname, so it probed `rtsp://<cdn-host>:8554`, found the
+port shut, and recorded that the grid was RTSP-blocked and HLS-only. The port
+was never blocked — we were knocking on the CDN. Both 8554 and 8889 are open
+and always were.
+
+- [x] `HostedGridAdapter` models the two hosts separately, with the reason
+      in the docstring so it cannot be "simplified" back
+- [x] Catalogue path falls back `/cameras.json` → `/api/ingest`; a redirect to
+      a login page is reported as a login page, not as "unreachable"
+- [x] The grid's own camera id is **stored** (`grid-id:` tag) rather than derived
+      from our camera code — their ids changed `7` → `cam07` and will again
+- [x] `scripts/retarget_grid.py` moves the 30 registered cameras to the new
+      scheme, tagging the inferred ids as inferred
+- [x] Worker probes and uses RTSP directly
+
+**Measured:** all 30 cameras respond to `ffprobe` over RTSP — 24 × H.264,
+6 × HEVC, resolutions 960×576 to 2560×1440, most 1080p. The worker now
+processes them live: *"RTSP to 103.250.160.189 is reachable"*, *"processing
+SBX-00001 [Chiman bhai Bridge] over rtsp"*, and detections from Chiman bhai
+Bridge, Janpath, Paldi Circle and Visat teen Rasta are in the database.
+
+---
+
+## The fleet: real feeds only ✅
+
+The ANPR fleet is the organisers' 30 grid cameras plus one clearly labelled
+demonstration feed. Nothing else has video attached.
+
+- [x] `scripts/shape_fleet.py` — idempotent. Creates `CAM-DEMO`, moves seeded cameras
+      off the federated VMS they were never part of, and restricts `anpr_enabled` to
+      cameras with a real source
+- [x] Simulator publishes **only** cameras with footage pinned to them
+      (`SIM_STREAM_COUNT=0` by default)
+- [x] `app/services/fleet_roster.py` — the API publishes the fleet to Redis; the worker
+      reads it. No ORM in the minimal worker image, no service credential, and a
+      federated camera stays in the fleet while its gateway is down
+- [x] `ai_worker/rotation.py` — cameras beyond the slot count are **rotated, not
+      dropped**, and the coverage is stated rather than implied
+- [x] Plate formats are a property of the camera (`plate-region:GB`), not a worker-wide
+      setting
+- [x] RTSP vs HLS probed once per host by the worker
+
+**Measured:** all 30 grid cameras attempted and reported unreachable while the grid
+returns 502; `CAM-DEMO` read 572 plates in 20 minutes of which 406 are grammar-valid;
+coverage reported as *"31 cameras across 3 slots, each watched 45s every 11.2 min"*.
+
+**Gate for the rest of Phase 9:** full click-through of the five judge moments with no
+console errors.
+
+---
+
+## Phase 10 — Scale profile & the 80,000-camera proof ✅
+
+- [x] `docker-compose.scale.yml` — API stops ingesting (`INGEST_ENABLED=false`),
+      three dedicated `consumer` replicas take it over. Redpanda stays behind the
+      same interface for a production bus; the measurement runs on Redis Streams,
+      which is what the demo ships with.
+- [x] `services/simulator/simulator/load_mode.py` — 80,000 camera identities,
+      configurable rate, payloads the exact shape and size of real events
+- [x] `tests/load/run_load_test.py` — seeds the fleet, drives the generator,
+      samples the API, drains, reports, and **tears down what it created**
+- [x] `tests/load/k6/api_load.js` — operators working while ingest runs
+      (`make load-operators`, containerised so no k6 install is needed)
+- [x] Batched DB writes — one transaction per batch, not per event
+- [x] Bandwidth arithmetic in the docs: 320 Gbps vs ~43 Mbps (~7,000×)
+
+### Measured — 80,000 camera identities, 3 workers, one laptop, CPU only
+
+| | |
+|---|---|
+| Offered | 2,664 events/s |
+| **Ingest sustained (median)** | **2,774 events/s** |
+| Range | 2,280 – 4,002 events/s |
+| Consumed / written | 388,748 / 388,713 |
+| **Failed** | **0** |
+| Alerts raised under load | 397 |
+| Backlog peak → after generator stopped | 10,237 → cleared |
+| p50 / p95 / p99 capture→persisted | 4,812 / 5,670 / 5,904 ms |
+
+**Gate: throughput met, latency not.** ≥2,000 events/s sustained — yes, 2,774.
+p95 under 3 s — no, 5.7 s. The gap is queue wait, not processing: a backlog
+forms and then clears completely. Reported rather than tuned away, per the
+phase's own honesty clause.
+
+### Three bugs this phase found that 443 tests did not
+
+**`upper(camera_code)` defeated the index.** Every ingested detection resolves a
+camera code to an id, case-insensitively — MediaMTX lowercases stream paths
+while the registry stores uppercase. `upper(camera_code) = ...` cannot use a
+plain index. At 281 cameras: invisible. At 80,000: **106 ms per lookup, 80,278
+rows discarded**, ingest collapsed from ~1,500 events/s to 140. Migration
+`0003` adds an expression index; throughput recovered 7.5×.
+
+**Two API replicas would have split the live event feed.** `EventConsumer` both
+persisted events and fanned them out to operators, both through a consumer
+group — which hands each entry to exactly *one* member. Correct for
+persistence, exactly wrong for a shared operations picture. Two replicas would
+each have shown their operators half the state's traffic with nothing reporting
+a fault. Now `EventTailer` (plain `XREAD`, every replica sees everything) is
+separate from `EventConsumer` (the group, exactly once), and alerts travel on a
+pub/sub channel so one raised by any worker reaches every replica.
+
+**Unknown cameras were cached forever.** A camera code the registry did not
+know was cached as "no such camera" for the life of the process. Cameras are
+onboarded *while the platform runs* — that is the point of the registry — so
+every detection from a newly-onboarded camera would have been stored
+unattributed until a restart, with nothing indicating a fault. Negative lookups
+now expire after 60 s; positive ones are kept, because a camera's id does not
+change.
+
+### And two in the test itself, worth recording
+
+`XLEN` was used for backlog and reported a permanent 100,000-event queue on a
+consumer that was fully caught up — the stream is length-capped, so `XLEN` sits
+at the cap regardless. The consumer group's `lag` is the right measure.
+
+The verdict compared the final backlog to twice the *first sample's*, and the
+first sample was already 50,000 deep — so it certified "sustained the target"
+on a run doing 180 events/s against 2,667. It now judges throughput against
+what was actually offered. A load test that grades itself generously is worse
+than none, because it is believed.
+
+---
+
+## Phase 11 — Documentation & submission artifacts ✅
+
+- [x] `docs/HLD.md` — four reference models with the Model-5 justification, the
+      320 Gbps ÷ 43 Mbps arithmetic, container and deployment diagrams, the data
+      path, ten failure modes, and a measured-performance table
+- [x] `docs/INFRASTRUCTURE.md` — per-district bandwidth, compute sizing from
+      measured throughput, storage tiering with capacity maths, availability
+- [x] `docs/SECURITY.md` — RBAC matrix, audit trail, retention, rate limiting,
+      lawful-use safeguards, **and §8: what is not implemented**
+- [x] `docs/API.md` — generated by `scripts/generate_api_docs.py` from the live
+      OpenAPI document (`make docs`), so it cannot drift silently
+- [x] `docs/DEMO_SCRIPT.md` — eight minutes, five judge moments, a fallback per
+      step, and §8 "what not to claim"
+- [x] `README.md` — already referenced these; they now exist
+
+### The rule these documents follow
+
+Every number is labelled **measured**, **arithmetic**, **estimated** or
+**unproven**, and each document carries a section listing what it does *not*
+have:
+
+| Document | Its own gaps section |
+|---|---|
+| `SECURITY.md` | §8 — no TLS, no encryption at rest, no backups, AGPL weights, no pen test |
+| `INFRASTRUCTURE.md` | §6 — the summary of what is unproven, including the un-run load test |
+| `HLD.md` | §7 — "Phase 10's load test has not been run", stated in the scaling section itself |
+| `DEMO_SCRIPT.md` | §8 — "what not to claim", four specific overreaches to avoid on stage |
+
+A security document that omits its gaps is worse than none, because it stops
+anyone looking. The same reasoning applies to the rest.
+
+**Verified:** every internal link across all six documents resolves.
+
+---
+
+## Phase 12 — Demo hardening ✅
+
+- [x] `make demo` → `scripts/demo_up.sh`: containers → migrate → seed → `shape_fleet.py`
+      → `retarget_grid.py` → simulator → ai-worker → **verifies each judge moment before
+      claiming ready**. Measured: 281 cameras on the map, 31 in the ANPR fleet.
+- [x] Synthetic plates with ground truth → accuracy report. Built in Phase 5 under
+      `ai-lab/scripts/make_test_footage.py` + `ailab/evaluate/groundtruth.py`, not the
+      `scripts/generate_synthetic_plates.py` the plan named. Result (100% exact, CER 0.000)
+      is in `docs/HLD.md` §6, labelled optimistic-by-construction.
+- [x] `tests/e2e/test_judge_flow.py` — all five judge moments, headless. 17 tests.
+- [x] `PANIC.md` — projector / network / grid / GPU failure, with a triage path per component.
+
+**Gate passed.** `make demo` reports "Demo ready"; `make test` runs the e2e suite last and
+all four suites are green: 389 API + 54 worker + 33 e2e + 24 frontend.
+
+### Two things this phase found that the other 443 tests did not
+
+**The demo path had never been run end to end.** `make demo` previously called a
+target that assumed a populated database. A judge cloning fresh would have got an
+empty map. Every phase gate had passed against a database that earlier phases had
+already filled.
+
+**Test pollution reached the demo data.** The watchlist held **151 stray `GJ01*`
+entries** written by API tests that never cleaned up, alongside the 5 real ones — so
+the Watchlist screen a judge opens was 97% test litter. Fixed with an autouse
+pattern-scoped cleanup fixture; the same class of bug had already been fixed once for
+`test.*` users, which is why it is worth stating that a passing suite can still be
+degrading the product it tests.
+
+### And one about timestamps
+
+The e2e suite failed 7 of 17 on `datetime.isoformat()`, which emits `+00:00`; an
+unencoded `+` in a query string decodes to a space, so the API correctly rejected it.
+The frontend never hit this because `toISOString()` emits `Z`. Worth knowing before
+someone writes a curl example into the docs.
 
 ---
 
@@ -634,22 +1135,66 @@ swappable by a test double.
 
 ---
 
-## Known gaps (honest list, as of Phase 4)
+## The ANPR demonstration
+
+`scripts/demo_anpr.py` — run it inside the api container, which has the dependencies:
+
+```
+docker compose exec -e NAGARNETRA_API_URL=http://api:8000 api \
+    python /app/scripts/demo_anpr.py --plate NA13NRU
+```
+
+Prerequisites: `make videos` (fetches and cuts `anpr_demo.mp4`), the simulator publishing
+`CAM-00001` (pinned by `SIM_CAMERA_VIDEOS` in compose), and a worker on it:
+
+```
+docker compose --profile ai run -d --rm \
+    -e AI_WORKER_SOURCE=mediamtx -e AI_WORKER_CAMERAS=cam-00001 \
+    -e AI_CONFIG=stream_demo --name nagarnetra-ai-demo ai-worker
+```
+
+What it proves, and why each step is not staged:
+
+1. It reads back what the **live pipeline** has written to `detections` — it is never told which
+   plates are in the footage.
+2. It puts one on the watchlist **over the API** as `supervisor`, so RBAC is checked, an audit row
+   is written, and the in-memory matcher is invalidated at once.
+3. It waits. Nothing is injected. The clip loops; when the car passes again the pipeline reads it
+   afresh.
+4. The alert is whatever the platform raised by itself.
+
+Measured on this machine: `NA13NRU` at confidence 0.99–1.00, alert raised 33–99 s after arming
+(that interval is how long until the car came round again, **not** pipeline latency — detection to
+alert is measured in the Phase 6 tests).
+
+---
+
+## Known gaps (honest list, as of Phase 6 + the ANPR demonstration)
 
 Recorded so no session mistakes these for done.
 
 | Gap | Detail |
 |---|---|
 | **mypy does not pass** | 17 errors across 8 files, and `make lint` does not run it. CLAUDE.md §5 claims "Python passes mypy" — currently untrue. Fix or amend the claim. |
-| **No ANPR** | Phase 5. The whole intelligence tier is unbuilt. |
-| **Sample footage carries non-Indian plates** | Fine for detection and tracking; Gujarat-format ground truth needs `scripts/generate_synthetic_plates.py` (Phase 12) to score OCR against. |
+| **ANPR accuracy is measured on generated plates** | Still true for the *measured* accuracy figure. The pipeline now also runs on real footage with legible plates (`anpr_demo.mp4`, 12 of 13 plates resolving to a valid format), but that clip has no ground truth, so those are model-confidence numbers, not measured accuracy. Real labelled **Gujarat** footage remains the single most valuable thing that could be added. |
+| **The grid yields plates rarely, and mostly at daytime** | **Superseded 3 Sep.** The earlier "zero plates" finding was sampled at ~22:00 from night footage. In daylight, with credentials, the grid *does* yield plates: `GJ11CO5913` at 0.92 confidence and grammar-valid from `SBX-00007 hero-showroom-gir-somnath` — GJ11 is the Junagadh RTO, geographically consistent with that camera. The rate is low (roughly 1 valid plate per 100 detections) and most cameras are still junction overviews. Treat the grid as an occasional ANPR source, not a reliable one. |
+| **Grid OCR reads signage as plates** | `DELIGHT` was read at 0.99 confidence from `SBX-00014 Delight` — the camera's own signage. Grammar correctly marks it invalid, so it never reaches the watchlist, but a confidence figure alone would have been badly misleading. This is why `grammar_valid` gates the alert path and not confidence. |
+| **Vehicle detection is weak on the grid's night scenes** | On a junction frame with 15+ visible vehicles the detector finds 1–2. YOLOv8n at a **fixed 640×640** export, downscaling 1080p, leaves distant vehicles a few pixels across. `detector.imgsz` cannot fix this — the ONNX input shape is static, and setting it now warns loudly instead of being silently ignored. Re-exporting at 1280 is the obvious next step and is untried. |
+| **Plate detector weights are AGPL-3.0** | An Ultralytics export. Acceptable for evaluation — the lab is a development tool and does not ship — but must be replaced before production. |
+| **One OCR error survives consensus** | `GJ35K5714` read as `GJ35X5714`. Both are letters in a letter slot, so grammar cannot repair it, and every frame agreed. A genuine recognition error needing a better model or a fine-tune, not a consensus failure. |
+| **Evidence crops are not in MinIO** | `Detection.crop_key` expects an object key; the worker currently records a path. Upload is unwired. |
+| **The GPU path has never executed** | Provider selection is one function and the CUDA branch is written, but this machine has no CUDA. **No GPU figure is claimed anywhere in this repository.** |
+| **Roughly one camera per CPU worker** | 4.4 fps at 720p, 2.8 at 4K in `bench` mode. Reaching many cameras is a GPU and node-count question this hardware cannot answer. |
 | **24 of 250 cameras stream** | A laptop encoding limit, not an architectural one. `SIM_STREAM_COUNT` raises it toward ~50 for the live test case. |
 | **Vendor adapters unexercised against real VMS** | The code is real and unit-tested, but no Milestone/Genetec/Hikvision server has been on the other end. Only the sandbox adapter targets a genuinely remote endpoint. |
 | **Health debounce counters are in-memory** | A monitor restart resets the consecutive-failure count, so the first post-restart sweep cannot flip a camera offline. Deliberate (it is debounce state, not a fact), but worth knowing. |
 | **Portrait source clips are pillarboxed** | `fetch_videos.sh` pads to 16:9 rather than cropping. |
-| **No rate limiting** on the API | Should exist before anything is exposed beyond localhost. |
+| ~~No rate limiting~~ | **Cleared.** Redis-backed, per-deployment, counting *failed* auth attempts so a shift change cannot lock a control room out. |
 | **HLS fallback opens a raw .m3u8** | Browsers other than Safari will download rather than play it. Needs hls.js or an embedded player page. |
-| **Alembic downgrade untested** | One migration exists; `downgrade()` is written but never run. |
+| ~~Alembic downgrade untested~~ | **Cleared.** `0002` was applied, rolled back and re-applied; the column disappeared and returned. |
+| **The demonstration footage carries UK plates** | `anpr_demo.mp4` is the only clip available with legible plates. `configs/demo.yaml` and `configs/stream_demo.yaml` accept UK grammar for it; a Gujarat deployment runs `stream`, which is Indian-only. Do not ship a config that accepts GB. |
+| **Live reads converge less than offline ones** | Streaming emits `vehicle.observed` incrementally, so an early event can carry a partial read (`FJ4ZHY` before `FJ14ZHY`). The final `vehicle.completed` is right; consumers that act on the first event see the rougher answer. |
+| **No frontend for alerts or the watchlist** | Both APIs are complete and tested over HTTP, but `web/src/pages/` has only Map, Fleet Health, Integration and Login. The demonstration is a terminal script, not a screen. |
 
 ---
 

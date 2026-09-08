@@ -236,6 +236,13 @@ export default function CameraPanel({ camera, onClose, onRefresh }: Props) {
               <StreamPlayer
                 whepUrl={stream.whep_url}
                 hlsUrl={stream.hls_url}
+                // Federated grids publish HLS on 443 and WebRTC on a port most
+                // networks block. Trying WHEP first there costs the operator a
+                // visible failure before the fallback that was always going to
+                // win, so go straight to the transport that works.
+                preferHls={Boolean(
+                  stream.hls_url && !stream.whep_url?.includes('localhost'),
+                )}
                 cameraCode={stream.camera_code}
               />
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">

@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════
---  Sentinel-GJ — first-boot extension bootstrap
+--  NagarNetra — first-boot extension bootstrap
 --
 --  Runs once, on an empty data directory, as the superuser.
 --  Alembic migration 0001 re-asserts every extension listed here, so a
@@ -11,7 +11,7 @@
 --   and TimescaleDB together — see CLAUDE.md §9.)
 -- ═══════════════════════════════════════════════════════════════════════
 
-\echo '── Sentinel-GJ: installing extensions ──'
+\echo '── NagarNetra: installing extensions ──'
 
 -- Geospatial: camera locations, district polygons, route LINESTRINGs,
 -- radius search, great-circle distance between consecutive sightings.
@@ -43,10 +43,10 @@ BEGIN
      WHERE NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = e);
 
     IF missing IS NOT NULL THEN
-        RAISE EXCEPTION 'Sentinel-GJ bootstrap failed — missing extensions: %', missing;
+        RAISE EXCEPTION 'NagarNetra bootstrap failed — missing extensions: %', missing;
     END IF;
 
-    RAISE NOTICE 'Sentinel-GJ: PostGIS %, TimescaleDB % ready',
+    RAISE NOTICE 'NagarNetra: PostGIS %, TimescaleDB % ready',
         (SELECT extversion FROM pg_extension WHERE extname = 'postgis'),
         (SELECT extversion FROM pg_extension WHERE extname = 'timescaledb');
 END

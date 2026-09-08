@@ -1,6 +1,6 @@
 """Initial schema: registry, intelligence, and security tables
 
-Creates the complete Sentinel-GJ data model in one revision:
+Creates the complete NagarNetra data model in one revision:
 
 * **Registry** — departments, vms_instances, cameras, camera_health
 * **Intelligence** — detections, watchlist, alerts, vehicle_tracks
@@ -54,7 +54,7 @@ def upgrade() -> None:
              WHERE NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = e);
             IF missing IS NOT NULL THEN
                 RAISE EXCEPTION
-                    'Sentinel-GJ requires extensions that are missing: %. '
+                    'NagarNetra requires extensions that are missing: %. '
                     'Use timescale/timescaledb-ha:*-all (see CLAUDE.md section 9).',
                     missing;
             END IF;

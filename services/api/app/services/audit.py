@@ -24,10 +24,13 @@ error is logged at ERROR so the gap is visible to whoever reviews the trail.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Request
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.db.session import SessionLocal
@@ -262,3 +265,60 @@ async def record_permission_denied(
         params={"method": request.method, "missing_permissions": missing},
         result=AuditResult.DENIED,
     )
+
+
+async def count_for_user(session: AsyncSession, user_id: uuid.UUID) -> int:
+    """How many audit entries name this user.
+
+    Used before deleting an account: removing a user who has acted orphans
+    every row that references them, and an audit trail full of unresolvable
+    ids is not one an inquiry can use.
+    """
+    return (
+        await session.execute(
+            select(func.count()).select_from(AuditLog).where(AuditLog.user_id == user_id)
+        )
+    ).scalar_one()
+
+
+async def recent(
+    session: AsyncSession,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+    action: str | None = None,
+    username: str | None = None,
+    result: str | None = None,
+    since: datetime | None = None,
+) -> tuple[list[AuditLog], int]:
+    """Read the trail, newest first.
+
+    Reading the audit log is itself an audited action — recorded by the caller,
+    because "who has been reviewing whom" is exactly the question an inquiry
+    into misuse would ask, and a reviewer who leaves no trace is a gap in the
+    control this table exists to provide.
+    """
+    query = select(AuditLog)
+    count_query = select(func.count()).select_from(AuditLog)
+
+    filters = []
+    if action:
+        filters.append(AuditLog.action.startswith(action))
+    if username:
+        filters.append(AuditLog.username == username)
+    if result:
+        filters.append(AuditLog.result == result)
+    if since is not None:
+        filters.append(AuditLog.ts >= since)
+
+    for clause in filters:
+        query = query.where(clause)
+        count_query = count_query.where(clause)
+
+    total = (await session.execute(count_query)).scalar_one()
+    rows = (
+        (await session.execute(query.order_by(AuditLog.ts.desc()).limit(limit).offset(offset)))
+        .scalars()
+        .all()
+    )
+    return list(rows), total

@@ -42,7 +42,7 @@ def _create_engine() -> AsyncEngine:
         pool_pre_ping=True,
         connect_args={
             "server_settings": {
-                "application_name": "sentinel-api",
+                "application_name": "nagarnetra-api",
                 "timezone": "UTC",
             },
             # asyncpg caches prepared statements per connection; PgBouncer in

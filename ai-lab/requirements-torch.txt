@@ -1,0 +1,13 @@
+# ── Optional experiment profile ──────────────────────────────────────
+# Adds the PyTorch engines. Needed ONLY for:
+#   * exporting new .pt weights to ONNX (`ailab export`)
+#   * fine-tuning on mined hard cases (`ailab train`)
+#   * benchmarking the Ultralytics engine against the ONNX one
+#
+# NOT needed to run the pipeline. ~500 MB extra. Ultralytics is AGPL-3.0 —
+# it is a development tool here and never ships in a deployed artifact.
+-r requirements.txt
+torch==2.5.1
+torchvision==0.20.1
+ultralytics==8.3.155
+easyocr==1.7.2

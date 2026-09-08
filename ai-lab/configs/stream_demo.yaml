@@ -1,0 +1,17 @@
+# Live-stream config for the ANPR demonstration footage.
+#
+# Identical to `stream` in every decision that affects speed or recall. The one
+# difference is that UK plate formats are accepted as well as Indian ones,
+# because the only footage available with legible plates is British (see
+# data/videos/ATTRIBUTION.md).
+#
+# This is a property of the *footage*, not of the platform. A Gujarat
+# deployment runs `stream`, where a UK-shaped string is correctly reported as
+# grammar-invalid. Using this config anywhere real would let the repair step
+# bend a genuine misread into a plausible-looking British plate.
+extends: stream.yaml
+name: stream_demo
+description: Live streaming, Indian + UK plate grammar, for the ANPR sample footage.
+
+consensus:
+  plate_regions: ["IN", "GB"]

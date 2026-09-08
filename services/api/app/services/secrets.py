@@ -2,7 +2,7 @@
 
 ``vms_instances.credentials_ref`` stores a **pointer**, never a secret:
 
-    vault://sentinel/vms/rajkot-milestone
+    vault://nagarnetra/vms/rajkot-milestone
     env://RAJKOT_VMS_USERNAME:RAJKOT_VMS_PASSWORD
     file:///run/secrets/rajkot_vms
 

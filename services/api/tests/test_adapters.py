@@ -28,7 +28,7 @@ from app.adapters.rtsp import (
     _parse_frame_rate,
 )
 from app.adapters.sandbox import (
-    SentinelSandboxAdapter,
+    HostedGridAdapter,
     _external_id_of,
     _extract_location,
     _extract_resolution,
@@ -43,7 +43,7 @@ class TestAdapterRegistry:
 
     def test_every_adapter_type_is_registered(self) -> None:
         registered = available_adapters()
-        assert set(registered) >= {"rtsp", "onvif", "vendor_api", "sentinel_sandbox", "simulated"}
+        assert set(registered) >= {"rtsp", "onvif", "vendor_api", "hosted_grid", "simulated"}
 
     @pytest.mark.parametrize(
         ("adapter_type", "expected"),
@@ -51,7 +51,7 @@ class TestAdapterRegistry:
             ("rtsp", RtspAdapter),
             ("onvif", OnvifAdapter),
             ("vendor_api", VendorVmsAdapter),
-            ("sentinel_sandbox", SentinelSandboxAdapter),
+            ("hosted_grid", HostedGridAdapter),
             ("simulated", SimulatedVmsAdapter),
         ],
     )
@@ -90,10 +90,10 @@ class TestAdapterRegistry:
             name="V",
             adapter_type="vendor_api",
             base_url="http://v",
-            credentials_ref="vault://sentinel/vms/v",
+            credentials_ref="vault://nagarnetra/vms/v",
         )
         adapter = adapter_for(vms)
-        assert adapter.credentials_ref == "vault://sentinel/vms/v"
+        assert adapter.credentials_ref == "vault://nagarnetra/vms/v"
 
     def test_every_adapter_implements_the_contract(self) -> None:
         for adapter_type in available_adapters():
@@ -264,17 +264,38 @@ class TestVendorNormalisation:
 class TestSandboxAdapter:
     """The challenge's own grid (sentinel.gujarat.gov.in)."""
 
-    def _adapter(self) -> SentinelSandboxAdapter:
-        return SentinelSandboxAdapter(
-            name="Sentinel Sandbox Grid", base_url="https://sentinel.gujarat.gov.in"
+    def _adapter(self) -> HostedGridAdapter:
+        return HostedGridAdapter(
+            name="Hosted Camera Grid", base_url="https://sentinel.gujarat.gov.in"
         )
 
-    def test_builds_the_documented_url_forms(self) -> None:
-        endpoints = self._adapter()._endpoints_for("7")
+    def test_media_is_not_served_from_the_catalogue_host(self) -> None:
+        """The mistake that cost weeks: RTSP built against the CDN hostname.
 
-        assert endpoints.rtsp == "rtsp://sentinel.gujarat.gov.in:8554/stream/7"
-        assert endpoints.whep == "https://sentinel.gujarat.gov.in:8889/stream/7/whep"
-        assert endpoints.hls == "https://sentinel.gujarat.gov.in/live/stream/7/index.m3u8"
+        A CDN terminates HTTP and cannot carry an RTSP session or a WebRTC
+        media flow, which is why the organisers publish those on a direct
+        address. Deriving all four URLs from one hostname produced
+        `rtsp://<cdn>:8554/...`, the port looked closed, and the grid was
+        written off as RTSP-blocked.
+        """
+        from app.core.config import settings
+
+        endpoints = self._adapter()._endpoints_for("cam07")
+
+        assert settings.sandbox_media_host in endpoints.rtsp
+        assert settings.sandbox_media_host in endpoints.whep
+        assert "sentinel.gujarat.gov.in" not in endpoints.rtsp
+        assert "sentinel.gujarat.gov.in" not in endpoints.whep
+
+    def test_the_catalogue_host_still_serves_hls(self) -> None:
+        """HLS is the one that *is* behind the CDN."""
+        endpoints = self._adapter()._endpoints_for("cam07")
+        assert endpoints.hls == "https://sentinel.gujarat.gov.in/cam07/index.m3u8"
+
+    def test_whep_is_plain_http_on_the_direct_host(self) -> None:
+        """There is no certificate for a bare IP outside the CDN."""
+        endpoints = self._adapter()._endpoints_for("cam07")
+        assert endpoints.whep.startswith("http://")
 
     def test_our_gateway_uses_the_same_ports(self) -> None:
         """Their RTSP/WHEP ports match ours, so the grid is a drop-in source."""
@@ -282,12 +303,34 @@ class TestSandboxAdapter:
 
         assert (RTSP_PORT, WHEP_PORT) == (8554, 8889)
 
+    def test_the_grid_id_is_read_from_the_stored_tag(self) -> None:
+        """Their id format has changed once already (7 → cam07).
+
+        The catalogue is the source of truth, so the id it gave us is stored
+        and read back rather than derived from our own camera code.
+        """
+        camera = SimpleNamespace(
+            camera_code="SBX-00007", tags=["sandbox", "grid-id:cam07", "transport:rtsp"]
+        )
+        assert _external_id_of(camera) == "cam07"
+
+    def test_a_stored_id_wins_over_anything_derivable(self) -> None:
+        camera = SimpleNamespace(camera_code="SBX-00007", tags=["grid-id:north-gate-3"])
+        assert _external_id_of(camera) == "north-gate-3"
+
     @pytest.mark.parametrize(
         ("code", "expected"),
         [("SBX-00007", "7"), ("CAM-00034", "34"), ("12", "12")],
     )
-    def test_maps_our_camera_code_to_their_numeric_id(self, code: str, expected: str) -> None:
-        assert _external_id_of(SimpleNamespace(camera_code=code)) == expected
+    def test_untagged_cameras_fall_back_to_the_old_derivation(
+        self, code: str, expected: str
+    ) -> None:
+        """Only for rows synced before the tag existed.
+
+        It reproduces the *old* id format, which is wrong against the current
+        grid — so this is a way to fail visibly, not a way to work.
+        """
+        assert _external_id_of(SimpleNamespace(camera_code=code, tags=[])) == expected
 
     @pytest.mark.parametrize(
         "item",
@@ -328,7 +371,7 @@ class TestSecretsAreNeverInlined:
         from app.services.secrets import resolve_credentials
 
         assert resolve_credentials(None) is None
-        assert resolve_credentials("vault://sentinel/vms/absent") is None
+        assert resolve_credentials("vault://nagarnetra/vms/absent") is None
         assert resolve_credentials("nonsense") is None
 
     def test_env_reference_resolves(self, monkeypatch: pytest.MonkeyPatch) -> None:
