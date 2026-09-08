@@ -1,0 +1,98 @@
+# Default pipeline configuration.
+#
+# Balanced for CCTV footage on CPU: every frame analysed, two preprocessing
+# variants tried per plate, ONNX everywhere. This is the baseline every other
+# config should be compared against.
+name: default
+description: Balanced CPU baseline — ONNX detector, ByteTrack, RapidOCR.
+
+source:
+  frame_stride: 1
+
+detector:
+  engine: yolo_onnx
+  weights: models/yolov8n.onnx
+  confidence: 0.30
+  iou: 0.45
+  imgsz: 640
+  classes: [car, motorcycle, bus, truck, bicycle, person]
+  plate_bearing_classes: [car, motorcycle, bus, truck]
+  device: auto
+
+tracker:
+  engine: bytetrack
+  track_high_thresh: 0.50
+  track_low_thresh: 0.10
+  new_track_thresh: 0.55
+  match_thresh: 0.80
+  track_buffer: 30
+
+plate:
+  engine: plate_yolo_onnx
+  weights: models/plate_yolo11n.onnx
+  confidence: 0.25
+  mode: per_vehicle
+  vehicle_pad: 0.05
+  every_n_frames: 1
+  min_plate_width: 20
+  # 320 with a fixed strategy: a plate is a roughly constant fraction of a
+  # vehicle, so a constant input size gives constant plate detail and constant
+  # cost regardless of whether the source is 720p or 4K.
+  imgsz: 320
+  imgsz_strategy: fixed
+  # Selective inference. Search a vehicle when its view has materially changed,
+  # not on every frame. Skips are counted by reason in summary.json.
+  schedule:
+    enabled: true
+    min_interval: 3
+    max_interval: 12
+    min_scale_change: 0.18
+    min_move_fraction: 0.30
+    min_vehicle_width: 90
+    miss_backoff: true
+
+preprocess:
+  # 'rectified' warps the plate flat when its border is findable; 'upscaled' is
+  # the control. Running both and recording which won is how we find out
+  # whether rectification earns its cost on this footage.
+  variants: [rectified, upscaled]
+  target_height: 64
+  max_upscale: 4.0
+  clahe_clip: 2.0
+  pad_ratio: 0.08
+
+ocr:
+  engine: rapidocr
+  min_confidence: 0.20
+  min_chars: 6
+  max_chars: 13
+  max_reads_per_track: 40
+  # Stop reading a vehicle once its plate has clearly converged — OCR is the
+  # dominant cost and further reads of an agreed plate change nothing.
+  stop_when_confident: true
+  stop_min_agreeing: 6
+  stop_min_confidence: 0.85
+
+consensus:
+  min_reads: 1
+  relative_weight_floor: 0.15
+  ambiguity_margin: 0.15
+  apply_confusion_correction: true
+  require_grammar: false
+
+output:
+  annotated_video: true
+  save_plate_crops: true
+  save_vehicle_crops: true
+  max_crops_per_track: 25
+  html_report: true
+  events_jsonl: true
+  draw_trails: true
+
+hard_cases:
+  enabled: true
+  low_ocr_confidence: 0.55
+  min_track_frames_without_plate: 8
+  flag_grammar_invalid: true
+  flag_ambiguous: true
+  flag_disagreement_above: 0.35

@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════
-#  Sentinel-GJ API
+#  NagarNetra API
 #  Multi-stage: dependencies resolve in a builder, runtime stays slim.
 #  Runs as a non-root user — this is police infrastructure.
 # ══════════════════════════════════════════════════════════════════════
@@ -35,7 +35,7 @@ RUN python -m venv /opt/venv \
 # ── Runtime ───────────────────────────────────────────────────────────
 FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 
-LABEL org.opencontainers.image.title="Sentinel-GJ API" \
+LABEL org.opencontainers.image.title="NagarNetra API" \
       org.opencontainers.image.description="Statewide CCTV intelligence platform — API tier" \
       org.opencontainers.image.licenses="Apache-2.0"
 
@@ -54,18 +54,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 1001 sentinel \
-    && useradd --uid 1001 --gid 1001 --create-home --shell /bin/bash sentinel
+    && groupadd --gid 1001 nagarnetra \
+    && useradd --uid 1001 --gid 1001 --create-home --shell /bin/bash nagarnetra
 
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
-COPY --chown=sentinel:sentinel services/api /app/services/api
-COPY --chown=sentinel:sentinel packages/contracts /app/packages/contracts
+COPY --chown=nagarnetra:nagarnetra services/api /app/services/api
+COPY --chown=nagarnetra:nagarnetra packages/contracts /app/packages/contracts
 # Seed and maintenance scripts run inside this image (`make seed`).
-COPY --chown=sentinel:sentinel scripts /app/scripts
+COPY --chown=nagarnetra:nagarnetra scripts /app/scripts
 
-USER sentinel
+USER nagarnetra
 
 EXPOSE 8000
 

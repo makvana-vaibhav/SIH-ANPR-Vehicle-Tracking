@@ -39,8 +39,8 @@ TokenType = Literal["access", "refresh", "stream"]
 
 # Issuer/audience are asserted on decode, so a token minted by another system
 # (or for another audience) cannot be replayed against this API.
-JWT_ISSUER = "sentinel-gj"
-JWT_AUDIENCE = "sentinel-gj-api"
+JWT_ISSUER = "nagarnetra"
+JWT_AUDIENCE = "nagarnetra-api"
 
 # OWASP-recommended argon2id parameters: 19 MiB memory, 2 iterations,
 # 1 degree of parallelism. Memory cost is what defeats GPU attacks.

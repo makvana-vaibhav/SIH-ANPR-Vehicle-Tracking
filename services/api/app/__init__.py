@@ -1,1 +1,1 @@
-"""Sentinel-GJ API."""
+"""NagarNetra API."""

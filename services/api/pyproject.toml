@@ -1,7 +1,7 @@
 [project]
-name = "sentinel-gj-api"
+name = "nagarnetra-api"
 version = "0.1.0"
-description = "Sentinel-GJ — statewide CCTV intelligence platform, API tier"
+description = "NagarNetra — statewide CCTV intelligence platform, API tier"
 requires-python = ">=3.11,<3.12"
 license = { text = "Apache-2.0" }
 

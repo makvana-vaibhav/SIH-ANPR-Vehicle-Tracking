@@ -76,7 +76,7 @@ simulator does the same thing, so the two are interchangeable.
 
 | # | Criterion | How we serve it |
 |---|---|---|
-| 1 | Successful test case (onboarding + analytics on government feed) | `SentinelSandboxAdapter` consumes their `/api/ingest` catalogue directly |
+| 1 | Successful test case (onboarding + analytics on government feed) | `HostedGridAdapter` consumes their `/api/ingest` catalogue directly |
 | 2 | Solution presentation (clarity, model justification) | `docs/HLD.md` — Model 5 rationale with the bandwidth arithmetic |
 | 3 | Solution architecture (technical soundness, HLD quality) | C4 diagrams, failure modes, measured numbers |
 | 4 | Working platform (software maturity) | `docker compose up`, tests, audit trail, graceful degradation |
@@ -136,7 +136,7 @@ The sandbox exposes a camera catalogue and three consumption paths:
 
 | Path | URL form | Our use |
 |---|---|---|
-| Catalogue | `GET http://<host>/api/ingest` | `SentinelSandboxAdapter.list_cameras()` |
+| Catalogue | `GET http://<host>/api/ingest` | `HostedGridAdapter.list_cameras()` |
 | RTSP | `rtsp://<host>:8554/stream/<id>` | AI pipeline ingest |
 | WebRTC (WHEP) | `http://<host>:8889/stream/<id>/whep` | Browser preview |
 | HLS | `http://<host>/live/stream/<id>/index.m3u8` | Fallback / restricted networks |

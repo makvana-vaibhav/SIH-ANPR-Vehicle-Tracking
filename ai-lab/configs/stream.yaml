@@ -1,0 +1,46 @@
+# Live-camera configuration.
+#
+# The production worker runs this. It differs from `default` in what a live
+# camera demands rather than in what it detects:
+#
+#   * No annotated video, no crops, no HTML report. Diagnostic output costs
+#     roughly three times the inference it observes, and a worker watching a
+#     camera for a month cannot be writing JPEGs for every vehicle.
+#   * Scheduling is a little more aggressive, because falling behind a live
+#     source costs alert latency, and latency is the thing the platform sells.
+#   * Provisional events are emitted while a vehicle is still in view, so the
+#     platform can raise an alert before the car has left the junction.
+#
+# Everything that determines *what* is detected — the models, the thresholds,
+# the consensus rules — is inherited from `default` unchanged, so accuracy
+# measured in the lab is the accuracy this produces.
+extends: default.yaml
+name: stream
+description: Live RTSP worker — inference and events only, no diagnostic artifacts.
+
+plate:
+  schedule:
+    min_interval: 4
+    max_interval: 16
+    min_vehicle_width: 100
+
+ocr:
+  max_reads_per_track: 20
+  stop_when_confident: true
+  stop_min_agreeing: 4
+  stop_min_confidence: 0.85
+
+output:
+  annotated_video: false
+  save_plate_crops: false
+  save_vehicle_crops: false
+  keyframes: false
+  html_report: false
+  events_jsonl: false
+
+stream:
+  # Emit the final event this long after a vehicle was last seen. Short enough
+  # that history is timely, long enough to survive a brief occlusion.
+  retire_after_s: 1.5
+  observed_confidence_delta: 0.10
+  max_observed_per_track: 3

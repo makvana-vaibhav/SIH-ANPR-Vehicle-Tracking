@@ -1,0 +1,37 @@
+# Gazetteer for placing sandbox cameras on the map.
+#
+# The organisers' catalogue publishes a location *name* per camera, not
+# coordinates. These are well-known city and town centres in Gujarat, used to
+# place a camera at the settlement its name identifies.
+#
+# THESE ARE NOT CAMERA POSITIONS. A camera placed from this table sits at the
+# centre of its town, not at the junction it actually watches, and is recorded
+# with precision='city' so the map and the API can say so. If the organisers
+# publish real coordinates, those must win.
+#
+# keyword       matched case-insensitively against the location string
+# precision     city = settlement centroid; exact = published by the source
+keyword,place,district,lat,lon,precision
+chiman bhai,Ahmedabad,Ahmadabad,23.0225,72.5714,city
+janpath,Ahmedabad,Ahmadabad,23.0225,72.5714,city
+o.n.g.c,Ahmedabad,Ahmadabad,23.0225,72.5714,city
+paldi,Ahmedabad,Ahmadabad,23.0225,72.5714,city
+visat,Ahmedabad,Ahmadabad,23.0225,72.5714,city
+cn vidhyalaya,Ahmedabad,Ahmadabad,23.0225,72.5714,city
+delight,Ahmedabad,Ahmadabad,23.0225,72.5714,city
+suvidha park,Ahmedabad,Ahmadabad,23.0225,72.5714,city
+junagadh,Junagadh,Junagadh,21.5222,70.4579,city
+timbavadi,Junagadh,Junagadh,21.5222,70.4579,city
+majewadi,Junagadh,Junagadh,21.5222,70.4579,city
+dolatpara,Junagadh,Junagadh,21.5222,70.4579,city
+char-chowk,Junagadh,Junagadh,21.5222,70.4579,city
+gir-somnath,Gir Somnath,Gir Somnath,20.9159,70.3629,city
+gir somnath,Gir Somnath,Gir Somnath,20.9159,70.3629,city
+adalaj,Adalaj,Gandhinagar,23.1645,72.5810,city
+rajkot,Rajkot,Rajkot,22.3039,70.8022,city
+navsari,Navsari,Navsari,20.9467,72.9520,city
+gandevi,Gandevi,Navsari,20.8137,72.9959,city
+patan,Patan,Patan,23.8493,72.1266,city
+bilimora,Bilimora,Navsari,20.7690,72.9600,city
+dehgam,Dehgam,Gandhinagar,23.1693,72.8206,city
+gandhidham,Gandhidham,Kachchh,23.0753,70.1337,city

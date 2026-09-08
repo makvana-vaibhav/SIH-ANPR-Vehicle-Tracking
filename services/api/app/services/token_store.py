@@ -20,7 +20,7 @@ from app.core.logging import get_logger
 
 log = get_logger("api.tokens")
 
-_KEY_PREFIX = "sentinel:revoked_jti:"
+_KEY_PREFIX = "nagarnetra:revoked_jti:"
 
 _client: aioredis.Redis | None = None
 

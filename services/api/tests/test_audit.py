@@ -82,7 +82,7 @@ class TestAuthenticationIsAudited:
         before = await _count("auth.login")
         await client.post(
             "/api/v1/auth/login",
-            json={"username": "analyst", "password": "Sentinel@2026"},
+            json={"username": "analyst", "password": "NagarNetra@2026"},
         )
         assert await _count("auth.login") == before + 1
 
@@ -114,10 +114,10 @@ class TestAuthenticationIsAudited:
         """The single most important property of this table."""
         await client.post(
             "/api/v1/auth/login",
-            json={"username": "analyst", "password": "Sentinel@2026"},
+            json={"username": "analyst", "password": "NagarNetra@2026"},
         )
         for row in await _rows("auth.login_failed") + await _rows("auth.login"):
-            assert "Sentinel@2026" not in str(row.params)
+            assert "NagarNetra@2026" not in str(row.params)
 
     async def test_logout_is_recorded(self, client: AsyncClient, login) -> None:
         tokens = await login("operator")
@@ -135,7 +135,7 @@ class TestAuditRowContents:
         """Identity is denormalised so the trail stays readable years later."""
         await client.post(
             "/api/v1/auth/login",
-            json={"username": "supervisor", "password": "Sentinel@2026"},
+            json={"username": "supervisor", "password": "NagarNetra@2026"},
         )
         latest = (await _rows("auth.login", limit=1))[0]
 
@@ -149,7 +149,7 @@ class TestAuditRowContents:
         """Answering 'who, from where' requires the client IP."""
         await client.post(
             "/api/v1/auth/login",
-            json={"username": "analyst", "password": "Sentinel@2026"},
+            json={"username": "analyst", "password": "NagarNetra@2026"},
             headers={"X-Forwarded-For": "10.20.30.40, 172.28.0.5"},
         )
         latest = (await _rows("auth.login", limit=1))[0]

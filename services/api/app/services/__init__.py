@@ -1,1 +1,1 @@
-"""Sentinel-GJ API — domain services and business logic."""
+"""NagarNetra API — domain services and business logic."""

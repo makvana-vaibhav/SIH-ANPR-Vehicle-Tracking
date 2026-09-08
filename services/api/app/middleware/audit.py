@@ -81,6 +81,11 @@ def _derive_action(request: Request) -> tuple[str, str | None, str | None]:
     ``POST /api/v1/cameras``          → ("camera.create", "camera", None)
     ``DELETE /api/v1/watchlist/{id}`` → ("watchlist.delete", "watchlist", "{id}")
     ``GET /api/v1/search/plates``     → ("search.read", "detection", None)
+
+    The action's noun is normalised through the same map as `resource_type`,
+    so a route at `/users` records `user.create` rather than `users.create`.
+    Routers that also record explicitly use the singular, and two spellings of
+    one event mean a reviewer filtering on `user.` silently sees half of them.
     """
     segments = [s for s in request.url.path.split("/") if s]
     # Strip the /api/v1 prefix.
@@ -103,7 +108,7 @@ def _derive_action(request: Request) -> tuple[str, str | None, str | None]:
         "GET": "read",
     }.get(request.method, request.method.lower())
 
-    return f"{resource_segment}.{verb}", resource_type, resource_id
+    return f"{resource_type}.{verb}", resource_type, resource_id
 
 
 class AuditMiddleware(BaseHTTPMiddleware):

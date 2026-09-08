@@ -1,0 +1,45 @@
+# Full diagnostic mode — keep everything, cost be damned.
+#
+# For studying a specific clip in detail: how a plate converges, why a vehicle
+# was missed, which preprocessing recipe wins on which crop. Every observation
+# the pipeline can make is retained.
+#
+# Substantially slower than default. That is the trade being made deliberately,
+# and it is the reason `default` and `fast` exist.
+extends: default.yaml
+name: diagnostic
+description: Retain every observation and artifact; no early exits, no scheduling.
+
+plate:
+  # Search every vehicle on every frame — the behaviour the other modes
+  # optimise away, kept here so their effect can be measured against it.
+  imgsz: 640
+  imgsz_strategy: proportional
+  schedule:
+    enabled: false
+
+preprocess:
+  variants: [rectified, upscaled, sharpened, binarised]
+  # Run every variant on every crop, so they can be compared rather than
+  # short-circuited by the first success.
+  stop_on_good_read: false
+
+ocr:
+  min_confidence: 0.10
+  min_crop_width: 30
+  max_reads_per_track: 200
+  # Keep reading after the answer is settled, so convergence itself is visible.
+  stop_when_confident: false
+
+consensus:
+  relative_weight_floor: 0.05
+
+output:
+  annotated_video: true
+  save_plate_crops: true
+  save_vehicle_crops: true
+  save_all_read_crops: true
+  max_crops_per_track: 200
+  keyframes: true
+  html_report: true
+  events_jsonl: true

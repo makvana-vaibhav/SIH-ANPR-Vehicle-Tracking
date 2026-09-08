@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════
-#  Sentinel-GJ command centre
+#  NagarNetra command centre
 #
 #  Two targets:
 #    dev     — Vite dev server with HMR, used by `make web-dev`
@@ -45,7 +45,7 @@ RUN npm run build
 # ── Runtime ───────────────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runtime
 
-LABEL org.opencontainers.image.title="Sentinel-GJ Command Centre" \
+LABEL org.opencontainers.image.title="NagarNetra Command Centre" \
       org.opencontainers.image.description="Statewide CCTV intelligence platform — web tier" \
       org.opencontainers.image.licenses="Apache-2.0"
 

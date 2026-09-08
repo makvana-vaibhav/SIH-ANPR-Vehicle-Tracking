@@ -1,0 +1,23 @@
+# Demonstration config — the run used to show ANPR working end to end.
+#
+# Identical inference to `default`. Two differences, both about what a viewer
+# sees rather than what the pipeline decides:
+#
+#   1. Annotated video is on, with the magnified plate crop and its
+#      transcription drawn above each vehicle.
+#   2. Plate grammar accepts UK formats as well as Indian ones. The reference
+#      ANPR footage everybody validates against is British; grading NA13NRU as
+#      "invalid" because it is not a Gujarat plate would be the tool being
+#      wrong about correct output. Deployments keep the default ("IN",).
+extends: default.yaml
+name: demo
+description: Default inference, annotated for viewing, Indian + UK plate grammar.
+
+consensus:
+  plate_regions: ["IN", "GB"]
+
+output:
+  annotated_video: true
+  save_plate_crops: true
+  html_report: true
+  events_jsonl: true

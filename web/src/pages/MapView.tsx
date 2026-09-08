@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import CameraMap from '@/components/CameraMap'
+import type { Basemap } from '@/lib/basemap'
 import CameraPanel from '@/components/CameraPanel'
 import * as api from '@/lib/api'
 import type {
@@ -44,6 +45,17 @@ export default function MapView() {
   const [selected, setSelected] = useState<CameraFeatureProperties | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Satellite by default — aerial imagery makes a junction recognisable as
+  // the junction it claims to be. Falls back automatically when the tile
+  // host cannot be reached, which is what keeps the offline promise honest.
+  const [basemap, setBasemap] = useState<Basemap>('satellite')
+  const [satelliteDown, setSatelliteDown] = useState(false)
+
+  const handleSatelliteUnavailable = useCallback(() => {
+    setSatelliteDown(true)
+    setBasemap('offline')
+  }, [])
 
   // Filters — the "layered filters" the challenge asks for.
   const [department, setDepartment] = useState('')
@@ -275,35 +287,75 @@ export default function MapView() {
         {/* Map */}
         <main className="relative min-w-0 flex-1">
           {loading && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             </div>
           )}
           {error && (
-            <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded border border-status-offline/40 bg-status-offline/15 px-4 py-2 text-sm text-status-offline">
+            <div className="absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded border border-status-offline/40 bg-status-offline/15 px-4 py-2 text-sm text-status-offline shadow-lg">
               {error}
             </div>
           )}
+
           <CameraMap
             cameras={visible}
             districts={districts}
             onSelect={setSelected}
             selectedCode={selected?.camera_code ?? null}
+            basemap={basemap}
+            onSatelliteUnavailable={handleSatelliteUnavailable}
           />
 
+          {/* Basemap switcher */}
+          <div className="absolute left-3 top-3 z-10 flex flex-col gap-1.5">
+            <div className="flex overflow-hidden rounded-md border border-border bg-card/90 shadow-lg backdrop-blur">
+              <BasemapButton
+                active={basemap === 'satellite'}
+                disabled={satelliteDown}
+                onClick={() => setBasemap('satellite')}
+                label="Satellite"
+                title={
+                  satelliteDown
+                    ? 'Imagery host unreachable — offline basemap in use'
+                    : 'Esri World Imagery'
+                }
+              />
+              <BasemapButton
+                active={basemap === 'offline'}
+                onClick={() => setBasemap('offline')}
+                label="Offline"
+                title="Local district GeoJSON — no tile server, no network"
+              />
+            </div>
+
+            {basemap === 'offline' && (
+              <span className="rounded bg-card/90 px-2 py-1 text-[10px] leading-tight text-muted-foreground shadow backdrop-blur">
+                {satelliteDown
+                  ? 'Imagery unreachable — offline basemap'
+                  : 'Offline basemap · no external requests'}
+              </span>
+            )}
+          </div>
+
           {/* Legend */}
-          <div className="pointer-events-none absolute bottom-4 right-4 rounded-lg border border-border bg-card/90 p-3 backdrop-blur">
+          <div className="absolute bottom-8 right-3 z-10 rounded-lg border border-border bg-card/90 p-3 shadow-lg backdrop-blur">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Camera status
             </p>
-            <ul className="mt-2 space-y-1">
+            <ul className="mt-2 space-y-1.5">
               {STATUSES.map((s) => (
                 <li key={s} className="flex items-center gap-2 text-xs">
                   <span className={`h-2.5 w-2.5 rounded-full ${STATUS_DOT[s]}`} />
-                  <span className="text-muted-foreground">{STATUS_LABEL[s]}</span>
+                  <span className="flex-1 text-muted-foreground">{STATUS_LABEL[s]}</span>
+                  <span className="font-mono tabular-nums text-foreground/70">
+                    {health ? (health[s] as number) : '—'}
+                  </span>
                 </li>
               ))}
             </ul>
+            <p className="mt-2 border-t border-border pt-2 text-[10px] text-muted-foreground">
+              {shownCount} of {health?.total ?? '—'} shown
+            </p>
           </div>
         </main>
 
@@ -317,6 +369,36 @@ export default function MapView() {
         )}
       </div>
     </div>
+  )
+}
+
+function BasemapButton({
+  active,
+  disabled,
+  onClick,
+  label,
+  title,
+}: {
+  active: boolean
+  disabled?: boolean
+  onClick: () => void
+  label: string
+  title: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`px-3 py-1.5 text-xs font-medium transition ${
+        active
+          ? 'bg-primary text-primary-foreground'
+          : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+      } disabled:cursor-not-allowed disabled:opacity-40`}
+    >
+      {label}
+    </button>
   )
 }
 

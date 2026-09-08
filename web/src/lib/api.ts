@@ -1,5 +1,5 @@
 /**
- * API client for the Sentinel-GJ backend.
+ * API client for the NagarNetra backend.
  *
  * Holds the access token, refreshes it transparently when it expires, and
  * gives every request a bounded timeout — per the UI rule in CLAUDE.md that
@@ -7,24 +7,37 @@
  */
 
 import type {
+  Alert,
+  AlertPage,
+  AlertStatus,
+  AuditPage,
   Camera,
   CameraGeoJSON,
   CameraHealthHistory,
   CameraPage,
   Department,
+  DetectionPage,
+  ManagedUser,
   FleetHealth,
   FleetSummary,
   GapReport,
   StreamGrant,
+  ConvoyReport,
+  Priority,
+  Role,
+  RoutablePlates,
   UserProfile,
+  UserPage,
+  VehicleRoute,
   VmsInstance,
+  WatchlistEntry,
 } from '@/lib/types'
 
 export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
-const ACCESS_KEY = 'sentinel.access_token'
-const REFRESH_KEY = 'sentinel.refresh_token'
+const ACCESS_KEY = 'nagarnetra.access_token'
+const REFRESH_KEY = 'nagarnetra.refresh_token'
 
 export class ApiError extends Error {
   constructor(
@@ -259,10 +272,278 @@ export const getAdapters = () =>
     '/api/v1/integration/adapters',
   )
 
+export interface CameraInput {
+  camera_code: string
+  name: string
+  lat: number
+  lon: number
+  district?: string | null
+  city?: string | null
+  junction?: string | null
+  department_code?: string | null
+  vms_name?: string | null
+  heading_deg?: number | null
+  camera_type?: string | null
+  protocol?: string | null
+  stream_url?: string | null
+  sub_stream_url?: string | null
+  resolution?: string | null
+  fps?: number | null
+  anpr_enabled: boolean
+  tags?: string[] | null
+}
+
+export const createCamera = (body: CameraInput) =>
+  request<Camera>('/api/v1/cameras', { method: 'POST', body: JSON.stringify(body) })
+
+export const updateCamera = (id: string, body: Partial<CameraInput>) =>
+  request<Camera>(`/api/v1/cameras/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+
+export const deleteCamera = (id: string) =>
+  request<void>(`/api/v1/cameras/${id}`, { method: 'DELETE' })
+
+export interface BulkRowError {
+  row: number
+  camera_code: string | null
+  errors: string[]
+}
+
+export interface BulkUploadResult {
+  created: number
+  updated: number
+  failed: number
+  errors: BulkRowError[]
+  dry_run: boolean
+}
+
+/** Upload a CSV. `dryRun` validates without writing, which is how the UI
+ *  shows an operator what a file would do before it does it. */
+export const bulkUploadCameras = (file: File, dryRun: boolean) => {
+  const form = new FormData()
+  form.append('file', file)
+  return request<BulkUploadResult>(
+    `/api/v1/cameras/bulk?dry_run=${dryRun}&update_existing=true`,
+    // No Content-Type: the browser must set its own multipart boundary, and
+    // overriding it produces a request the server cannot parse.
+    { method: 'POST', body: form },
+  )
+}
+
+export const getEnums = () =>
+  request<Record<string, string[]>>('/api/v1/cameras/enums')
+
 export const getNearby = (lat: number, lon: number, radiusKm = 5) =>
   request<Camera[]>(
     `/api/v1/cameras/nearby?lat=${lat}&lon=${lon}&radius_km=${radiusKm}&limit=50`,
   )
+
+// ── Detections ────────────────────────────────────────────────────────
+
+export interface DetectionQuery {
+  camera_id?: string
+  plate?: string
+  plate_prefix?: string
+  since?: string
+  readable_only?: boolean
+  min_confidence?: number
+  limit?: number
+  offset?: number
+}
+
+export const getDetections = (query: DetectionQuery = {}) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<DetectionPage>(`/api/v1/detections?${params}`)
+}
+
+// ── Watchlist ─────────────────────────────────────────────────────────
+
+export const getWatchlist = (params: Record<string, string> = {}) =>
+  request<WatchlistEntry[]>(`/api/v1/watchlist?${new URLSearchParams(params)}`)
+
+export interface WatchlistDraft {
+  plate: string
+  category: string
+  priority?: Priority
+  case_ref?: string | null
+  remarks?: string | null
+  valid_to?: string | null
+}
+
+export const addToWatchlist = (draft: WatchlistDraft) =>
+  request<WatchlistEntry>('/api/v1/watchlist', {
+    method: 'POST',
+    body: JSON.stringify(draft),
+  })
+
+export const updateWatchlistEntry = (
+  id: string,
+  changes: Partial<WatchlistDraft> & { active?: boolean },
+) =>
+  request<WatchlistEntry>(`/api/v1/watchlist/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  })
+
+export const deleteWatchlistEntry = (id: string) =>
+  request<void>(`/api/v1/watchlist/${id}`, { method: 'DELETE' })
+
+// ── Alerts ────────────────────────────────────────────────────────────
+
+export interface AlertQuery {
+  status?: AlertStatus
+  plate?: string
+  camera_id?: string
+  open_only?: boolean
+  limit?: number
+  offset?: number
+}
+
+export const getAlerts = (query: AlertQuery = {}) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<AlertPage>(`/api/v1/alerts?${params}`)
+}
+
+/** Move an alert along its lifecycle. Every transition records who and when. */
+export const transitionAlert = (id: string, status: AlertStatus, notes?: string) =>
+  request<Alert>(`/api/v1/alerts/${id}/transition`, {
+    method: 'POST',
+    body: JSON.stringify({ status, notes: notes ?? null }),
+  })
+
+// ── Vehicle intelligence ──────────────────────────────────────────────
+
+export interface RouteQuery {
+  since?: string
+  until?: string
+}
+
+export const getVehicleRoute = (plate: string, query: RouteQuery = {}) => {
+  const params = new URLSearchParams(query as Record<string, string>)
+  return request<VehicleRoute>(
+    `/api/v1/vehicles/${encodeURIComponent(plate)}/route?${params}`,
+  )
+}
+
+/** The same route as GeoJSON, for drawing. */
+export const getVehicleRouteGeoJSON = (plate: string, query: RouteQuery = {}) => {
+  const params = new URLSearchParams({ ...query, format: 'geojson' } as Record<
+    string,
+    string
+  >)
+  return request<GeoJSON.FeatureCollection>(
+    `/api/v1/vehicles/${encodeURIComponent(plate)}/route?${params}`,
+  )
+}
+
+export const getConvoys = (
+  plate: string,
+  query: RouteQuery & { window_s?: number; min_shared_cameras?: number } = {},
+) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<ConvoyReport>(
+    `/api/v1/vehicles/${encodeURIComponent(plate)}/convoy?${params}`,
+  )
+}
+
+/**
+ * Plates seen on enough cameras to have a route at all.
+ *
+ * Without this an operator searching a plate that was only ever seen once
+ * concludes the feature is broken, when the honest answer is that there is
+ * nothing to draw.
+ */
+export const getRoutablePlates = (minCameras = 2, limit = 25, since?: string) => {
+  const params = new URLSearchParams({
+    min_cameras: String(minCameras),
+    limit: String(limit),
+  })
+  if (since) params.set('since', since)
+  return request<RoutablePlates>(`/api/v1/vehicles/routable?${params}`)
+}
+
+// ── User administration ───────────────────────────────────────────────
+
+export const getUsers = () => request<UserPage>('/api/v1/users')
+
+export interface UserDraft {
+  username: string
+  password: string
+  full_name?: string | null
+  role: Role
+  must_change_password?: boolean
+}
+
+export const createUser = (draft: UserDraft) =>
+  request<ManagedUser>('/api/v1/users', {
+    method: 'POST',
+    body: JSON.stringify(draft),
+  })
+
+export const updateUser = (
+  id: string,
+  changes: { full_name?: string | null; role?: Role; is_active?: boolean },
+) =>
+  request<ManagedUser>(`/api/v1/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  })
+
+export const resetUserPassword = (
+  id: string,
+  newPassword: string,
+  mustChange = true,
+) =>
+  request<ManagedUser>(`/api/v1/users/${id}/password`, {
+    method: 'POST',
+    body: JSON.stringify({
+      new_password: newPassword,
+      must_change_password: mustChange,
+    }),
+  })
+
+export const deleteUser = (id: string) =>
+  request<void>(`/api/v1/users/${id}`, { method: 'DELETE' })
+
+/** Change your own password, re-verifying the current one. */
+export const changeOwnPassword = (currentPassword: string, newPassword: string) =>
+  request<{ detail: string }>('/api/v1/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  })
+
+// ── Audit trail ───────────────────────────────────────────────────────
+
+export interface AuditQuery {
+  action?: string
+  username?: string
+  result?: string
+  since?: string
+  limit?: number
+  offset?: number
+}
+
+export const getAudit = (query: AuditQuery = {}) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<AuditPage>(`/api/v1/audit?${params}`)
+}
 
 // ── Formatting ────────────────────────────────────────────────────────
 

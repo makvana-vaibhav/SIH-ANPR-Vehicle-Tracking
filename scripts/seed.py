@@ -11,21 +11,24 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # The script runs from /app inside the container; make the API package importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "api"))
 
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import func, select  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db.session import SessionLocal, dispose_engine  # noqa: E402
 from app.models.enums import AdapterType, CameraStatus, Role, VmsVendor  # noqa: E402
+from app.models.intelligence import Watchlist  # noqa: E402
 from app.models.registry import Camera, Department, VmsInstance  # noqa: E402
 from app.models.security import User  # noqa: E402
-from app.services.camera import bulk_upload  # noqa: E402
+from app.schemas.intelligence import normalise_plate  # noqa: E402
 
 SEED_DIR = Path("/data/seed")
 if not SEED_DIR.exists():  # running outside the container
@@ -68,69 +71,36 @@ DEPARTMENTS: list[dict[str, str]] = [
 ]
 
 # ── Federated VMS instances ───────────────────────────────────────────
-# Four vendors plus the challenge's own camera grid. Each stays authoritative
-# for its own recordings; this platform holds metadata and pulls streams on
-# demand — the essence of Model 5.
+# The federated systems. Each stays authoritative for its own recordings; this
+# platform holds their metadata and pulls streams on demand — the essence of
+# Model 5.
 #
 # credentials_ref is a POINTER into a secret store, never a credential. That is
 # enforced by convention here and documented in docs/SECURITY.md.
-# NOTE ON adapter_type IN THE DEMO
-# `vendor` records what each system really is (Milestone, Genetec, CP Plus,
-# Hikvision) and `base_url` records where it really lives — that is the
-# federation story, and it is true. But on a laptop those hosts do not exist,
-# so the demo fleet is served by the simulator and `adapter_type` says so
-# honestly rather than pointing at an endpoint that will never answer.
 #
-# Moving to production is a one-field change per row: set adapter_type back to
-# vendor_api / onvif / rtsp. Nothing else in the platform changes — which is
-# precisely the point of the adapter interface.
+# The registry lists only systems we genuinely federate.
 #
-# "Sentinel Sandbox Grid" is the exception: it keeps its real adapter, because
-# sentinel.gujarat.gov.in is a genuine remote endpoint we federate for real.
-DEMO_ADAPTER = AdapterType.SIMULATED.value
+# It used to seed four more — a Milestone deployment in Rajkot, a Genetec one
+# in Ahmedabad, a CP Plus depot system and a Hikvision highway grid — all with
+# `adapter_type: simulated`, none with a single camera behind them. On screen
+# they read as four integrations the platform maintains. It maintains none of
+# them, and no server of any of those vendors has ever been on the other end.
+#
+# The multi-vendor claim belongs where it is true: `/integration/adapters`
+# reports the adapter interface's real implementations — RTSP, ONVIF, vendor
+# REST, sandbox — which are code, and unit-tested. What a *connected system*
+# list should show is what is connected.
 
 VMS_INSTANCES: list[dict[str, str]] = [
     {
-        "name": "Rajkot City Command Centre",
-        "vendor": VmsVendor.MILESTONE.value,
-        "adapter_type": DEMO_ADAPTER,   # vendor_api in production
-        "base_url": "https://vms.rajkot.gujarat.gov.in/api",
-        "credentials_ref": "vault://sentinel/vms/rajkot-milestone",
-        "department": "MUNICIPAL",
-    },
-    {
-        "name": "Ahmedabad Smart City VMS",
-        "vendor": VmsVendor.GENETEC.value,
-        "adapter_type": DEMO_ADAPTER,   # vendor_api in production
-        "base_url": "https://smartcity.ahmedabad.gov.in/vms/api",
-        "credentials_ref": "vault://sentinel/vms/ahmedabad-genetec",
-        "department": "MUNICIPAL",
-    },
-    {
-        "name": "GSRTC Depot Surveillance",
-        "vendor": VmsVendor.CPPLUS.value,
-        "adapter_type": DEMO_ADAPTER,   # rtsp in production
-        "base_url": "rtsp://depot-nvr.gsrtc.gujarat.gov.in:554",
-        "credentials_ref": "vault://sentinel/vms/gsrtc-cpplus",
-        "department": "GSRTC",
-    },
-    {
-        "name": "Gujarat Highway ANPR Grid",
-        "vendor": VmsVendor.HIKVISION.value,
-        "adapter_type": DEMO_ADAPTER,   # onvif in production
-        "base_url": "https://anpr.highways.gujarat.gov.in",
-        "credentials_ref": "vault://sentinel/vms/highway-hikvision",
-        "department": "POLICE",
-    },
-    {
         # The challenge sandbox (sentinel.gujarat.gov.in) publishes a camera
         # catalogue at /api/ingest and serves RTSP/WHEP/HLS. Phase 3's
-        # SentinelSandboxAdapter federates it through this record.
-        "name": "Sentinel Sandbox Grid",
-        "vendor": VmsVendor.SENTINEL_SANDBOX.value,
-        "adapter_type": AdapterType.SENTINEL_SANDBOX.value,
+        # HostedGridAdapter federates it through this record.
+        "name": "Hosted Camera Grid",
+        "vendor": VmsVendor.HOSTED_GRID.value,
+        "adapter_type": AdapterType.HOSTED_GRID.value,
         "base_url": "https://sentinel.gujarat.gov.in",
-        "credentials_ref": "vault://sentinel/vms/sandbox-grid",
+        "credentials_ref": "vault://nagarnetra/vms/sandbox-grid",
         "department": "SCRB",
     },
 ]
@@ -140,7 +110,7 @@ VMS_INSTANCES: list[dict[str, str]] = [
 # take effect. The admin password comes from the environment; the rest share
 # a documented demo password. In production these accounts would not exist —
 # see docs/SECURITY.md on account provisioning.
-DEMO_PASSWORD = "Sentinel@2026"  # noqa: S105 - documented demo credential
+DEMO_PASSWORD = "NagarNetra@2026"  # noqa: S105 - documented demo credential
 
 DEMO_USERS: list[dict[str, str | None]] = [
     {
@@ -206,7 +176,9 @@ async def seed_departments() -> dict[str, object]:
                 ids[spec["code"]] = existing.id
         await session.commit()
 
-    print(f"  departments: {created} created, {len(DEPARTMENTS) - created} already present")
+    print(
+        f"  departments: {created} created, {len(DEPARTMENTS) - created} already present"
+    )
     return ids
 
 
@@ -278,53 +250,191 @@ async def seed_vms(department_ids: dict[str, object]) -> None:
             )
             created += 1
         await session.commit()
-    print(f"  vms instances: {created} created, {len(VMS_INSTANCES) - created} already present")
+    print(
+        f"  vms instances: {created} created, {len(VMS_INSTANCES) - created} already present"
+    )
 
 
-async def seed_cameras() -> None:
-    """Load the 250-camera fleet from data/seed/cameras.csv.
+#: The one camera allowed to carry recorded footage, named so nobody has to
+#: guess. Its code is deliberately unlike the grid's, and its tags say plainly
+#: what it is.
+DEMO_CODE = "CAM-DEMO"
+DEMO_NAME = "ANPR Demonstration Feed (recorded)"
+DEMO_VMS = "NagarNetra ANPR Demonstration"
+#: Ahmedabad city centre. It has to be somewhere to appear on the map at all,
+#: and the name says it is a demonstration, so nothing here claims the footage
+#: was shot at this point.
+DEMO_LAT, DEMO_LON = 23.0225, 72.5714
 
-    Deliberately routed through the same `bulk_upload` the API exposes, so the
-    seed exercises real onboarding code — validation, geographic bounds checks
-    and all — rather than a private shortcut that could silently diverge.
+
+async def seed_demo_camera() -> None:
+    """The demonstration camera, and nothing else.
+
+    This used to load 250 synthetic cameras from `data/seed/cameras.csv` so the
+    GIS map had something to show at scale. That was a mistake and the file is
+    gone: **251 of 281 cameras had no stream URL at all.** They sat permanently
+    at status `unknown`, could never be watched, could never produce a
+    detection, and made every count on every screen mostly fiction — fleet
+    health was reporting on cameras that could not be unhealthy.
+
+    The registry now holds only cameras with a real video source. This one, and
+    the organisers' grid via `sync_sandbox.py`. Roughly 31 rather than 281, and
+    every one of them can be opened, watched and analysed.
+
+    The demonstration camera gets **its own VMS** rather than a department's:
+    filing recorded footage under a real department would make it look like
+    that department's live feed, which is exactly the confusion being removed.
     """
-    csv_path = SEED_DIR / "cameras.csv"
-    if not csv_path.exists():
-        print(f"  cameras: SKIPPED — {csv_path} not found (run scripts/generate_cameras.py)")
-        return
-
-    content = csv_path.read_bytes()
     async with SessionLocal() as session:
-        result = await bulk_upload(session, content, update_existing=True)
+        vms = (
+            await session.execute(select(VmsInstance).where(VmsInstance.name == DEMO_VMS))
+        ).scalar_one_or_none()
+        if vms is None:
+            vms = VmsInstance(
+                name=DEMO_VMS,
+                vendor=VmsVendor.GENERIC_RTSP.value,
+                adapter_type=AdapterType.SIMULATED.value,
+                base_url="rtsp://mediamtx:8554",
+            )
+            session.add(vms)
+            await session.flush()
+
+        department = (
+            await session.execute(select(Department).order_by(Department.code).limit(1))
+        ).scalar_one_or_none()
+
+        camera = (
+            await session.execute(select(Camera).where(Camera.camera_code == DEMO_CODE))
+        ).scalar_one_or_none()
+        created = camera is None
+        if camera is None:
+            camera = Camera(
+                camera_code=DEMO_CODE,
+                department_id=department.id if department else None,
+                location=func.ST_SetSRID(func.ST_MakePoint(DEMO_LON, DEMO_LAT), 4326),
+            )
+            session.add(camera)
+
+        camera.name = DEMO_NAME
+        camera.vms_id = vms.id
+        camera.anpr_enabled = True
+        camera.camera_type = "anpr"
+        camera.protocol = "rtsp"
+        camera.city = camera.district = "Ahmedabad"
+        camera.junction = "Demonstration feed"
+        camera.resolution = "1920x1080"
+        camera.fps = 15
+        camera.status = CameraStatus.UNKNOWN.value
+        # `plate-region:GB` changes behaviour: the demonstration footage is
+        # British, and a camera that sees British plates should have them read
+        # as British plates. Which formats a camera sees is a property of where
+        # it points, so it belongs on the camera rather than in a worker-wide
+        # setting that would make the whole fleet accept UK plates.
+        camera.tags = ["demo", "recorded-footage", "not-a-real-camera", "plate-region:GB"]
         await session.commit()
 
-    print(
-        f"  cameras: {result.created} created, {result.updated} updated, "
-        f"{result.failed} failed"
-    )
-    for err in result.errors[:5]:
-        print(f"    row {err.row} ({err.camera_code}): {'; '.join(err.errors)}")
+    print(f"  demo camera: {DEMO_CODE} {'created' if created else 'refreshed'}")
+    print("  fleet: run scripts/sync_sandbox.py to onboard the organisers' grid")
+
+
+async def seed_watchlist() -> None:
+    """Load the demo watchlist from data/seed/watchlist.csv.
+
+    This file has existed since Phase 2 and **nothing read it**. The watchlist
+    was populated by hand during development, so it survived on this machine
+    and nowhere else: a fresh clone reached `make demo` with an empty watchlist
+    and judge moments 3 and 4 — the automatic alert and the tracked vehicle —
+    had nothing to fire on.
+
+    Existing entries are **reactivated**, not skipped. Deleting a watchlist
+    entry through the API deactivates it rather than removing it, which is
+    right for an audit trail and means a demo plate retired during testing
+    stays retired through every future re-seed unless seeding says otherwise.
+    That is exactly how this database ended up with all eight of its entries
+    inactive.
+    """
+    csv_path = SEED_DIR / "watchlist.csv"
+    if not csv_path.exists():
+        print(f"  watchlist: SKIPPED — {csv_path} not found")
+        return
+
+    created = reactivated = updated = 0
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    async with SessionLocal() as session:
+        for row in rows:
+            plate = normalise_plate(row["plate"])
+            existing = (
+                await session.execute(
+                    select(Watchlist).where(Watchlist.plate_normalised == plate)
+                )
+            ).scalars().first()
+
+            valid_from = _timestamp(row.get("valid_from"))
+            valid_to = _timestamp(row.get("valid_to"))
+
+            if existing is None:
+                session.add(
+                    Watchlist(
+                        plate_normalised=plate,
+                        category=row["category"],
+                        priority=row["priority"],
+                        case_ref=row.get("case_ref") or None,
+                        remarks=row.get("remarks") or None,
+                        valid_from=valid_from,
+                        valid_to=valid_to,
+                        active=True,
+                    )
+                )
+                created += 1
+                continue
+
+            if not existing.active:
+                reactivated += 1
+            else:
+                updated += 1
+            existing.category = row["category"]
+            existing.priority = row["priority"]
+            existing.case_ref = row.get("case_ref") or None
+            existing.remarks = row.get("remarks") or None
+            existing.valid_from = valid_from
+            existing.valid_to = valid_to
+            existing.active = True
+
+        await session.commit()
+
+    print(f"  watchlist: {created} created, {reactivated} reactivated, {updated} refreshed")
+
+
+def _timestamp(value: str | None) -> datetime | None:
+    """Parse an ISO timestamp from the CSV, tolerating the Z suffix."""
+    if not value or not value.strip():
+        return None
+    return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
 
 
 async def main() -> int:
-    parser = argparse.ArgumentParser(description="Seed Sentinel-GJ demo data")
+    parser = argparse.ArgumentParser(description="Seed NagarNetra demo data")
     parser.add_argument(
         "--only",
-        choices=["departments", "users", "vms", "cameras", "all"],
+        choices=["departments", "users", "vms", "demo-camera", "watchlist", "all"],
         default="all",
         help="Seed a single dataset instead of everything",
     )
     args = parser.parse_args()
 
-    print("Seeding Sentinel-GJ")
+    print("Seeding NagarNetra")
     try:
         department_ids = await seed_departments()
         if args.only in ("users", "all"):
             await seed_users(department_ids)
         if args.only in ("vms", "all"):
             await seed_vms(department_ids)
-        if args.only in ("cameras", "all"):
-            await seed_cameras()
+        if args.only in ("demo-camera", "all"):
+            await seed_demo_camera()
+        if args.only in ("watchlist", "all"):
+            await seed_watchlist()
     finally:
         await dispose_engine()
 

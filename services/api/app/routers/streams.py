@@ -28,6 +28,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.rbac import Permission, require_permission
 from app.core.security import TokenError, create_stream_token, decode_token
+from app.core.urls import redact
 from app.services import audit
 from app.services import camera as camera_service
 
@@ -117,6 +118,20 @@ async def open_stream(
         adapter=adapter.adapter_type,
     )
 
+    # A federated camera's HLS sits behind the grid's own login, which the
+    # browser has no session for. Point it at our authenticated proxy instead;
+    # the grid's credentials stay on the server. See routers/grid_media.py.
+    hls_url = endpoints.hls
+    if adapter.adapter_type == "hosted_grid" and hls_url:
+        hls_url = f"/api/v1/grid/{camera.id}/{token}/index.m3u8"
+
+    # The RTSP URL carries the grid's username and password — RTSP has nowhere
+    # else to put them. It is returned for operator diagnosis and no browser
+    # can play it, so the credentials are stripped before it leaves the server.
+    # Without this the whole point of proxying HLS is undone by the field
+    # directly beneath it.
+    rtsp_url = redact(endpoints.rtsp) if endpoints.rtsp else None
+
     return StreamGrant(
         camera_id=camera.id,
         camera_code=camera.camera_code,
@@ -125,8 +140,8 @@ async def open_stream(
         token=token,
         expires_in=settings.stream_token_expire_seconds,
         whep_url=endpoints.whep,
-        hls_url=endpoints.hls,
-        rtsp_url=endpoints.rtsp,
+        hls_url=hls_url,
+        rtsp_url=rtsp_url,
     )
 
 

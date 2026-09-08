@@ -1,5 +1,5 @@
 ###############################################################################
-# Sentinel-GJ — MediaMTX stream gateway
+# NagarNetra — MediaMTX stream gateway
 #
 # Role: the single translation point between the camera estate (RTSP/ONVIF)
 # and the browser (WebRTC/HLS). Cameras speak RTSP; browsers do not.

@@ -1,0 +1,14 @@
+# Ablation: classical edge-based plate proposals instead of the YOLO detector.
+#
+#   ailab sweep input.mp4 --configs default,experiments/classical_plates
+#
+# Quantifies what the learned plate detector actually buys us. It also proves
+# the pipeline runs with no plate weights at all, which matters if a model file
+# is ever unavailable.
+extends: ../default.yaml
+name: classical_plates
+description: Ablation — Sobel/morphology plate proposals, no learned plate model.
+
+plate:
+  engine: contour
+  confidence: 0.35

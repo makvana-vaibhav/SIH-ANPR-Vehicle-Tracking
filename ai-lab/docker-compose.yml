@@ -1,0 +1,36 @@
+# The AI lab runs as its own compose project, with its own network and no
+# dependency on the NagarNetra platform stack. Nothing here talks to the
+# platform's database, bus or API — that separation is the point at this stage.
+#
+#   docker compose run --rm lab doctor
+#   docker compose run --rm lab run /data/videos/road_cctv.mp4
+name: nagarnetra-ailab
+
+services:
+  lab:
+    build:
+      context: .
+      args:
+        PROFILE: ${AILAB_PROFILE:-core}
+    image: nagarnetra-ailab:${AILAB_PROFILE:-core}
+    volumes:
+      # Source is mounted, not baked in. This is an experimentation environment:
+      # editing a scoring rule and re-running must not require an image rebuild.
+      # It is installed with `pip install -e .`, so the mount takes effect.
+      - ./ailab:/lab/ailab
+      - ./tests:/lab/tests
+      - ./scripts:/lab/scripts:ro
+      # Tool config (ruff, pytest) lives here; mount it so lint rules can be
+      # changed without an image rebuild, like the source itself.
+      - ./pyproject.toml:/lab/pyproject.toml:ro
+      # Weights and outputs live on the host so runs survive image rebuilds.
+      - ./models:/lab/models
+      - ./runs:/lab/runs
+      - ./datasets:/lab/datasets
+      - ./configs:/lab/configs:ro
+      # Footage from the main repo, read-only: the lab consumes the platform's
+      # sample videos but must never write into its data directory.
+      - ../data/videos:/data/videos:ro
+    environment:
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-4}
+    working_dir: /lab

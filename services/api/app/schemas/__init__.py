@@ -1,1 +1,1 @@
-"""Sentinel-GJ API — Pydantic request/response schemas."""
+"""NagarNetra API — Pydantic request/response schemas."""

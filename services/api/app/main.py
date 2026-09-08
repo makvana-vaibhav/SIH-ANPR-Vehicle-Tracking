@@ -1,8 +1,8 @@
-"""Sentinel-GJ API — application entrypoint.
+"""NagarNetra API — application entrypoint.
 
-Statewide CCTV intelligence platform for the Gujarat Police / Home Department.
-This tier owns the camera registry, GIS queries, auth and audit, the event and
-alert engines, search, and cross-camera correlation.
+City-wide vehicle intelligence platform (SIH26127). This tier owns the camera
+registry, GIS queries, auth and audit, the event and alert engines, search,
+and cross-camera trajectory correlation.
 
 Phases are built in order (see BUILD_STATE.md); routers are mounted here as
 each phase lands.
@@ -20,16 +20,39 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger, request_id_var
+from app.core.ratelimit import RateLimitMiddleware
 from app.db.session import dispose_engine
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, cameras, fleet, health, streams
-from app.services import token_store
+from app.routers import (
+    alerts,
+    audit,
+    auth,
+    cameras,
+    detections,
+    events,
+    fleet,
+    grid_media,
+    health,
+    streams,
+    users,
+    vehicles,
+    watchlist,
+)
+from app.services import (
+    alert_fanout,
+    gateway,
+    event_consumer,
+    event_tailer,
+    fleet_roster,
+    retention,
+    token_store,
+)
 
 configure_logging(service="api")
 log = get_logger("api")
 
 DESCRIPTION = """
-**Sentinel-GJ** — statewide CCTV intelligence platform.
+**NagarNetra** — city-wide vehicle intelligence platform.
 
 Federates existing multi-vendor, multi-department CCTV rather than replacing it
 (reference Model 5 — Hybrid). Departmental VMS remain authoritative for their own
@@ -59,9 +82,36 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if settings.environment == "development":
         log.debug("api.configuration", **settings.sanitised())
 
+    # The live operations picture: every replica tails the stream and fans
+    # every event out to its own sockets. Always on — an API process that
+    # cannot show operators what is happening has no reason to be running.
+    await event_tailer.tailer.start()
+    # And alerts raised by any ingest worker, wherever it runs.
+    await alert_fanout.subscriber.start()
+
+    # Durable ingest. Started here rather than lazily on the first WebSocket
+    # connection, so detections are persisted whether or not an operator
+    # happens to be watching. Disabled on replicas of a deployment with
+    # dedicated ingest workers; see Settings.ingest_enabled.
+    if settings.ingest_enabled:
+        await event_consumer.consumer.start()
+    else:
+        log.info("api.ingest_delegated", reason="dedicated ingest workers")
+    fleet_roster.publisher.start()
+    # Make the media gateway's paths match the registry. A camera onboarded
+    # while MediaMTX was restarting would otherwise stay unwatchable until
+    # somebody happened to edit it, with nothing reporting a fault.
+    await gateway.reconcile()
+    retention.enforcer.start()
+
     yield
 
     log.info("api.stopping")
+    await retention.enforcer.stop()
+    await fleet_roster.publisher.stop()
+    await event_consumer.consumer.stop()
+    await alert_fanout.subscriber.stop()
+    await event_tailer.tailer.stop()
     await token_store.close()
     await dispose_engine()
     log.info("api.stopped")
@@ -75,13 +125,22 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
-    contact={"name": "Sentinel-GJ", "url": "https://sentinel.gujarat.gov.in"},
+    contact={"name": "NagarNetra", "url": "https://github.com/makvana-vaibhav/SIH-ANPR-Vehicle-Tracking"},
     license_info={"name": "Apache-2.0"},
 )
 
-# Every mutating request and every search writes an audit_log row. Registered
-# before CORS so it runs inside it and sees the resolved request.
+# Starlette runs middleware in reverse registration order, so what is added
+# last is outermost. The intended order, outermost first, is:
+#
+#   CORS  →  rate limit  →  audit  →  the route
+#
+# CORS outermost so a 429 still carries the headers a browser needs to read it.
+# The rate limiter *outside* the audit middleware so a flood is rejected before
+# it can write a row per request — an attacker who can make the platform fill
+# its own audit table has found a way to destroy the record of what they did.
 app.add_middleware(AuditMiddleware)
+
+app.add_middleware(RateLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -89,7 +148,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
+    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
 )
 
 
@@ -155,6 +214,14 @@ app.include_router(auth.router)
 app.include_router(cameras.router)
 app.include_router(fleet.router)
 app.include_router(streams.router)
+app.include_router(grid_media.router)
+app.include_router(events.router)
+app.include_router(detections.router)
+app.include_router(users.router)
+app.include_router(audit.router)
+app.include_router(vehicles.router)
+app.include_router(watchlist.router)
+app.include_router(alerts.router)
 
 
 @app.get("/", tags=["meta"], summary="Service banner")
@@ -162,7 +229,7 @@ async def root() -> dict[str, object]:
     """Human-readable entrypoint pointing at the interactive docs."""
     return {
         "service": settings.app_name,
-        "description": "Statewide CCTV intelligence platform — Gujarat",
+        "description": "City-wide vehicle intelligence platform — SIH26127",
         "version": app.version,
         "model": "Hybrid (Model 5): Registry+GIS + Federation middleware + selective unified viewing",
         "docs": "/docs",

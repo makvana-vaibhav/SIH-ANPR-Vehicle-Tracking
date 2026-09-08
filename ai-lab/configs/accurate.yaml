@@ -1,0 +1,46 @@
+# Accuracy-first — when the question is "what is the best this pipeline can do".
+#
+# Lower thresholds so weak detections still get a chance, every preprocessing
+# variant tried, more reads per vehicle for a better-supported consensus.
+# Substantially slower. Use it to establish the ceiling before deciding what to
+# trade away for speed.
+extends: default.yaml
+name: accurate
+description: Accuracy ceiling — all preprocessing variants, low thresholds, more reads.
+
+detector:
+  confidence: 0.20
+  imgsz: 640
+
+tracker:
+  track_low_thresh: 0.05
+  track_buffer: 60
+
+plate:
+  confidence: 0.15
+  vehicle_pad: 0.10
+  # Larger input and near-continuous search: this config exists to find the
+  # ceiling, not to be fast.
+  imgsz: 640
+  schedule:
+    min_interval: 1
+    max_interval: 4
+    min_scale_change: 0.08
+    min_move_fraction: 0.15
+    min_vehicle_width: 60
+
+preprocess:
+  variants: [rectified, upscaled, sharpened, binarised]
+  target_height: 96
+  max_upscale: 6.0
+
+ocr:
+  min_confidence: 0.10
+  max_reads_per_track: 80
+  # Read every frame, even after the answer is settled. Slower on purpose: this
+  # is the config for studying how and when a plate converges.
+  stop_when_confident: false
+  min_crop_width: 36
+
+consensus:
+  relative_weight_floor: 0.10
