@@ -293,7 +293,8 @@ infra/                mediamtx, opensearch, postgres/init, grafana, nginx, prome
 data/seed/            cameras.csv, blacklist.csv, city + district GeoJSON
 data/models/          model weights (gitignored, fetch script committed)
 data/videos/          sample clips (gitignored, fetch script committed)
-scripts/              seed.py, generate_cameras.py, fetch_videos.sh, fetch_geodata.sh,
+scripts/              seed.py, fetch_ahmedabad_osm.py, generate_ahmedabad_fleet.py,
+                      fetch_videos.sh, fetch_geodata.sh,
                       capacity_model.py (fleet sizing + cost), demo_up.sh, prune_registry.py
                       (model weights are fetched by ai-lab/scripts/fetch_models.sh)
 deploy/               EC2 staging/main deployment (not on the demo path)

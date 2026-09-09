@@ -406,10 +406,17 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nagarnetra}:${POSTGRES_PASSWORD:-nagarnetra_dev_pw}@postgres:5432/${POSTGRES_DB:-nagarnetra}
       SIM_VIDEO_DIR: /data/videos
-      # 0 = publish only the cameras with footage pinned below. Raise it to
-      # replay clips across the fleet for load testing, where synthetic video
-      # is the point rather than a pretence at a live feed.
-      SIM_STREAM_COUNT: ${SIM_STREAM_COUNT:-0}
+      # How many of the Ahmedabad fleet go live. 0 publishes only the cameras
+      # with footage pinned below, which was the right default when the
+      # demonstration feed was the only camera with a real source.
+      #
+      # P1 changed that: the fleet is 69 cameras on real Ahmedabad arterials,
+      # every one of them backed by the simulator, and the phase gate is "≥40
+      # cameras online in fleet health" — a camera counts as online only when
+      # MediaMTX reports its path publishing. 48 clears that with headroom and
+      # stays under the 64 streams copy-mode was measured to sustain on ~1.1
+      # cores. Raise it to 69 for the whole fleet if the machine has room.
+      SIM_STREAM_COUNT: ${SIM_STREAM_COUNT:-48}
       SIM_CAMERA_VIDEOS: ${SIM_CAMERA_VIDEOS:-CAM-DEMO=anpr_demo.mp4}
       PYTHONPATH: /app/services/simulator:/app/services/api
     ports:

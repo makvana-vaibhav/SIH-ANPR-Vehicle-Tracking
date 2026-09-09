@@ -29,6 +29,7 @@ from app.models.intelligence import Watchlist  # noqa: E402
 from app.models.registry import Camera, Department, VmsInstance  # noqa: E402
 from app.models.security import User  # noqa: E402
 from app.schemas.intelligence import normalise_plate  # noqa: E402
+from app.services.camera import bulk_upload  # noqa: E402
 
 SEED_DIR = Path("/data/seed")
 if not SEED_DIR.exists():  # running outside the container
@@ -91,6 +92,15 @@ DEPARTMENTS: list[dict[str, str]] = [
 # REST, sandbox — which are code, and unit-tested. What a *connected system*
 # list should show is what is connected.
 
+#: The VMS the Ahmedabad city fleet belongs to. It is `simulated`, which is
+#: load-bearing rather than cosmetic: `SimulatedVmsAdapter` derives each
+#: camera's RTSP/WHEP/HLS URL from its code and probes MediaMTX for whether the
+#: path is actually publishing. That is what lets these cameras carry no
+#: `stream_url` and still resolve — and carrying none is what keeps
+#: `gateway.reconcile()` from registering a MediaMTX pull path that points at
+#: MediaMTX itself. See CLAUDE.md's "three traps".
+AHMEDABAD_VMS = "Ahmedabad City Surveillance"
+
 VMS_INSTANCES: list[dict[str, str]] = [
     {
         # The challenge sandbox (sentinel.gujarat.gov.in) publishes a camera
@@ -102,6 +112,14 @@ VMS_INSTANCES: list[dict[str, str]] = [
         "base_url": "https://sentinel.gujarat.gov.in",
         "credentials_ref": "vault://nagarnetra/vms/sandbox-grid",
         "department": "SCRB",
+    },
+    {
+        "name": AHMEDABAD_VMS,
+        "vendor": VmsVendor.GENERIC_RTSP.value,
+        "adapter_type": AdapterType.SIMULATED.value,
+        "base_url": "rtsp://mediamtx:8554",
+        "credentials_ref": "vault://nagarnetra/vms/ahmedabad-city",
+        "department": "MUNICIPAL",
     },
 ]
 
@@ -337,6 +355,55 @@ async def seed_demo_camera() -> None:
     print("  fleet: run scripts/sync_sandbox.py to onboard the organisers' grid")
 
 
+async def seed_ahmedabad_fleet() -> None:
+    """Onboard the Ahmedabad city fleet from data/seed/ahmedabad_cameras.csv.
+
+    Loaded through the same `bulk_upload` the API exposes, so seeding exercises
+    the real onboarding path rather than a private shortcut that could silently
+    diverge from it. That was true of the old 250-camera seed and is worth
+    keeping.
+
+    What is different from that seed is that **every one of these cameras has a
+    video source**. They sit on a `simulated` VMS, the simulator publishes each
+    into MediaMTX under its own code, and `SimulatedVmsAdapter` resolves the
+    stream from the code. None of them carries a `stream_url` and none of them
+    should: see AHMEDABAD_VMS above.
+
+    Without this fleet the registry holds one camera, and a platform whose
+    whole subject is linking observations across cameras has nothing to link.
+    """
+    csv_path = SEED_DIR / "ahmedabad_cameras.csv"
+    if not csv_path.exists():
+        print(f"  ahmedabad fleet: SKIPPED — {csv_path} not found")
+        print("    regenerate it with: python scripts/generate_ahmedabad_fleet.py")
+        return
+
+    content = csv_path.read_bytes()
+    async with SessionLocal() as session:
+        result = await bulk_upload(session, content, update_existing=True)
+        # `bulk_upload` flushes per row but never commits — the API's session
+        # dependency does that at the end of the request. A script has no such
+        # dependency, so without this the whole fleet is discarded on exit and
+        # the seed reports "69 created" over an empty table.
+        await session.commit()
+
+    # Deliberately no `gateway.reconcile()` here. It registers a MediaMTX pull
+    # path from `camera.stream_url`, and these cameras have none — they are
+    # published *into* MediaMTX by the simulator. Calling it would be a no-op
+    # for them and would need a reachable gateway during seeding.
+
+    print(
+        f"  ahmedabad fleet: {result.created} created, {result.updated} updated, "
+        f"{result.failed} failed"
+    )
+    for error in result.errors[:5]:
+        print(f"    row {error.row} {error.camera_code or ''}: {'; '.join(error.errors)}")
+    if result.failed:
+        # Loud. A fleet that silently half-loads leaves the map looking
+        # populated while the corridors it needs for a journey have holes.
+        print(f"    ! {result.failed} rows rejected — the fleet is incomplete")
+
+
 async def seed_watchlist() -> None:
     """Load the demo watchlist from data/seed/watchlist.csv.
 
@@ -418,7 +485,15 @@ async def main() -> int:
     parser = argparse.ArgumentParser(description="Seed NagarNetra demo data")
     parser.add_argument(
         "--only",
-        choices=["departments", "users", "vms", "demo-camera", "watchlist", "all"],
+        choices=[
+            "departments",
+            "users",
+            "vms",
+            "demo-camera",
+            "fleet",
+            "watchlist",
+            "all",
+        ],
         default="all",
         help="Seed a single dataset instead of everything",
     )
@@ -433,6 +508,11 @@ async def main() -> int:
             await seed_vms(department_ids)
         if args.only in ("demo-camera", "all"):
             await seed_demo_camera()
+        # After the VMS step, which creates the simulated VMS these cameras
+        # are filed under; a camera whose `vms_name` resolves to nothing would
+        # be onboarded with no adapter and could never be probed.
+        if args.only in ("fleet", "all"):
+            await seed_ahmedabad_fleet()
         if args.only in ("watchlist", "all"):
             await seed_watchlist()
     finally:

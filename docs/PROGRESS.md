@@ -2,7 +2,8 @@
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
-*Updated 9 Sep 2026 · after a full code audit · **next task: P1, the Ahmedabad fleet***
+*Updated 9 Sep 2026 · **P1 is built; its gate has not been run.** Next action: run `make demo` on a
+machine with Docker and close the P1 gate, then start P2.*
 
 | Document | What it holds |
 |---|---|
@@ -31,8 +32,9 @@ platform about connecting observations across cameras currently has nothing to c
 
 ```
 DONE     platform ──▶ ANPR ──▶ watchlist alerts ──▶ trajectory engine ──▶ scale proof
-NEXT     P1 fleet ← start here
-THEN     P2 journey ──▶ P3 crops ──▶ P4 analytics ──▶ P5 anomaly ──▶ P6 harden   (V1, ~2 weeks)
+BUILT    P1 fleet — 69 Ahmedabad cameras on real OSM road vertices; GATE NOT RUN
+NEXT     run the P1 gate (needs Docker), then P2 journey
+THEN     P3 crops ──▶ P4 analytics ──▶ P5 anomaly ──▶ P6 harden   (V1, ~2 weeks)
 LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
 ```
 
@@ -42,9 +44,9 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 | # | Step | State |
 |---|---|---|
-| 1 | Live multi-camera detection (4–6 feeds) | 🔴 **one camera in the registry** |
+| 1 | Live multi-camera detection (4–6 feeds) | 🟡 69-camera fleet built, **not yet run** |
 | 2 | ANPR: plate, confidence, camera, time | ✅ works — 9 fps, p90 266 ms, 0.70–0.94 confidence |
-| 3 | Same vehicle linked across cameras | 🟡 engine ready, nothing to link between |
+| 3 | Same vehicle linked across cameras | 🟡 engine ready, fleet built, unverified |
 | 4 | Vehicle journey + animated route | 🟡 no average speed, no playback |
 | 5 | Plate search | 🟡 exact and prefix only, no fuzzy |
 | 6 | Blacklist alert **with plate crop** | 🟡 alert fires; the crop cannot be shown |
@@ -76,7 +78,9 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ## ⏳ What is missing, in priority order
 
-1. **A fleet.** One camera. Blocks steps 1, 3, 4, 7 and 8. → **P1**
+1. **The P1 gate, unrun.** The fleet is built — 69 cameras — but nothing has executed it. Until
+   `make demo` runs on a machine with Docker, "the registry holds one camera" is still what a
+   fresh clone shows. → **run the gate**
 2. **Traffic analytics.** No router, no page, no heatmap. `recharts` is a dependency imported zero
    times; every "chart" today is a Tailwind div bar. → **P4**
 3. **Journey completeness.** No route-level average speed anywhere; `first_seen`/`last_seen` are
@@ -114,26 +118,45 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ---
 
-## ▶ Next step: P1 — the Ahmedabad fleet
+## ▶ Next step: run the P1 gate
 
 Full definition and gate: [docs/ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
 
-In short: generate 60–80 cameras along real Ahmedabad arterials from OSM geometry, snapping each one
-onto an actual road vertex; port ffmpeg copy-mode into the simulator publisher so the whole fleet can
-stream on one laptop; seed so every camera has a resolving stream URL; replay footage with time
-offsets so plates appear at successive cameras.
+**The work is done; the proof is not.** P1 was built on a machine with no Docker, so
+`make demo`, `make test` and `make ai` were never executed. Evidence for what *was* verified —
+corridor geometry, fleet generation, 18 new simulator tests, `ruff check` — is in
+[BUILD_STATE.md](BUILD_STATE.md#p1--multi-camera-ahmedabad-fleet--built-gate-not-yet-run).
+
+What exists now: `data/seed/ahmedabad_cameras.csv`, **69 cameras across 10 real Ahmedabad
+corridors**, every one snapped to an actual OSM road vertex, with ffmpeg copy-mode and per-camera
+time offsets in the simulator so one clip becomes a procession across the fleet.
+
+Run this on a machine with Docker:
+
+```bash
+make clean && make demo    # from empty volumes, timed
+make ai                    # the worker is behind the `ai` profile
+```
+
+`scripts/demo_up.sh` now checks three of the four gate conditions itself. Then confirm in the
+browser and paste the output into BUILD_STATE.md.
+
+**Gate:** ≥40 cameras online · ≥6 live feeds · one plate on ≥3 distinct cameras · reached by
+`make demo` from empty volumes.
+
+**Before you run it:** if you have an existing `.env`, raise `SIM_STREAM_COUNT` to at least 40
+(48 is the new default). `make env` only writes `.env` when it is absent, so an older file still
+says 24 — and a camera counts as online only while MediaMTX reports its path publishing, so the
+fleet would come up two-thirds offline with nothing explaining why.
 
 **Two traps, both already paid for once:**
 
 - Do **not** set a simulator-published camera's `stream_url` to the gateway's own URL. `gateway.py`
   registers a MediaMTX *pull* path from `stream_url`, so MediaMTX ends up pulling a path from
-  itself, loops, and blocks publishing.
+  itself, loops, and blocks publishing. The fleet CSV deliberately has no `stream_url` column.
 - Do **not** seed cameras without a stream source. That was the fiction commit `4d0346f` deleted —
   251 of 281 cameras that could never produce a detection, making every count on every screen
   meaningless.
-
-**Gate:** ≥40 cameras online · ≥6 live feeds · one plate on ≥3 distinct cameras · reached by
-`make demo` from empty volumes.
 
 ---
 

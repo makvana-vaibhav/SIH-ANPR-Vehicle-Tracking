@@ -31,7 +31,7 @@ accurate as history. The work that remains is the **P1–P12** sequence, defined
 
 | Phase | Title | Milestone | State |
 |---|---|---|---|
-| **P1** | Multi-camera Ahmedabad fleet | V1 | ⬜ **next — start here** |
+| **P1** | Multi-camera Ahmedabad fleet | V1 | 🟡 **built — gate not yet run** (needs Docker) |
 | **P2** | Journey profile + animated playback | V1 | ⬜ not started |
 | **P3** | Evidence crops in MinIO | V1 | ⬜ not started |
 | **P4** | City traffic analytics | V1 | ⬜ not started |
@@ -1215,11 +1215,138 @@ Append each phase's real gate output here as it completes. A phase is not done u
 in this section. Keep the format: what was built, the gate command, the actual output, and anything
 found along the way that the next session must not re-discover.
 
-## P1 — Multi-camera Ahmedabad fleet  ⬜
+## P1 — Multi-camera Ahmedabad fleet  🟡 built, **gate not yet run**
 
 Definition and gate: [docs/ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
 
-*Not started. Evidence goes here.*
+> **Read this before believing anything below.** The code is written and the parts that can be
+> verified without Docker have been, with real output pasted in. **The gate itself has not been
+> run**, because it was built on a Windows machine with no Docker, WSL, make, ffmpeg or node — so
+> `make demo`, `make test` and `make ai` cannot execute there at all. Under this repo's own rule
+> (CLAUDE.md §8.2) **P1 is not complete.** It is complete when somebody runs the gate on a machine
+> with Docker and pastes the output here.
+
+### What was built
+
+- **`scripts/fetch_ahmedabad_osm.py`** — fetches Ahmedabad's arterial geometry from Overpass and
+  writes the committed `data/seed/ahmedabad_roads.geojson` (10 corridors, 16 KB) and
+  `data/seed/ahmedabad_localities.geojson` (115 named localities, 15 KB). Network step, run once;
+  everything downstream is offline and deterministic.
+- **`scripts/generate_ahmedabad_fleet.py`** — walks each corridor and writes
+  `data/seed/ahmedabad_cameras.csv`: **69 cameras, every one snapped to a real OSM road vertex**.
+  Deterministic (seed 20260910), needs no network.
+- **ffmpeg copy-mode** in `services/simulator/simulator/publisher.py`, with an ffprobe codec probe
+  (cached per clip) so remuxing is used only where the source really is H.264.
+- **Per-camera time offsets**, so the same looping clip reaches CAM-SGH-01, then -02, then -03.
+- **`scripts/seed.py`** — a `simulated` VMS for the fleet plus `seed_ahmedabad_fleet()`, loading the
+  CSV through the same `bulk_upload` the API exposes.
+- **`services/simulator/tests/`** — the simulator's first tests (18), wired into `make test`.
+
+### Verified here (real output)
+
+```
+$ python scripts/fetch_ahmedabad_osm.py
+  Overpass: 1,290,479 bytes, 1326 named arterial ways
+
+  SG-HIGHWAY      linear   406 vertices →   88 centreline pts,   22.0 km   linearity  45.0
+  SP-RING         ring    1265 vertices →  243 centreline pts,   72.8 km   linearity   1.4
+  ASHRAM-ROAD     linear   509 vertices →   40 centreline pts,    9.1 km   linearity   4.3
+  CG-ROAD         linear   242 vertices →   19 centreline pts,    3.3 km   linearity   3.5
+  132FT-RING      ring     420 vertices →   43 centreline pts,   18.3 km   linearity   4.1
+  120FT-RING      ring     530 vertices →   51 centreline pts,   14.8 km   linearity   2.0
+  SH2-EAST        linear   251 vertices →   41 centreline pts,    7.6 km   linearity  17.7
+  NARODA-ROAD     linear   159 vertices →   30 centreline pts,    5.8 km   linearity  31.2
+  NAROL-SARKHEJ   linear    99 vertices →   21 centreline pts,    5.7 km   linearity   3.3
+  AHM-VAD-EXPWY   linear   142 vertices →   55 centreline pts,   21.9 km   linearity  17.2
+
+  total corridor length: 181.1 km
+  wrote ahmedabad_roads.geojson: 10 corridors, 16 KB
+  wrote ahmedabad_localities.geojson: 115 localities, 15 KB
+
+$ python scripts/generate_ahmedabad_fleet.py
+  69 cameras across 10 corridors
+
+  SG-HIGHWAY       11 cameras    21.1 km  gaps 1.8–3.5 km, median 2.0
+  SP-RING          16 cameras    78.3 km  gaps 4.6–6.0 km, median 5.2
+  ASHRAM-ROAD       6 cameras     8.7 km  gaps 1.3–2.7 km, median 1.5
+  CG-ROAD           4 cameras     3.5 km  gaps 1.2–1.2 km, median 1.2
+  132FT-RING        6 cameras    18.3 km  gaps 2.2–8.9 km, median 2.4
+  120FT-RING        7 cameras    16.0 km  gaps 2.1–5.4 km, median 2.2
+  SH2-EAST          5 cameras     6.2 km  gaps 1.5–1.6 km, median 1.5
+  NARODA-ROAD       4 cameras     4.7 km  gaps 1.5–1.6 km, median 1.6
+  NAROL-SARKHEJ     4 cameras     4.9 km  gaps 1.6–1.7 km, median 1.6
+  AHM-VAD-EXPWY     6 cameras    20.3 km  gaps 3.8–4.4 km, median 4.1
+
+  consecutive spacing: min 1.16 km · median 2.18 km · max 8.87 km
+  corridor interchange pairs within 1.5 km: 21
+  departments: GSRTC 8 · MUNICIPAL 20 · PANCHAYAT 4 · POLICE 37
+  cameras named after a real locality: 58/69
+  wrote ahmedabad_cameras.csv: 69 cameras, 19 KB
+
+$ python -m pytest services/simulator/tests -q
+  18 passed in 0.17s
+
+$ ruff check <every changed file>          # ruff 0.8.4, the pinned version
+  All checks passed!
+```
+
+**Geometry sanity, against published figures.** Sardar Patel Ring Road computes to a **74.4 km
+circumference** against a published ~76 km; SG Highway to **22.0 km** against ~22 km; 132 Ft Ring
+Road to **18.5 km** against ~18 km. The corridors are the real roads, not a plausible-looking
+scatter.
+
+### Two things found along the way that cost time — do not rediscover them
+
+**1. Chaining OSM ways end to end does not work here, and it is not obvious why.**
+The natural approach — join way fragments by shared endpoints — fails on this data. OSM splits each
+arterial wherever a *differently-named* structure carries it over a junction ("ISKCON Flyover",
+"Sarangpur Flyover", "Thaltej Underpass"), and those are excluded by the corridor's own name filter,
+so consecutive segments do not touch. Measured: **CG Road came back as 20 fragments sharing only 5
+endpoints, chaining to 0.86 km of a 2.5 km road**; Sardar Patel Ring Road chained to 6.8 km of 76.
+
+What works is ordering every vertex and thinning — by projection onto the principal axis for a
+linear corridor, by bearing around the centroid for a ring. Both give a monotone distance along the
+road, which is what spacing needs, and every retained point is still an untouched OSM vertex.
+
+**2. Matching a corridor by name pattern silently fuses unrelated roads.**
+`Narol|Naroda Road|Nikol-Naroda Road|Odhav Road|Rakhial Road` looked like one corridor and is five:
+Narol–Sarkhej in the south, Naroda Road in the north-east, Nikol–Naroda further east, and the SH2
+Rakhial–Odhav axis. Ordering a blob along "the" principal axis is meaningless, and it showed up as
+**28 cameras spread over 77 km of a corridor 18.9 km long**. Split into three real corridors, which
+also gave the fleet the east–west links a cross-city journey needs.
+
+Both now have automated guards, because both were invisible until measured: the fetcher reports a
+**linearity** score per corridor and fails below 3.0 (real arterials here score 4–45; the blob
+scored under 2), and the generator fails if a corridor's cameras walk more than 1.6× its own length.
+
+### Also worth knowing
+
+- **`prune_registry.py` would have deleted the entire fleet.** It kept sourceless cameras by
+  hardcoded *code* (`CAM-DEMO`), and all 69 new cameras are deliberately sourceless — they resolve
+  through the simulated adapter. It now judges on the **adapter**, like `gateway.reconcile()` does.
+  This was the single most dangerous regression in the phase and it is a silent one: the fleet would
+  simply be gone the next time anybody ran the prune.
+- **`SIM_STREAM_COUNT` must be ≥ 40** or the gate cannot pass — a camera counts as online only while
+  MediaMTX reports its path publishing. The compose default is now 48. **An existing `.env` still
+  says 24 and will not be updated by `make env`**, which only writes the file when it is absent.
+- **`ruff format --check` already fails at HEAD** on `scripts/` and `services/simulator` under the
+  pinned ruff 0.8.4 — `load_mode.py`, `seed.py`, `prune_registry.py`, `main.py` and `publisher.py`
+  all want reformatting, and that is true of the unmodified HEAD versions too. Pre-existing, not
+  introduced here; worth folding into P6 or P12. `ruff check` passes.
+
+### The gate, unrun
+
+```bash
+make clean && make demo && make ai       # then, in the browser:
+```
+
+- [ ] ≥40 cameras online in fleet health
+- [ ] ≥6 live feeds in Live ANPR
+- [ ] one plate present on ≥3 distinct cameras in the database
+- [ ] all of it reached by `make demo` from empty volumes
+
+`scripts/demo_up.sh` now checks the first three itself and fails loudly rather than reporting
+success over an empty screen.
 
 ---
 

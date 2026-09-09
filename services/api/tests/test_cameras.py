@@ -14,18 +14,25 @@ from httpx import AsyncClient
 
 #: Cameras created by scripts/seed.py. Federated sources add to this, so
 #: assertions use it as a floor rather than an equality.
-#: The registry holds only cameras with a real video source: the organisers'
-#: grid plus one demonstration camera. It used to be seeded with 250 synthetic
-#: rows so this number could be large, and 251 of the 281 had no stream URL at
-#: all — they could never be watched, analysed, or be unhealthy. Asserting a
-#: count in the hundreds tested that a CSV had loaded, not that the platform
-#: worked. What matters is that a real fleet is onboarded and every screen
-#: agrees about its size.
-ONBOARDED_FLEET = 10
+#:
+#: The registry holds only cameras with a real video source. It used to be
+#: seeded with 250 synthetic rows so this number could be large, and 251 of the
+#: 281 had no stream URL at all — they could never be watched, analysed, or be
+#: unhealthy. Asserting a count in the hundreds tested that a CSV had loaded,
+#: not that the platform worked.
+#:
+#: P1 raises the floor from 10 to 40. The Ahmedabad fleet seeds 69 cameras, all
+#: of them on real road vertices and all of them resolvable through the
+#: simulated adapter, and P1's own gate is "≥40 cameras online". A floor below
+#: that would let the fleet half-load without a single test noticing.
+ONBOARDED_FLEET = 40
 
 pytestmark = pytest.mark.integration
 
-RAJKOT = (22.3039, 70.8022)
+#: The fleet's own city. P1 replaced the statewide Saurashtra fleet with an
+#: Ahmedabad city network, so proximity queries aimed at Rajkot now return
+#: nothing — correctly, because there are no cameras there any more.
+AHMEDABAD = (23.0225, 72.5714)
 
 
 def csv_bytes(rows: str) -> dict[str, tuple[str, io.BytesIO, str]]:
@@ -82,12 +89,15 @@ class TestFleetIsSeeded:
         ).json()
 
         assert summary["total"] >= ONBOARDED_FLEET
-        # Two, not four. The old fleet spanned five invented departments; the
-        # real one spans however many the onboarded cameras actually belong to,
-        # and most of the organisers' grid carries no department in its
-        # catalogue. Attributing them would mean inventing the answer.
-        assert len(summary["by_department"]) >= 1
-        assert len(summary["by_district"]) >= 5
+        # The Ahmedabad fleet is owned by the departments that really run these
+        # corridors — police on the arterials and the ring road, municipal on
+        # the inner streets — so this has teeth again after P1. It had been
+        # relaxed to >= 1 when the invented five-department fleet was deleted.
+        assert len(summary["by_department"]) >= 3
+        # One city, one district. This asserted >= 5 under the statewide brief;
+        # SIH26127 is a city-wide problem, and a fleet spread thinly across
+        # five districts would be the wrong product, not a better test.
+        assert len(summary["by_district"]) >= 1
 
     async def test_vms_instances_cover_several_vendors(
         self, client: AsyncClient, auth_headers
@@ -111,7 +121,7 @@ class TestProximitySearch:
     """PostGIS radius queries — "what covered this location?"."""
 
     async def test_returns_nearest_first(self, client: AsyncClient, auth_headers) -> None:
-        lat, lon = RAJKOT
+        lat, lon = AHMEDABAD
         response = await client.get(
             f"/api/v1/cameras/nearby?lat={lat}&lon={lon}&radius_km=15&limit=20",
             headers=await auth_headers("operator"),
@@ -119,13 +129,13 @@ class TestProximitySearch:
 
         assert response.status_code == 200
         rows = response.json()
-        assert rows, "expected cameras near Rajkot"
+        assert rows, "expected cameras near Ahmedabad"
 
         distances = [r["distance_km"] for r in rows]
         assert distances == sorted(distances), "results are not ordered by distance"
 
     async def test_respects_the_radius(self, client: AsyncClient, auth_headers) -> None:
-        lat, lon = RAJKOT
+        lat, lon = AHMEDABAD
         rows = (
             await client.get(
                 f"/api/v1/cameras/nearby?lat={lat}&lon={lon}&radius_km=5",
@@ -138,7 +148,7 @@ class TestProximitySearch:
     async def test_wider_radius_returns_at_least_as_many(
         self, client: AsyncClient, auth_headers
     ) -> None:
-        lat, lon = RAJKOT
+        lat, lon = AHMEDABAD
         headers = await auth_headers("operator")
         near = (
             await client.get(
@@ -177,23 +187,31 @@ class TestDistrictAndFilters:
     async def test_in_district_returns_only_that_district(
         self, client: AsyncClient, auth_headers
     ) -> None:
+        """The fleet's own district, which is the one that is populated.
+
+        This asked for Rajkot until P1, when the statewide fleet was replaced
+        by an Ahmedabad city network. Rajkot now holds no cameras, so the old
+        assertion tested the seed's geography rather than the district filter.
+        """
         rows = (
             await client.get(
-                "/api/v1/cameras/in-district/Rajkot",
+                "/api/v1/cameras/in-district/Ahmedabad",
                 headers=await auth_headers("analyst"),
             )
         ).json()
 
         assert rows
-        assert {r["district"] for r in rows} == {"Rajkot"}
+        assert {r["district"] for r in rows} == {"Ahmedabad"}
 
     async def test_district_match_is_case_insensitive(
         self, client: AsyncClient, auth_headers
     ) -> None:
         """Operators type district names by hand."""
         headers = await auth_headers("analyst")
-        upper = (await client.get("/api/v1/cameras/in-district/RAJKOT", headers=headers)).json()
-        proper = (await client.get("/api/v1/cameras/in-district/Rajkot", headers=headers)).json()
+        upper = (await client.get("/api/v1/cameras/in-district/AHMEDABAD", headers=headers)).json()
+        proper = (
+            await client.get("/api/v1/cameras/in-district/Ahmedabad", headers=headers)
+        ).json()
         assert len(upper) == len(proper) > 0
 
     async def test_filter_by_department(self, client: AsyncClient, auth_headers) -> None:

@@ -113,18 +113,28 @@ TOKEN=$(token)
 if [ -z "$TOKEN" ]; then fail "cannot sign in as admin"; exit 1; fi
 ok "admin can sign in"
 
-# Threshold is 10, not 100. The old fleet was 281 cameras of which 251 had no
-# video source; a count in the hundreds proved only that a CSV had loaded. What
-# matters now is that real cameras were onboarded, and there are about 31.
+# P1's gate: >=40 cameras. The old fleet was 281 cameras of which 251 had no
+# video source, so a count in the hundreds proved only that a CSV had loaded;
+# the threshold was then dropped to 10 when those were deleted. The Ahmedabad
+# fleet is 69 cameras, every one on a real road vertex with a resolvable
+# stream, so the bar goes back up to where it means something.
 CAMERAS=$(api "/api/v1/cameras/summary" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("total",0))' 2>/dev/null || echo 0)
-[ "${CAMERAS:-0}" -gt 10 ] && ok "$CAMERAS cameras in the registry" \
-    || fail "only $CAMERAS cameras — the grid sync or the seed failed"
+[ "${CAMERAS:-0}" -ge 40 ] && ok "$CAMERAS cameras in the registry" \
+    || fail "only $CAMERAS cameras — the Ahmedabad fleet did not seed (P1 needs >=40)"
 
 # Asserted, because every camera should now be analysable. A camera in this
 # registry without ANPR is a camera whose stream could not be resolved.
 ANPR=$(api "/api/v1/cameras/summary" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("anpr_enabled",0))' 2>/dev/null || echo 0)
-[ "${ANPR:-0}" -gt 10 ] && ok "$ANPR cameras in the ANPR fleet" \
+[ "${ANPR:-0}" -ge 40 ] && ok "$ANPR cameras in the ANPR fleet" \
     || fail "only $ANPR cameras have a resolvable stream"
+
+# The gate's other half: cameras that are actually publishing. A registry row
+# is not a feed, and "40 cameras" with nothing streaming is exactly the
+# fiction commit 4d0346f deleted.
+LIVE=$(curl -s "http://localhost:9100/streams" 2>/dev/null \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
+[ "${LIVE:-0}" -ge 6 ] && ok "$LIVE live feeds publishing" \
+    || fail "only $LIVE live feeds — P1 needs >=6 (check SIM_STREAM_COUNT in .env)"
 
 printf '  %s…waiting up to 90s for the first plate read%s\n' "$DIM" "$RESET"
 PLATES=0
@@ -140,6 +150,20 @@ for _ in $(seq 1 18); do
 done
 [ "${PLATES:-0}" -gt 0 ] && ok "$PLATES plate reads in the last 10 minutes" \
     || warn "no plates yet — the worker may still be starting. Check: docker compose logs ai-worker"
+
+# The part of P1 that actually matters: the same plate seen by several
+# cameras. Everything downstream — linking, journeys, anomalies, analytics —
+# needs this and nothing else in the demo path checks it. A warning rather
+# than a failure, because it depends on how long the worker has been running.
+SPREAD=$(docker compose exec -T postgres psql -qtAX -U "${POSTGRES_USER:-nagarnetra}" \
+    -d "${POSTGRES_DB:-nagarnetra}" -c \
+    "SELECT count(*) FROM (SELECT plate_normalised FROM detections
+      WHERE plate_normalised <> '' AND camera_id IS NOT NULL
+      GROUP BY plate_normalised HAVING count(DISTINCT camera_id) >= 3) t;" 2>/dev/null \
+    | tr -d '[:space:]' || echo 0)
+[ "${SPREAD:-0}" -gt 0 ] \
+    && ok "$SPREAD plate(s) seen on 3+ distinct cameras — cross-camera linking has data" \
+    || warn "no plate on 3+ cameras yet — give the worker a few minutes, then re-check"
 
 # Asserted, not printed. This reported "0 plates on the watchlist" as a
 # success for as long as it existed, while judge moments 3 and 4 had nothing

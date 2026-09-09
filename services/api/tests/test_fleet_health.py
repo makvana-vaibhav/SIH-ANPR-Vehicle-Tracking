@@ -111,16 +111,20 @@ class TestGapAnalysis:
     async def test_identifies_districts_with_no_cameras(
         self, client: AsyncClient, auth_headers
     ) -> None:
-        """Gujarat has 33 districts; our fleet covers 8. The rest are blind
-        spots a vehicle can cross entirely unobserved."""
+        """Gujarat has 33 districts; the fleet covers Ahmedabad. The rest are
+        blind spots a vehicle can cross entirely unobserved.
+
+        Rajkot used to be asserted as covered too. P1 replaced the statewide
+        fleet with a city network, so Rajkot is now genuinely blind — and the
+        report saying so is the feature working, not a regression.
+        """
         body = (
             await client.get("/api/v1/health/gaps", headers=await auth_headers("analyst"))
         ).json()
 
         uncovered = {g["district"] for g in body["coverage_gaps"]}
         assert len(uncovered) > 0
-        # Districts we do cover must not be listed as blind.
-        assert "Rajkot" not in uncovered
+        # The district we do cover must not be listed as blind.
         assert "Ahmedabad" not in uncovered
 
     async def test_every_gap_explains_itself(self, client: AsyncClient, auth_headers) -> None:

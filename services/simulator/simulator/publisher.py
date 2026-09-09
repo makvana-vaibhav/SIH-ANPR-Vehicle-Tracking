@@ -20,6 +20,7 @@ demo degrades rather than dying.
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,46 @@ log = get_logger("simulator.publisher")
 
 #: Video extensions we will replay.
 VIDEO_SUFFIXES = (".mp4", ".mkv", ".mov", ".avi", ".ts")
+
+#: Seconds by which consecutive cameras on a corridor are offset into their
+#: source clip. Every simulated camera replays the same short loop, so with no
+#: offset the same vehicle appears at every camera in the city in the same
+#: instant — and a journey needs it to reach one camera *after* another.
+#:
+#: The honest framing: the *footage* is replayed with a time offset. The
+#: *detections* are not — every plate on every camera is read live by the real
+#: pipeline from that camera's own stream.
+STREAM_OFFSET_STEP_S = float(os.environ.get("SIM_STREAM_OFFSET_STEP_S", "7"))
+
+#: Offsets wrap here so they stay inside a short clip. A clip shorter than this
+#: simply loops sooner, which costs nothing.
+STREAM_OFFSET_WRAP_S = float(os.environ.get("SIM_STREAM_OFFSET_WRAP_S", "50"))
+
+
+def corridor_offset(camera_code: str) -> float:
+    """Seconds into the clip this camera should start.
+
+    Derived from the camera's own sequence number within its corridor
+    (``CAM-SGH-03`` → the third camera on SG Highway), for two reasons.
+
+    It makes the offsets *ordered along the road*, so a vehicle in the looping
+    clip reaches CAM-SGH-01, then -02, then -03, which reconstructs as a
+    journey down SG Highway. Offsets spread at random would show the same
+    vehicle at 01, then 05, then 02, and the correlator would be right to flag
+    that as implausible.
+
+    And it depends on nothing but the code, so a single stream restarted
+    through ``/streams/{code}/start`` resumes the offset it had rather than
+    silently jumping back to the head of the clip.
+    """
+    trailing = ""
+    for character in reversed(camera_code):
+        if not character.isdigit():
+            break
+        trailing = character + trailing
+    if not trailing:
+        return 0.0
+    return ((int(trailing) - 1) * STREAM_OFFSET_STEP_S) % STREAM_OFFSET_WRAP_S
 
 
 @dataclass
@@ -42,6 +83,10 @@ class StreamSpec:
     fps: int = 15
     width: int = 1280
     height: int = 720
+    #: Seconds into the clip this camera starts. Staggering the fleet is what
+    #: lets the same vehicle arrive at one camera after another instead of at
+    #: all of them simultaneously, which is what makes a journey a journey.
+    start_offset_s: float = 0.0
 
 
 @dataclass
@@ -69,16 +114,29 @@ def find_videos(directory: Path) -> list[Path]:
     )
 
 
-def build_command(spec: StreamSpec, rtsp_base: str) -> list[str]:
+def build_command(
+    spec: StreamSpec, rtsp_base: str, *, copy_video: bool = False
+) -> list[str]:
     """ffmpeg arguments for one stream.
 
     Two shapes: replay a file on an endless loop, or synthesise a test pattern.
     Both publish H.264 over RTSP/TCP.
+
+    ``copy_video`` remuxes instead of re-encoding. This is the difference
+    between a handful of live cameras and a whole city fleet: re-encoding with
+    libx264 costs roughly 10% of a core per stream, which caps a laptop at
+    about ten. The seed clips are already H.264, so for them the encode is pure
+    waste — copy-mode was measured at 64 live streams on ~1.1 cores.
+
+    It is opt-in per stream rather than assumed, because remuxing a clip that
+    is *not* H.264 produces a stream MediaMTX cannot serve, and the failure is
+    silent until somebody opens the camera. `StreamPublisher` probes the codec
+    and only asks for a copy when the source is genuinely H.264.
     """
     target = f"{rtsp_base}/{spec.camera_code.lower()}"
 
     if spec.source is not None:
-        return [
+        command = [
             "ffmpeg",
             "-hide_banner",
             "-loglevel",
@@ -89,25 +147,45 @@ def build_command(spec: StreamSpec, rtsp_base: str) -> list[str]:
             "-re",
             "-stream_loop",
             "-1",
-            "-i",
-            str(spec.source),
-            "-an",  # audio is irrelevant to ANPR
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",  # CPU-only host; latency over quality
-            "-tune",
-            "zerolatency",
-            "-g",
-            str(spec.fps * 2),  # keyframe every 2s, for fast WebRTC join
-            "-pix_fmt",
-            "yuv420p",
-            "-f",
-            "rtsp",
-            "-rtsp_transport",
-            "tcp",
-            target,
         ]
+
+        if copy_video:
+            # An *input* flag, and it has to stay one. Looping a file with
+            # -c:v copy replays the source timestamps from zero on every lap,
+            # so DTS goes backwards at the loop point and the RTSP muxer drops
+            # the connection. Regenerating presentation timestamps as the file
+            # is read is what makes an endless loop survive without an encoder;
+            # the same flag after -i applies to the output and does nothing for
+            # this.
+            command += ["-fflags", "+genpts"]
+
+        # Start this camera part-way into the clip. Every simulated camera
+        # replays the same short loop, so without an offset every camera in the
+        # city sees the same car at the same instant — which makes cross-camera
+        # linking meaningless, because a journey needs a vehicle to reach one
+        # camera *after* another. Seeking before -i is the fast path.
+        if spec.start_offset_s:
+            command += ["-ss", f"{spec.start_offset_s:.2f}"]
+
+        command += ["-i", str(spec.source), "-an"]  # audio is irrelevant to ANPR
+
+        if copy_video:
+            command += ["-c:v", "copy"]
+        else:
+            command += [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",  # CPU-only host; latency over quality
+                "-tune",
+                "zerolatency",
+                "-g",
+                str(spec.fps * 2),  # keyframe every 2s, for fast WebRTC join
+                "-pix_fmt",
+                "yuv420p",
+            ]
+
+        return command + ["-f", "rtsp", "-rtsp_transport", "tcp", target]
 
     # No source file: synthesise a moving test pattern with a timestamp, so the
     # stream is visibly live rather than a frozen frame.
@@ -157,14 +235,68 @@ class StreamPublisher:
         self.max_restarts = max_restarts
         self._streams: dict[str, StreamProcess] = {}
         self._stopping = False
+        #: Codec per source path. A handful of clips serve a fleet of cameras,
+        #: so probing once per file rather than once per camera turns 69
+        #: ffprobe launches into three.
+        self._codecs: dict[Path, str | None] = {}
 
     @staticmethod
     def ffmpeg_available() -> bool:
         return shutil.which("ffmpeg") is not None
 
+    @staticmethod
+    def ffprobe_available() -> bool:
+        return shutil.which("ffprobe") is not None
+
+    async def video_codec(self, source: Path) -> str | None:
+        """The clip's video codec, probed once and cached.
+
+        Returns None when it cannot be determined, which the caller must treat
+        as "re-encode" — guessing H.264 and being wrong yields a stream that
+        publishes and then cannot be played, and nothing reports a fault.
+        """
+        if source in self._codecs:
+            return self._codecs[source]
+
+        codec: str | None = None
+        if self.ffprobe_available():
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=codec_name",
+                    "-of",
+                    "default=nw=1:nk=1",
+                    str(source),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
+            except (OSError, TimeoutError) as exc:
+                log.warning("simulator.probe_failed", source=str(source), error=str(exc))
+            else:
+                if process.returncode == 0:
+                    codec = stdout.decode(errors="replace").strip().lower() or None
+
+        self._codecs[source] = codec
+        log.info(
+            "simulator.codec_probed",
+            source=source.name,
+            codec=codec or "unknown",
+            remux=codec == "h264",
+        )
+        return codec
+
     async def start(self, spec: StreamSpec) -> bool:
         """Launch one publisher."""
-        command = build_command(spec, self.rtsp_base)
+        copy_video = False
+        if spec.source is not None:
+            copy_video = await self.video_codec(spec.source) == "h264"
+        command = build_command(spec, self.rtsp_base, copy_video=copy_video)
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -185,6 +317,8 @@ class StreamPublisher:
             "simulator.stream_started",
             camera_code=spec.camera_code,
             source=str(spec.source) if spec.source else "testsrc",
+            remux=copy_video,
+            start_offset_s=round(spec.start_offset_s, 2),
         )
         return True
 

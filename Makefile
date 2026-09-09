@@ -169,6 +169,12 @@ test: ## Run backend and frontend test suites
 	@printf "\n\033[1mAI worker tests\033[0m\n"
 	@$(COMPOSE) exec -T -e PYTHONPATH=/app/services/ai-worker api \
 		python -m pytest /app/services/ai-worker/tests -q
+	@printf "\n\033[1mSimulator tests\033[0m\n"
+	@# The simulator had no tests until P1, which is how the fleet-wide ffmpeg
+	@# arguments went unchecked. These are pure functions — no ffmpeg, no
+	@# MediaMTX, no database — so they run in the api image like the rest.
+	@$(COMPOSE) exec -T -e PYTHONPATH=/app/services/api:/app/services/simulator api \
+		python -m pytest /app/services/simulator/tests -q
 	@printf "\n\033[1mEnd-to-end: the five judge moments\033[0m\n"
 	@# Run from the suite's own directory so tests/e2e/pytest.ini applies —
 	@# without it async fixtures are never awaited and every test fails.

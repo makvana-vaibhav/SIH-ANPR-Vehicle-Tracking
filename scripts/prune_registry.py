@@ -15,8 +15,10 @@ record. Two hundred and fifty of them, invented, are not.
 
 ## What it removes
 
-Cameras with **no `stream_url`**, except the demonstration camera, which
-resolves its source through MediaMTX rather than a stored URL.
+Cameras that have **neither a `stream_url` nor an adapter that can derive
+one**. Cameras on a `simulated` VMS — the demonstration feed and the whole
+Ahmedabad city fleet — resolve their stream from their own camera code through
+MediaMTX, so a NULL `stream_url` there is correct and they are kept.
 
 Children go first and explicitly. `detections.camera_id` is ON DELETE SET NULL,
 so deleting a camera does not remove its sightings — it orphans them, and they
@@ -39,18 +41,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "ap
 from sqlalchemy import delete, func, select  # noqa: E402
 
 from app.db.session import SessionLocal, dispose_engine  # noqa: E402
+from app.models.enums import AdapterType  # noqa: E402
 from app.models.intelligence import Alert, Detection  # noqa: E402
-from app.models.registry import Camera, CameraHealth  # noqa: E402
+from app.models.registry import Camera, CameraHealth, VmsInstance  # noqa: E402
 
-#: Resolves its source through MediaMTX rather than a stored URL, so a NULL
-#: stream_url on this one is correct rather than decorative.
-KEEP_WITHOUT_URL = ("CAM-DEMO",)
+#: Adapters that resolve a camera's stream from its **code** rather than from a
+#: stored URL. `SimulatedVmsAdapter` builds `rtsp://mediamtx:8554/<code>` and
+#: asks MediaMTX whether that path is publishing, so a NULL `stream_url` on one
+#: of these cameras is correct rather than missing.
+#:
+#: This used to be the single hardcoded code `CAM-DEMO`, which was right when
+#: the demonstration feed was the only simulator-published camera. P1 added an
+#: entire Ahmedabad city fleet on the same footing — 69 cameras, none with a
+#: `stream_url`, all of them resolvable — and a code-based exemption would have
+#: deleted every one of them the next time this ran.
+SOURCELESS_OK_ADAPTERS = (AdapterType.SIMULATED.value,)
 
 
 def _sourceless():
+    """Cameras with no way at all to produce video.
+
+    A camera is sourceless only if it has neither a stored `stream_url` nor an
+    adapter that can derive one. Judged on the adapter, not on the camera code,
+    for the same reason `gateway.reconcile()` is: how a camera is integrated is
+    a fact about its VMS, not something to infer from a naming convention.
+    """
+    resolvable_by_adapter = (
+        select(VmsInstance.id)
+        .where(VmsInstance.adapter_type.in_(SOURCELESS_OK_ADAPTERS))
+        .scalar_subquery()
+    )
     return select(Camera.id).where(
         Camera.stream_url.is_(None),
-        Camera.camera_code.notin_(KEEP_WITHOUT_URL),
+        # `NOT IN` with a NULL vms_id yields NULL, not TRUE, so a camera with no
+        # VMS at all would never match and would survive a prune it deserves.
+        # Spelled out rather than relying on that.
+        (Camera.vms_id.is_(None)) | (Camera.vms_id.notin_(resolvable_by_adapter)),
     )
 
 

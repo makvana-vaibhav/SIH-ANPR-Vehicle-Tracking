@@ -4,10 +4,10 @@ Publishes a subset of the registered fleet as real RTSP streams into MediaMTX,
 and exposes a small control API so a demo (or a test) can take a camera down on
 purpose and watch the health monitor react.
 
-Which cameras go live: ANPR-capable cameras on the demo route are preferred, so
-the streams that exist are the ones the AI pipeline and the route demo actually
-need. Everything else stays registered-but-not-streaming, which is realistic —
-no control room watches 80,000 feeds at once.
+Which cameras go live: the Ahmedabad city fleet, whose video source this
+service *is*. Cameras belonging to systems we merely federate are never
+published here — their video lives on somebody else's gateway, and inventing a
+local stream for one would make the health view lie about an integration.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from app.core.logging import configure_logging, get_logger
 from app.db.session import SessionLocal, dispose_engine
 from app.models.enums import AdapterType
 from app.models.registry import Camera, VmsInstance
-from simulator.publisher import StreamPublisher, StreamSpec, find_videos
+from simulator.publisher import StreamPublisher, StreamSpec, corridor_offset, find_videos
 
 configure_logging(service="simulator")
 log = get_logger("simulator")
@@ -41,10 +41,10 @@ PINNED_VIDEOS = os.environ.get("SIM_CAMERA_VIDEOS", "")
 STREAM_COUNT = int(os.environ.get("SIM_STREAM_COUNT", "6"))
 RTSP_BASE = f"rtsp://{settings.mediamtx_host}:{settings.mediamtx_rtsp_port}"
 
-#: Cities along the demo route (Judge Moment 4). Cameras here are preferred for
-#: live streaming so the ANPR pipeline and the route reconstruction have real
-#: video to work with.
-DEMO_ROUTE_CITIES = ("Rajkot", "Gondal", "Jetpur", "Junagadh")
+#: The city the fleet covers. This used to be a four-city demo route across
+#: Saurashtra (Rajkot → Gondal → Jetpur → Junagadh) from the old statewide
+#: brief; SIH26127 is one city, and every camera in the fleet is in it.
+FLEET_CITY = "Ahmedabad"
 
 publisher = StreamPublisher(RTSP_BASE)
 _supervisor_task: asyncio.Task[None] | None = None
@@ -53,19 +53,22 @@ _supervisor_task: asyncio.Task[None] | None = None
 async def select_cameras(limit: int) -> list[Camera]:
     """Choose which registered cameras become live streams.
 
-    By default this is *only* the cameras with footage explicitly pinned to
-    them — in practice the one demonstration camera.
+    Cameras with footage pinned to them go first, then ANPR-capable cameras of
+    the city fleet, up to ``limit`` (`SIM_STREAM_COUNT`, default 48).
 
-    That default changed deliberately. The simulator used to replay clips into
-    24 registered cameras, which made a synthetic feed indistinguishable from a
-    federated one: a judge clicking "Kalawad Road Junction ANPR 01" saw a
-    Wikimedia clip of a road in Israel. The platform federates real cameras;
-    inventing video for the ones it cannot reach misrepresents exactly the
-    capability being demonstrated.
+    **Only cameras on a `simulated` VMS are ever published**, and that is the
+    line that matters. The simulator once replayed clips into cameras belonging
+    to systems we merely federate, which made a synthetic feed indistinguishable
+    from a real one: a judge clicking "Kalawad Road Junction ANPR 01" saw a
+    Wikimedia clip of a road in Israel. Inventing video for a camera we cannot
+    reach misrepresents exactly the capability being demonstrated, so an
+    unreachable camera stays visibly unreachable.
 
-    An unreachable camera should look unreachable. Set `SIM_STREAM_COUNT`
-    above zero to restore fleet-wide replay for load testing, where synthetic
-    video is the point rather than a pretence.
+    The Ahmedabad fleet is different in kind from those: the simulator *is* its
+    video source, declared as such on a simulated VMS, so publishing it is the
+    truth rather than a pretence. `SIM_STREAM_COUNT=0` still narrows this to
+    pinned footage alone, which was the default while the demonstration feed was
+    the only camera with a real source.
     """
     # Only stream cameras whose VMS is served by the simulator. A camera
     # belonging to the real sandbox grid must be probed against the real
@@ -111,7 +114,7 @@ async def select_cameras(limit: int) -> list[Camera]:
                     .where(
                         Camera.anpr_enabled.is_(True),
                         Camera.vms_id.in_(simulated_vms),
-                        Camera.city.in_(DEMO_ROUTE_CITIES),
+                        Camera.city == FLEET_CITY,
                         Camera.id.not_in([c.id for c in pinned_cameras])
                         if pinned_cameras
                         else true(),
@@ -162,19 +165,30 @@ def pinned_videos() -> dict[str, Path]:
 
 
 def build_specs(cameras: list[Camera], videos: list[Path]) -> list[StreamSpec]:
-    """Pair cameras with source clips, cycling if there are fewer clips."""
+    """Pair cameras with source clips, cycling if there are fewer clips.
+
+    A camera with footage *pinned* to it keeps offset zero: pinning exists to
+    make one camera show one known thing, and shifting it would change what a
+    scripted demo sees there.
+    """
     pinned = pinned_videos()
     specs: list[StreamSpec] = []
+
     for index, camera in enumerate(cameras):
         source = pinned.get(camera.camera_code)
+        is_pinned = source is not None
         if source is None:
             source = videos[index % len(videos)] if videos else None
+
         specs.append(
             StreamSpec(
                 camera_code=camera.camera_code,
                 source=source,
                 label=f"{camera.camera_code} {camera.city or ''}".strip(),
                 fps=camera.fps or 15,
+                start_offset_s=(
+                    0.0 if is_pinned or source is None else corridor_offset(camera.camera_code)
+                ),
             )
         )
     return specs
