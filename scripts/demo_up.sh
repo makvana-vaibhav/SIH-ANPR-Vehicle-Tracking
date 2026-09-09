@@ -3,9 +3,8 @@
 # The full demonstration path, from a fresh clone to a system a judge can use.
 #
 # `make up` brings the containers up. This does the rest — the steps that were
-# previously typed by hand and therefore forgotten under pressure: shaping the
-# ANPR fleet, pointing the grid cameras at the organisers' current endpoints,
-# and starting the inference worker.
+# previously typed by hand and therefore forgotten under pressure: migrating and
+# seeding, bringing the camera fleet live, and starting the inference worker.
 #
 # Every step is verified rather than assumed. A demo that reports success and
 # then shows an empty screen is worse than one that fails loudly here, where
@@ -43,42 +42,75 @@ token() {
 
 api() { curl -s -H "Authorization: Bearer $TOKEN" "$API$1"; }
 
-# ── 1. Containers ────────────────────────────────────────────────────
-step "Bringing the stack up"
-docker compose up -d >/dev/null 2>&1
-wait_for "$API/health" 180 "API"
+# ── 1. Dependencies, then schema, then the app ───────────────────────
+#
+# The order here is load-bearing and was wrong: it used to `docker compose up -d`
+# everything and then wait for the API. On a fresh clone that can never work —
+# the API queries `cameras` during startup, the table does not exist until
+# migrations run, and migrations cannot run through `compose exec` because there
+# is no healthy container to exec into. Compose returned non-zero, `set -e` fired,
+# and `make demo` died 15 seconds in with "Error 1". Exactly the path a judge
+# takes, and it was broken.
+#
+# So: dependencies first, migrate and seed with `compose run` (which needs no
+# healthy app container), and only then start the app tier.
+step "Starting dependencies"
+# `--wait` blocks on the healthchecks. Without it `up -d` returns as soon as the
+# containers are *started*, and migrations then race a Postgres that is still
+# initialising a fresh data directory — which failed on one clean run and
+# succeeded on the next purely on timing.
+docker compose up -d --wait postgres redis minio mediamtx opensearch >/dev/null 2>&1 \
+    || { fail "dependencies did not become healthy"; exit 1; }
+ok "postgres, redis, minio, mediamtx, opensearch healthy"
 
-# ── 2. Schema and seed data ──────────────────────────────────────────
 step "Schema and seed data"
-docker compose exec -T -w /app/services/api api alembic upgrade head >/dev/null 2>&1 \
-    && ok "migrations at head" || { fail "migrations failed"; exit 1; }
+if docker compose run --rm --no-deps -T -w /app/services/api api \
+        alembic upgrade head >/dev/null 2>&1; then
+    ok "migrations at head"
+else
+    fail "migrations failed"; exit 1
+fi
 
-if docker compose exec -T api python /app/scripts/seed.py >/dev/null 2>&1; then
+if docker compose run --rm --no-deps -T api python -m scripts.seed >/dev/null 2>&1; then
     ok "seed data loaded"
 else
     warn "seed reported an error (it is idempotent; continuing)"
 fi
 
-# ── 3. The camera fleet ──────────────────────────────────────────────
-# Every camera in the registry has a real video source: the organisers' grid,
-# plus the one demonstration camera the seed created. There is no synthetic
-# fleet any more — 251 of the old 281 cameras had no stream URL at all.
-step "Onboarding the camera fleet"
+step "Bringing the stack up"
+docker compose up -d >/dev/null 2>&1 || true
+wait_for "$API/health" 180 "API"
 
-# This was missing, and it mattered: nothing in the demo path onboarded the
-# grid. The SBX cameras existed only because someone had run this by hand
-# months ago, so a fresh clone reached `make demo` with no real cameras and
-# no indication anything was wrong.
-if docker compose exec -T api python /app/scripts/sync_sandbox.py 2>/dev/null \
-    | grep -E "created|updated|unchanged" | sed 's/^/  /'; then
-    :
+# ── 3. The camera fleet ──────────────────────────────────────────────
+# The fleet is seeded, not synced: scripts/seed.py loads the Ahmedabad ANPR
+# fleet from data/seed/cameras.csv, which places every camera on a real vertex
+# of a real named arterial. Step 2 above already did it, so this step verifies
+# rather than repeats.
+#
+# Every camera here is published by the simulator, so it can be opened,
+# watched and analysed. That is the distinction from the old 281-camera fleet,
+# 251 of which had no video source at all.
+step "The camera fleet"
+
+FLEET=$(docker compose exec -T postgres psql -U "${POSTGRES_USER:-nagarnetra}" \
+    -d "${POSTGRES_DB:-nagarnetra}" -tAc \
+    "select count(*) from cameras" 2>/dev/null | tr -d '[:space:]')
+if [ "${FLEET:-0}" -gt 10 ]; then
+    ok "$FLEET cameras seeded across the city corridors"
 else
-    warn "grid sync did not report — is SANDBOX_BASE_URL set in .env?"
+    fail "only ${FLEET:-0} cameras — did scripts/generate_ahmedabad_cameras.py run?"
 fi
 
-docker compose exec -T api python /app/scripts/retarget_grid.py 2>/dev/null \
-    | grep -E "grid cameras retargeted" | sed 's/^/  /' \
-    || warn "retarget_grid did not report"
+# The organisers' grid from the previous brief. Opt-in, because its host is not
+# reachable and SANDBOX_BASE_URL is unset by default: running it unconditionally
+# spent time and printed a warning on every single demo for no benefit.
+if [ -n "${SANDBOX_BASE_URL:-}" ]; then
+    docker compose exec -T api python /app/scripts/sync_sandbox.py 2>/dev/null \
+        | grep -E "created|updated|unchanged" | sed 's/^/  /' \
+        || warn "grid sync did not report"
+    docker compose exec -T api python /app/scripts/retarget_grid.py 2>/dev/null \
+        | grep -E "grid cameras retargeted" | sed 's/^/  /' || true
+fi
 
 # ── 4. Demonstration footage ─────────────────────────────────────────
 step "Demonstration footage"
@@ -90,11 +122,23 @@ else
 fi
 
 docker compose up -d simulator >/dev/null 2>&1
-sleep 8
-if curl -s "http://localhost:9100/streams" 2>/dev/null | grep -q CAM-DEMO; then
-    ok "CAM-DEMO publishing"
+
+# Poll rather than sleep. On a cold cache the simulator first re-encodes each
+# clip to a keyframe-dense copy (publisher.prepare_clip), which takes tens of
+# seconds — a fixed `sleep 8` reported "0 streams publishing" on every fresh
+# clone even though the fleet came up fine moments later.
+printf '  %s…waiting for the fleet to publish (clips are prepared once)%s\n' "$DIM" "$RESET"
+STREAMS=0
+for _ in $(seq 1 30); do
+    STREAMS=$(curl -s "http://localhost:9100/streams" 2>/dev/null \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
+    [ "${STREAMS:-0}" -gt 5 ] && break
+    sleep 5
+done
+if [ "${STREAMS:-0}" -gt 5 ]; then
+    ok "$STREAMS cameras publishing live video"
 else
-    warn "CAM-DEMO is not publishing yet — it may need another few seconds"
+    warn "only ${STREAMS:-0} streams publishing — check 'docker compose logs simulator'"
 fi
 
 # ── 5. Inference ─────────────────────────────────────────────────────

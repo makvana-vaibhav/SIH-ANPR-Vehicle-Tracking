@@ -99,20 +99,32 @@ C: dict[str, Constant] = {
         "arterial cameras will exceed this by several times",
     ),
     "event_bytes": Constant(
-        2048, "bytes", "assumed", "a detection row with plate, bbox, OCR evidence and ids"
+        2048,
+        "bytes",
+        "assumed",
+        "a detection row with plate, bbox, OCR evidence and ids",
     ),
     "video_bitrate_mbps": Constant(
-        4.0, "Mbps per camera", "assumed", "H.264, 1080p, 15 fps — typical municipal ANPR encoder"
+        4.0,
+        "Mbps per camera",
+        "assumed",
+        "H.264, 1080p, 15 fps — typical municipal ANPR encoder",
     ),
     "plate_crop_bytes": Constant(
         15360, "bytes", "assumed", "~15 KB JPEG plate crop, one per detection"
     ),
     # ── Assumed: retention ──
     "hot_days": Constant(7, "days", "assumed", "operational window on NVMe"),
-    "warm_days": Constant(90, "days", "assumed", "investigation window incl. plate crops"),
-    "cold_years": Constant(5, "years", "assumed", "detections + audit, statutory retention"),
+    "warm_days": Constant(
+        90, "days", "assumed", "investigation window incl. plate crops"
+    ),
+    "cold_years": Constant(
+        5, "years", "assumed", "detections + audit, statutory retention"
+    ),
     # ── Assumed: platform shape ──
-    "cores_per_node": Constant(40, "cores", "assumed", "a commodity 2-socket inference node"),
+    "cores_per_node": Constant(
+        40, "cores", "assumed", "a commodity 2-socket inference node"
+    ),
     "cameras_per_edge_site": Constant(
         2400, "cameras", "assumed", "one municipal zone / district aggregation point"
     ),
@@ -124,9 +136,14 @@ C: dict[str, Constant] = {
         400_000, "INR", "assumed", "40-core, 128 GB, no accelerator"
     ),
     "cost_edge_node_gpu": Constant(
-        750_000, "INR", "assumed", "40-core, 128 GB, 1x A2/L4 GPU — docs/BRIEFING.md §14 midpoint"
+        750_000,
+        "INR",
+        "assumed",
+        "40-core, 128 GB, 1x A2/L4 GPU — docs/BRIEFING.md §14 midpoint",
     ),
-    "cost_nvme_per_tb": Constant(75_000, "INR/TB", "assumed", "enterprise NVMe, ₹60k for 8 TB"),
+    "cost_nvme_per_tb": Constant(
+        75_000, "INR/TB", "assumed", "enterprise NVMe, ₹60k for 8 TB"
+    ),
     "cost_bulk_storage_per_tb": Constant(
         10_000, "INR/TB", "assumed", "tiered warm/cold, ₹40–60 lakh per 500 TB"
     ),
@@ -140,7 +157,9 @@ C: dict[str, Constant] = {
     "cost_power_per_node_year": Constant(
         60_000, "INR/node/year", "assumed", "~600 W average, plus cooling, at ~₹8/kWh"
     ),
-    "cost_ops_engineer_year": Constant(1_200_000, "INR/person/year", "assumed", "loaded cost"),
+    "cost_ops_engineer_year": Constant(
+        1_200_000, "INR/person/year", "assumed", "loaded cost"
+    ),
     "dr_fraction": Constant(
         0.6,
         "fraction",
@@ -193,7 +212,9 @@ def compute(cameras: int, gpu_speedup: float, ops_ratio: int) -> dict[str, Any]:
     service_nodes = max(3, round(6 * ingest_stacks))
 
     # ── Capex ──
-    node_price = v("cost_edge_node_gpu") if gpu_speedup > 1.0 else v("cost_edge_node_cpu")
+    node_price = (
+        v("cost_edge_node_gpu") if gpu_speedup > 1.0 else v("cost_edge_node_cpu")
+    )
     capex_edge = analysis_nodes * node_price
     capex_hot = hot_tb * v("cost_nvme_per_tb")
     capex_bulk = (warm_tb + cold_tb) * v("cost_bulk_storage_per_tb")
@@ -267,8 +288,12 @@ def inr(amount: float) -> str:
 
 def report(r: dict[str, Any]) -> None:
     n = r["cameras"]
-    mode = "CPU-only (measured)" if r["gpu_speedup"] == 1.0 else (
-        f"GPU, {r['gpu_speedup']:.0f}x assumed speedup — EXTRAPOLATED, never executed here"
+    mode = (
+        "CPU-only (measured)"
+        if r["gpu_speedup"] == 1.0
+        else (
+            f"GPU, {r['gpu_speedup']:.0f}x assumed speedup — EXTRAPOLATED, never executed here"
+        )
     )
 
     print(f"\n{'=' * 68}")
@@ -281,14 +306,18 @@ def report(r: dict[str, Any]) -> None:
     print(f"  cameras per worker            {c['cameras_per_worker']:>12,.1f}")
     print(f"  workers                       {c['workers']:>12,.0f}")
     print(f"  analysis cores                {c['analysis_cores']:>12,.0f}")
-    print(f"  analysis nodes @ {v('cores_per_node'):.0f} cores   {c['analysis_nodes']:>12,.0f}")
+    print(
+        f"  analysis nodes @ {v('cores_per_node'):.0f} cores   {c['analysis_nodes']:>12,.0f}"
+    )
 
     e = r["events"]
     print("\n── Event tier ──")
     print(f"  events/s                      {e['events_per_s']:>12,.0f}")
     print(f"  metadata bandwidth            {e['event_mbps']:>12,.1f} Mbps")
-    print(f"  central stacks needed         {e['ingest_stacks']:>12,.2f}  "
-          f"(one measured at {v('ingest_ceiling_eps'):,.0f} events/s)")
+    print(
+        f"  central stacks needed         {e['ingest_stacks']:>12,.2f}  "
+        f"(one measured at {v('ingest_ceiling_eps'):,.0f} events/s)"
+    )
 
     b = r["bandwidth"]
     print("\n── Bandwidth: why federation ──")
@@ -332,8 +361,10 @@ def report(r: dict[str, Any]) -> None:
         print(f"  {label:<28}{inr(op[key]):>22}")
     print(f"  {'TOTAL OPEX / YEAR':<28}{inr(op['total']):>22}")
 
-    print(f"\n  Cost per camera: capex {inr(cap['total'] / n)} · "
-          f"opex {inr(op['total'] / n)}/yr")
+    print(
+        f"\n  Cost per camera: capex {inr(cap['total'] / n)} · "
+        f"opex {inr(op['total'] / n)}/yr"
+    )
     print("\n  All rupee figures are indicative for discussion, not quotes.")
     print(f"{'=' * 68}\n")
 
@@ -369,7 +400,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Size and cost a NagarNetra deployment for a given camera fleet."
     )
-    parser.add_argument("--cameras", type=int, default=100_000, help="fleet size (default 100000)")
+    parser.add_argument(
+        "--cameras", type=int, default=100_000, help="fleet size (default 100000)"
+    )
     parser.add_argument(
         "--gpu-speedup",
         type=float,
@@ -383,8 +416,12 @@ def main() -> None:
         default=40,
         help="nodes per operations engineer (default 40)",
     )
-    parser.add_argument("--compare", action="store_true", help="table across several fleet sizes")
-    parser.add_argument("--provenance", action="store_true", help="print every constant's source")
+    parser.add_argument(
+        "--compare", action="store_true", help="table across several fleet sizes"
+    )
+    parser.add_argument(
+        "--provenance", action="store_true", help="print every constant's source"
+    )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     args = parser.parse_args()
 
@@ -394,8 +431,10 @@ def main() -> None:
 
     if args.compare:
         sizes = (2_400, 10_000, 25_000, 50_000, 80_000, 100_000)
-        print(f"\n{'cameras':>10} {'cores':>9} {'nodes':>7} {'events/s':>10} "
-              f"{'video Gbps':>11} {'storage TB':>11} {'capex':>16} {'opex/yr':>16}")
+        print(
+            f"\n{'cameras':>10} {'cores':>9} {'nodes':>7} {'events/s':>10} "
+            f"{'video Gbps':>11} {'storage TB':>11} {'capex':>16} {'opex/yr':>16}"
+        )
         print("-" * 96)
         for size in sizes:
             r = compute(size, args.gpu_speedup, args.ops_ratio)

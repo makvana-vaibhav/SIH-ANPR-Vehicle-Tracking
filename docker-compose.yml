@@ -418,6 +418,9 @@ services:
       - ./services/simulator:/app/services/simulator
       - ./services/api:/app/services/api
       - ./data/videos:/data/videos:ro
+      # Writable: the simulator re-encodes each clip once with dense keyframes
+      # so it can then stream them with `-c:v copy`. See publisher.prepare_clip.
+      - ./data/prepared:/data/prepared
     depends_on:
       api:
         condition: service_healthy

@@ -20,7 +20,10 @@ demo degrades rather than dying.
 from __future__ import annotations
 
 import asyncio
+import functools
+import os
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,6 +45,19 @@ class StreamSpec:
     fps: int = 15
     width: int = 1280
     height: int = 720
+    #: Seconds to seek into the clip before streaming.
+    #:
+    #: Cameras that share a clip would otherwise show the *same* vehicle at the
+    #: *same* wall-clock moment, and the correlator would rightly read that as
+    #: one plate at two places at once — `impossible_simultaneous`. Offsetting
+    #: each camera into a different part of the clip removes that artefact.
+    #:
+    #: It does NOT manufacture a plausible journey. The only clip with legible
+    #: plates is 15 s long, and the fleet's median camera spacing is 1.7 km, so
+    #: any offset that fits inside the clip implies ~415 km/h. Plausible
+    #: multi-camera journeys need longer footage or a scheduled replay; see
+    #: docs/ROADMAP.md.
+    start_offset_s: float = 0.0
 
 
 @dataclass
@@ -58,15 +74,233 @@ class StreamProcess:
         return self.process.returncode is None
 
 
+@functools.lru_cache(maxsize=64)
+def is_playable(source: Path) -> bool:
+    """True when ffprobe can read a positive duration from `source`.
+
+    `data/videos/` is populated by a fetch script over the network, so a
+    truncated download lands there looking like a normal clip. One did:
+    `test2.mp4` is exactly 8 MiB with an unreadable header ("contradictionary
+    STSC and STCO"), and because clips are handed out round-robin it silently
+    killed the two cameras it was assigned to — they restarted five times and
+    were abandoned.
+
+    Screening the clip once here means a corrupt file costs nothing instead of
+    costing cameras.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=nw=1:nk=1",
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    ok = False
+    if result.returncode == 0:
+        try:
+            ok = float(result.stdout.strip()) > 0.0
+        except ValueError:
+            ok = False
+    if not ok:
+        # Inside the cached call, so this is logged once per file rather than
+        # on every health check that enumerates the directory.
+        log.warning(
+            "simulator.clip_unplayable",
+            source=str(source),
+            detail="ffprobe could not read a duration; excluded from replay",
+        )
+    return ok
+
+
 def find_videos(directory: Path) -> list[Path]:
-    """Every replayable clip in a directory, sorted for determinism."""
+    """Every *playable* clip in a directory, sorted for determinism."""
     if not directory.is_dir():
         return []
-    return sorted(
+    candidates = sorted(
         p
         for p in directory.iterdir()
         if p.is_file() and p.suffix.lower() in VIDEO_SUFFIXES
     )
+    return [p for p in candidates if is_playable(p)]
+
+
+@functools.lru_cache(maxsize=64)
+def is_h264(source: Path) -> bool:
+    """True when `source` already carries an H.264 video stream.
+
+    Cached because the supervisor restarts publishers, and re-probing the same
+    file on every restart is pure waste. A probe failure returns False, so an
+    unreadable or exotic file falls back to re-encoding rather than producing a
+    stream MediaMTX cannot accept.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name",
+                "-of",
+                "default=nw=1:nk=1",
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "h264"
+
+
+#: Where keyframe-dense copies of the seed clips are cached. Mounted writable
+#: because data/videos is read-only — the source clips must not be touched.
+PREPARED_DIR = Path(os.environ.get("SIM_PREPARED_DIR", "/data/prepared"))
+
+#: Target keyframe interval, in seconds, for a prepared clip.
+KEYFRAME_INTERVAL_S = 1.0
+
+
+@functools.lru_cache(maxsize=64)
+def prepare_clip(source: Path) -> Path:
+    """Return a keyframe-dense copy of `source`, building it once if needed.
+
+    ## Why this exists
+
+    Streaming with `-c:v copy` is what makes a 50-camera fleet affordable on one
+    laptop: remuxing costs almost nothing, where re-encoding costs roughly a
+    tenth of a core per stream. But copy-mode inherits the source's keyframe
+    layout, and the seed clips are *pathologically* sparse — `anpr_demo.mp4` has
+    **exactly one keyframe in 15 seconds**.
+
+    That broke two things at once. Seeking (`-ss`) had nothing to land on, so
+    stream offsets either did nothing or started mid-GOP with no reference
+    frame. And every consumer that joins mid-GOP — which is every AI worker,
+    since it connects at an arbitrary moment — decoded garbage until the next
+    keyframe, up to 15 s later. Measured: 501 decoder errors in 200 s, and
+    plate yield fell from 43% of detections to 17%.
+
+    Re-encoding at stream time fixes the decoding and loses the CPU win.
+    Re-encoding *once, to disk* fixes the decoding and keeps it: the expensive
+    pass happens a single time per clip and is cached across restarts, and every
+    stream afterwards is a cheap remux of a clip that has a keyframe every
+    second.
+
+    A failure here is not fatal — the original clip is returned and
+    `build_command` will re-encode it live instead.
+    """
+    try:
+        PREPARED_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log.warning("simulator.prepare_dir_failed", error=str(exc))
+        return source
+
+    target = PREPARED_DIR / f"{source.stem}.mp4"
+    # Rebuild when missing or older than the source, so replacing a clip in
+    # data/videos does not leave a stale prepared copy behind.
+    try:
+        if target.exists() and target.stat().st_mtime >= source.stat().st_mtime:
+            return target
+    except OSError:
+        pass
+
+    fps = probe_fps(source) or 15.0
+    gop = max(1, round(fps * KEYFRAME_INTERVAL_S))
+    log.info("simulator.preparing_clip", source=str(source), gop=gop)
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(source),
+                "-an",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-g",
+                str(gop),
+                # Forbid extra keyframes on scene change so the interval is
+                # actually uniform, which is what seeking relies on.
+                "-sc_threshold",
+                "0",
+                "-pix_fmt",
+                "yuv420p",
+                str(target),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("simulator.prepare_failed", source=str(source), error=str(exc))
+        return source
+
+    if result.returncode != 0 or not target.exists():
+        log.warning(
+            "simulator.prepare_failed",
+            source=str(source),
+            detail=result.stderr[-300:] if result.stderr else "",
+        )
+        return source
+
+    log.info("simulator.clip_prepared", source=str(source), prepared=str(target))
+    return target
+
+
+@functools.lru_cache(maxsize=64)
+def probe_fps(source: Path) -> float | None:
+    """Source frame rate, or None when it cannot be read."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=r_frame_rate",
+                "-of",
+                "default=nw=1:nk=1",
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    raw = result.stdout.strip()
+    if result.returncode != 0 or "/" not in raw:
+        return None
+    try:
+        num, den = raw.split("/", 1)
+        return float(num) / float(den) if float(den) else None
+    except (ValueError, ZeroDivisionError):
+        return None
 
 
 def build_command(spec: StreamSpec, rtsp_base: str) -> list[str]:
@@ -78,6 +312,35 @@ def build_command(spec: StreamSpec, rtsp_base: str) -> list[str]:
     target = f"{rtsp_base}/{spec.camera_code.lower()}"
 
     if spec.source is not None:
+        # Remux when the clip is already H.264, which every seed clip is.
+        #
+        # This matters for the one-laptop constraint rather than for tidiness.
+        # Re-encoding costs roughly a tenth of a core per 1080p stream, which
+        # caps the live fleet at a handful before ffmpeg starts competing with
+        # ONNX inference for the same cores. Copying the existing bitstream
+        # costs almost nothing, so the whole city fleet can be live at once and
+        # the CPU stays available to the AI pipeline — which is the part that
+        # actually has to keep up.
+        #
+        # The trade is keyframe interval: with `copy` we inherit the source's,
+        # so a WebRTC viewer may wait longer for the first frame. MediaMTX
+        # serves from its own buffer, so in practice this is not visible.
+        codec_args = (
+            ["-c:v", "copy"]
+            if is_h264(spec.source)
+            else [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",  # CPU-only host; latency over quality
+                "-tune",
+                "zerolatency",
+                "-g",
+                str(spec.fps * 2),  # keyframe every 2s, for fast WebRTC join
+                "-pix_fmt",
+                "yuv420p",
+            ]
+        )
         return [
             "ffmpeg",
             "-hide_banner",
@@ -89,19 +352,12 @@ def build_command(spec: StreamSpec, rtsp_base: str) -> list[str]:
             "-re",
             "-stream_loop",
             "-1",
+            # Before -i, so the seek is applied to the input and costs nothing.
+            *(["-ss", f"{spec.start_offset_s:.2f}"] if spec.start_offset_s > 0 else []),
             "-i",
             str(spec.source),
             "-an",  # audio is irrelevant to ANPR
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",  # CPU-only host; latency over quality
-            "-tune",
-            "zerolatency",
-            "-g",
-            str(spec.fps * 2),  # keyframe every 2s, for fast WebRTC join
-            "-pix_fmt",
-            "yuv420p",
+            *codec_args,
             "-f",
             "rtsp",
             "-rtsp_transport",

@@ -27,7 +27,12 @@ from app.core.logging import configure_logging, get_logger
 from app.db.session import SessionLocal, dispose_engine
 from app.models.enums import AdapterType
 from app.models.registry import Camera, VmsInstance
-from simulator.publisher import StreamPublisher, StreamSpec, find_videos
+from simulator.publisher import (
+    StreamPublisher,
+    StreamSpec,
+    find_videos,
+    prepare_clip,
+)
 
 configure_logging(service="simulator")
 log = get_logger("simulator")
@@ -41,10 +46,19 @@ PINNED_VIDEOS = os.environ.get("SIM_CAMERA_VIDEOS", "")
 STREAM_COUNT = int(os.environ.get("SIM_STREAM_COUNT", "6"))
 RTSP_BASE = f"rtsp://{settings.mediamtx_host}:{settings.mediamtx_rtsp_port}"
 
-#: Cities along the demo route (Judge Moment 4). Cameras here are preferred for
-#: live streaming so the ANPR pipeline and the route reconstruction have real
-#: video to work with.
-DEMO_ROUTE_CITIES = ("Rajkot", "Gondal", "Jetpur", "Junagadh")
+#: Cities whose cameras are preferred for live streaming, so the ANPR pipeline
+#: and trajectory reconstruction have real video to work with. The fleet is an
+#: Ahmedabad city fleet (scripts/generate_ahmedabad_cameras.py), so this is the
+#: one city; it stays a tuple because a metro deployment spans several.
+DEMO_ROUTE_CITIES = ("Ahmedabad",)
+
+#: Seconds by which consecutive cameras are seeked into their shared clip.
+#:
+#: Purely to desynchronise: without it every camera on the same clip shows the
+#: same vehicle at the same instant, and the correlator correctly reports one
+#: plate in two places at once. This spreads them out instead. It is not an
+#: attempt to simulate a journey — see StreamSpec.start_offset_s.
+OFFSET_STEP_S = float(os.environ.get("SIM_OFFSET_STEP_S", "3.5"))
 
 publisher = StreamPublisher(RTSP_BASE)
 _supervisor_task: asyncio.Task[None] | None = None
@@ -169,12 +183,21 @@ def build_specs(cameras: list[Camera], videos: list[Path]) -> list[StreamSpec]:
         source = pinned.get(camera.camera_code)
         if source is None:
             source = videos[index % len(videos)] if videos else None
+        if source is not None:
+            # Stream a keyframe-dense copy rather than the raw clip, so the
+            # cheap `-c:v copy` path produces decodable video and `-ss` has
+            # keyframes to land on. Built once per clip and cached.
+            source = prepare_clip(source)
+        # Stagger cameras that share a clip, so they do not all show the same
+        # vehicle at the same instant. Wrapped well inside the shortest clip.
+        offset = (index * OFFSET_STEP_S) % 10.0 if source is not None else 0.0
         specs.append(
             StreamSpec(
                 camera_code=camera.camera_code,
                 source=source,
                 label=f"{camera.camera_code} {camera.city or ''}".strip(),
                 fps=camera.fps or 15,
+                start_offset_s=offset,
             )
         )
     return specs

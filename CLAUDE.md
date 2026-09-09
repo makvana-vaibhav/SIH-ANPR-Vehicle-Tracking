@@ -13,7 +13,7 @@ Read this before writing any code in this repository. It is the contract between
 > | this file | the rules you must follow |
 > | [BUILD_STATE.md](docs/BUILD_STATE.md) | what was already built, the evidence, and the audited gap list |
 >
-> **The current task is P1** (the Ahmedabad fleet) unless docs/PROGRESS.md says otherwise.
+> **The current task is P2** (journey profile + playback) unless docs/PROGRESS.md says otherwise.
 > Do not start a phase whose gate you cannot run.
 >
 > **Three traps that have each cost real time already — do not rediscover them:**
@@ -367,7 +367,7 @@ stream gateway (WHEP/HLS, scoped tokens) · watchlist → alert → WebSocket ·
 
 | Area | State | Phase |
 |---|---|---|
-| Multi-camera fleet | Registry holds **one** camera (`CAM-DEMO`) | P1 |
+| ~~Multi-camera fleet~~ | ✅ **Done (P1).** 58 cameras on 12 real Ahmedabad corridors, every one on a real OSM road vertex; 51 stream live for ~1.1 cores | — |
 | Traffic analytics | **Nothing.** No router, no page, no heatmap, no time-bucket queries. `recharts` imported zero times | P4 |
 | Route-level average speed | Does not exist; only per-leg `implied_kmph` | P2 |
 | Journey animation | No timeline, scrubber or moving marker anywhere | P2 |

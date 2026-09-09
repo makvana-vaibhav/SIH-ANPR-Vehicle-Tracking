@@ -25,7 +25,13 @@ ONBOARDED_FLEET = 10
 
 pytestmark = pytest.mark.integration
 
-RAJKOT = (22.3039, 70.8022)
+#: Ashram Road / Nehru Bridge, central Ahmedabad. The fleet is dense here,
+#: so a 15 km radius reaches many cameras on several corridors.
+CITY_CENTRE = (23.0250, 72.5750)
+
+#: A taluka the generated fleet always covers. Taluka names carry no slash,
+#: so they are safe in a path segment — unlike ward codes such as "K/W".
+SEEDED_TALUKA = "Sabarmati"
 
 
 def csv_bytes(rows: str) -> dict[str, tuple[str, io.BytesIO, str]]:
@@ -111,7 +117,7 @@ class TestProximitySearch:
     """PostGIS radius queries — "what covered this location?"."""
 
     async def test_returns_nearest_first(self, client: AsyncClient, auth_headers) -> None:
-        lat, lon = RAJKOT
+        lat, lon = CITY_CENTRE
         response = await client.get(
             f"/api/v1/cameras/nearby?lat={lat}&lon={lon}&radius_km=15&limit=20",
             headers=await auth_headers("operator"),
@@ -119,13 +125,13 @@ class TestProximitySearch:
 
         assert response.status_code == 200
         rows = response.json()
-        assert rows, "expected cameras near Rajkot"
+        assert rows, "expected cameras near central Ahmedabad"
 
         distances = [r["distance_km"] for r in rows]
         assert distances == sorted(distances), "results are not ordered by distance"
 
     async def test_respects_the_radius(self, client: AsyncClient, auth_headers) -> None:
-        lat, lon = RAJKOT
+        lat, lon = CITY_CENTRE
         rows = (
             await client.get(
                 f"/api/v1/cameras/nearby?lat={lat}&lon={lon}&radius_km=5",
@@ -138,7 +144,7 @@ class TestProximitySearch:
     async def test_wider_radius_returns_at_least_as_many(
         self, client: AsyncClient, auth_headers
     ) -> None:
-        lat, lon = RAJKOT
+        lat, lon = CITY_CENTRE
         headers = await auth_headers("operator")
         near = (
             await client.get(
@@ -179,21 +185,27 @@ class TestDistrictAndFilters:
     ) -> None:
         rows = (
             await client.get(
-                "/api/v1/cameras/in-district/Rajkot",
+                f"/api/v1/cameras/in-district/{SEEDED_TALUKA}",
                 headers=await auth_headers("analyst"),
             )
         ).json()
 
         assert rows
-        assert {r["district"] for r in rows} == {"Rajkot"}
+        assert {r["district"] for r in rows} == {SEEDED_TALUKA}
 
     async def test_district_match_is_case_insensitive(
         self, client: AsyncClient, auth_headers
     ) -> None:
         """Operators type district names by hand."""
         headers = await auth_headers("analyst")
-        upper = (await client.get("/api/v1/cameras/in-district/RAJKOT", headers=headers)).json()
-        proper = (await client.get("/api/v1/cameras/in-district/Rajkot", headers=headers)).json()
+        upper = (
+            await client.get(
+                f"/api/v1/cameras/in-district/{SEEDED_TALUKA.upper()}", headers=headers
+            )
+        ).json()
+        proper = (
+            await client.get(f"/api/v1/cameras/in-district/{SEEDED_TALUKA}", headers=headers)
+        ).json()
         assert len(upper) == len(proper) > 0
 
     async def test_filter_by_department(self, client: AsyncClient, auth_headers) -> None:
@@ -211,8 +223,8 @@ class TestDistrictAndFilters:
             json={
                 "camera_code": "CAM-TEST-DEPT",
                 "name": "Department filter fixture",
-                "lat": 22.30,
-                "lon": 70.80,
+                "lat": 23.03,
+                "lon": 72.58,
                 "department_code": "POLICE",
                 "anpr_enabled": False,
             },
@@ -232,9 +244,7 @@ class TestDistrictAndFilters:
             assert "CAM-TEST-DEPT" in {c["camera_code"] for c in body["items"]}
         finally:
             if created.status_code == 201:
-                await client.delete(
-                    f"/api/v1/cameras/{created.json()['id']}", headers=admin
-                )
+                await client.delete(f"/api/v1/cameras/{created.json()['id']}", headers=admin)
 
     async def test_filter_by_anpr_capability(self, client: AsyncClient, auth_headers) -> None:
         body = (
@@ -246,16 +256,22 @@ class TestDistrictAndFilters:
         assert all(c["anpr_enabled"] for c in body["items"])
 
     async def test_search_matches_code_and_name(self, client: AsyncClient, auth_headers) -> None:
-        """Also self-contained: the old seed happened to name cameras "NH-27"."""
+        """Self-contained: it searches for a phrase only its own fixture carries.
+
+        It used to search for "NH-27", which worked only because the old
+        statewide seed happened to name cameras after that highway — a hidden
+        dependency on seed data that broke the moment the fleet became an
+        Ahmedabad city fleet.
+        """
         admin = await auth_headers("admin")
         created = await client.post(
             "/api/v1/cameras",
             headers=admin,
             json={
                 "camera_code": "CAM-TEST-SEARCH",
-                "name": "NH-27 Search Fixture",
-                "lat": 22.31,
-                "lon": 70.81,
+                "name": "Ashram Road Search Fixture",
+                "lat": 23.04,
+                "lon": 72.59,
                 "anpr_enabled": False,
             },
         )
@@ -264,17 +280,15 @@ class TestDistrictAndFilters:
         try:
             body = (
                 await client.get(
-                    "/api/v1/cameras?search=NH-27&limit=100",
+                    "/api/v1/cameras?search=Search+Fixture&limit=100",
                     headers=await auth_headers("operator"),
                 )
             ).json()
             assert body["total"] > 0
-            assert all("NH-27" in c["name"] for c in body["items"])
+            assert all("Search Fixture" in c["name"] for c in body["items"])
         finally:
             if created.status_code == 201:
-                await client.delete(
-                    f"/api/v1/cameras/{created.json()['id']}", headers=admin
-                )
+                await client.delete(f"/api/v1/cameras/{created.json()['id']}", headers=admin)
 
 
 class TestPagination:
@@ -387,10 +401,10 @@ class TestCameraLifecycle:
             json={
                 "camera_code": "CAM-TEST-99",
                 "name": "Test Junction Camera",
-                "lat": 22.3100,
-                "lon": 70.8100,
-                "district": "Rajkot",
-                "city": "Rajkot",
+                "lat": 23.0400,
+                "lon": 72.5900,
+                "district": "Sabarmati",
+                "city": "Ahmedabad",
                 "department_code": "POLICE",
                 "camera_type": "anpr",
                 "heading_deg": 90,
@@ -401,7 +415,7 @@ class TestCameraLifecycle:
         camera = created.json()
         assert camera["camera_code"] == "CAM-TEST-99"
         assert camera["department_code"] == "POLICE"
-        assert camera["lat"] == pytest.approx(22.3100, abs=1e-5)
+        assert camera["lat"] == pytest.approx(23.0400, abs=1e-5)
 
         patched = await client.patch(
             f"/api/v1/cameras/{camera['id']}",
@@ -497,8 +511,8 @@ class TestBulkOnboarding:
         admin = await auth_headers("admin")
         csv_text = (
             "camera_code,name,lat,lon,district\n"
-            "CAM-BULK-01,Bulk One,22.30,70.80,Rajkot\n"
-            "CAM-BULK-02,Bulk Two,22.31,70.81,Rajkot\n"
+            "CAM-BULK-01,Bulk One,23.03,72.58,Sabarmati\n"
+            "CAM-BULK-02,Bulk Two,23.04,72.59,Sabarmati\n"
         )
 
         result = (
@@ -524,10 +538,10 @@ class TestBulkOnboarding:
         admin = await auth_headers("admin")
         csv_text = (
             "camera_code,name,lat,lon,district\n"
-            "CAM-MIX-01,Good One,22.30,70.80,Rajkot\n"
-            "CAM-MIX-02,Bad Latitude,999,70.80,Rajkot\n"
-            "CAM-MIX-03,Good Two,22.32,70.82,Rajkot\n"
-            ",Missing Code,22.33,70.83,Rajkot\n"
+            "CAM-MIX-01,Good One,23.03,72.58,Sabarmati\n"
+            "CAM-MIX-02,Bad Latitude,999,72.58,Sabarmati\n"
+            "CAM-MIX-03,Good Two,23.05,72.60,Sabarmati\n"
+            ",Missing Code,23.06,72.61,Sabarmati\n"
         )
 
         result = (

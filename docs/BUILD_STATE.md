@@ -31,8 +31,8 @@ accurate as history. The work that remains is the **P1–P12** sequence, defined
 
 | Phase | Title | Milestone | State |
 |---|---|---|---|
-| **P1** | Multi-camera Ahmedabad fleet | V1 | ⬜ **next — start here** |
-| **P2** | Journey profile + animated playback | V1 | ⬜ not started |
+| **P1** | Multi-camera Ahmedabad fleet | V1 | ✅ **complete** — 58 cameras, 51 live, gate passed |
+| **P2** | Journey profile + animated playback | V1 | ⬜ **next — start here** |
 | **P3** | Evidence crops in MinIO | V1 | ⬜ not started |
 | **P4** | City traffic analytics | V1 | ⬜ not started |
 | **P5** | Trajectory anomaly + explainable alerts | V1 | ⬜ not started |
@@ -1215,11 +1215,111 @@ Append each phase's real gate output here as it completes. A phase is not done u
 in this section. Keep the format: what was built, the gate command, the actual output, and anything
 found along the way that the next session must not re-discover.
 
-## P1 — Multi-camera Ahmedabad fleet  ⬜
+## P1 — Multi-camera Ahmedabad fleet  ✅
 
-Definition and gate: [docs/ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
+Definition and gate: [ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
 
-*Not started. Evidence goes here.*
+### What was built
+
+- `scripts/fetch_ahmedabad_geodata.py` — OSM via Overpass, with mirror fallback and
+  skip-if-present. Writes three committed files: 7 city talukas, 2,319 arterial ways,
+  102 localities.
+- `scripts/generate_ahmedabad_cameras.py` — 58 cameras on 12 real named corridors
+  (Sardar Patel Ring Road, 132 Ft / 120 Feet Ring Roads, Ashram Road, SG Highway,
+  CG Road, Naroda Road, Narol–Sarkhej, Airport Road, Ahmedabad–Vadodara Expressway…).
+- `seed_fleet()` in `scripts/seed.py`, loading the CSV through the real bulk-import path.
+- ffmpeg **copy-mode** and one-time **clip preparation** in the simulator publisher.
+- Gap analysis moved from Gujarat's 33 districts to the 7 city talukas.
+
+### Gate output — from empty volumes (`docker compose down -v` first)
+
+```
+▸ Starting dependencies      ✓ postgres, redis, minio, mediamtx, opensearch healthy
+▸ Schema and seed data       ✓ migrations at head · ✓ seed data loaded
+▸ The camera fleet           ✓ 59 cameras seeded across the city corridors
+▸ Demonstration footage      ✓ 51 cameras publishing live video
+▸ Verifying                  ✓ 51 cameras in the ANPR fleet
+                             ✓ 5 plate reads in the last 10 minutes
+                             ✓ command centre reachable
+make demo: 1m29s
+```
+
+| Gate item | Required | Measured |
+|---|---|---|
+| Cameras online in fleet health | ≥ 40 | **51** |
+| Live ANPR feeds | ≥ 6 | **51** |
+| A plate on ≥ 3 distinct cameras | 1 | **`EYGINBG` on 3** (480 detections across 15 cameras, 2 min after the worker started) |
+
+Three consecutive clean-volume `make demo` runs, all green.
+
+### Placement quality (measured, not asserted)
+
+- **58/58 cameras sit exactly on a real OSM road vertex** (max distance 0.00 m).
+- Closest pair **362 m**, median nearest-neighbour **1,729 m** — clear of the
+  correlator's 50 m `co_located` threshold.
+- Sardar Patel Ring Road: 17 cameras, all 9–14 km from their own centroid,
+  occupying **8/8 compass octants** — a genuine ring.
+- All **7 talukas** covered: Sabarmati 13, Vatva 11, Asarva 9, Daskroi 8,
+  Vejalpur 8, Ghatlodiya 6, Maninagar 3.
+
+### Cost of the live fleet
+
+51 concurrent streams for **~1.1 cores** (simulator 67%, MediaMTX 47%). Re-encoding
+would have cost roughly a tenth of a core *per stream*, capping the fleet at a handful.
+
+### Tests
+
+| Suite | Before | After |
+|---|---|---|
+| API | 384 passed, 12 failed | **396 passed, 0 failed** (twice consecutively) |
+| e2e | 29 passed, 4 failed | **34 passed, 0 failed** |
+| ai-worker | 54 passed | 54 passed |
+| frontend | 24 passed, tsc clean | 24 passed, tsc clean |
+| ruff check | 4 pre-existing errors | 4 pre-existing errors (no new) |
+| ruff format | 6 api + 4 scripts | 5 api + 3 scripts (two incidental cleanups) |
+
+### Five bugs found and fixed along the way
+
+1. **`make demo` could never work from a fresh clone.** It ran `docker compose up -d`
+   and then waited for the API, but the API queries `cameras` during startup, the table
+   does not exist until migrations run, and migrations were run through `compose exec`,
+   which needs a healthy container. Compose returned non-zero, `set -e` fired, and the
+   script died 15 s in with "Error 1" — on exactly the path a judge takes. Dependencies
+   now start first, migrate and seed run via `compose run`, then the app tier starts.
+2. **The dependency wait was a race.** `up -d` returns when containers *start*, so
+   migrations raced a Postgres still initialising a fresh data directory: it failed on one
+   clean run and passed on the next purely on timing. Now `up -d --wait`.
+3. **Cross-corridor camera collisions.** Per-corridor thinning put three cameras within
+   **13 m** where Ashram Road, Nehru Road and the 132 Ft Ring Road meet, and a pair at
+   45 m — under the correlator's 50 m threshold, so hops between them would have been
+   flagged `co_located` and carried no implied speed. A fleet-wide 250 m minimum now applies.
+4. **A corrupt clip silently killed cameras.** `data/videos/test2.mp4` is a truncated
+   download (exactly 8 MiB, unreadable header) and, because clips are handed out
+   round-robin, it took down the two cameras it was assigned to after five restarts.
+   `find_videos` now screens clips through ffprobe.
+5. **The stream check guessed instead of waiting.** A fixed `sleep 8` reported "0 streams
+   publishing" on every fresh clone, because clip preparation takes tens of seconds on a
+   cold cache. It polls now.
+
+### Two findings that shape later phases
+
+**Plausible cross-camera journeys are not achievable with the current footage.** The only
+clip with legible plates is **15 s** long and the fleet's median camera spacing is 1.7 km,
+so any offset that fits inside the clip implies **~415 km/h** — the correlator would
+correctly flag every hop as `implausible_speed`. The 60 s clips would give a plausible
+104 km/h but they are the 4K ones whose plates are not legible. Stream offsets are
+therefore used only to *desynchronise* cameras sharing a clip, which removes false
+`impossible_simultaneous` readings; they do not simulate a journey. **P2/P5 need either
+longer footage with legible plates (P7 sources it) or a scheduled replay
+(`scripts/replay_history.py`).**
+
+**`stream_url` must stay NULL for simulator-served cameras.** `gateway.reconcile()` runs at
+API startup and opens a MediaMTX *pull* path for every camera with a `stream_url` whose
+adapter is not federated — and `simulated` is not in `FEDERATED_ADAPTERS`. Giving these
+cameras the gateway's own address makes MediaMTX pull each path from itself: an infinite
+loop that silently blocks publishing for the **whole fleet**, on every restart. The
+simulated adapter derives every URL from `camera_code` and probes health by asking
+MediaMTX which paths are live, which is a better check than a stored string.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
-*Updated 9 Sep 2026 · after a full code audit · **next task: P1, the Ahmedabad fleet***
+*Updated 9 Sep 2026 · P1 complete · **next task: P2, journey profile + playback***
 
 | Document | What it holds |
 |---|---|
@@ -30,9 +30,9 @@ And the immediate blocker is smaller than any of that: **the registry holds one 
 platform about connecting observations across cameras currently has nothing to connect.
 
 ```
-DONE     platform ──▶ ANPR ──▶ watchlist alerts ──▶ trajectory engine ──▶ scale proof
-NEXT     P1 fleet ← start here
-THEN     P2 journey ──▶ P3 crops ──▶ P4 analytics ──▶ P5 anomaly ──▶ P6 harden   (V1, ~2 weeks)
+DONE     platform ──▶ ANPR ──▶ alerts ──▶ trajectory engine ──▶ scale ──▶ P1 city fleet
+NEXT     P2 journey ← start here
+THEN     P3 crops ──▶ P4 analytics ──▶ P5 anomaly ──▶ P6 harden                 (V1, ~2 weeks)
 LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
 ```
 
@@ -42,9 +42,9 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 | # | Step | State |
 |---|---|---|
-| 1 | Live multi-camera detection (4–6 feeds) | 🔴 **one camera in the registry** |
+| 1 | Live multi-camera detection (4–6 feeds) | ✅ **51 cameras live** on 12 real Ahmedabad corridors |
 | 2 | ANPR: plate, confidence, camera, time | ✅ works — 9 fps, p90 266 ms, 0.70–0.94 confidence |
-| 3 | Same vehicle linked across cameras | 🟡 engine ready, nothing to link between |
+| 3 | Same vehicle linked across cameras | 🟡 engine ready and linking real sightings; timing not yet plausible (see below) |
 | 4 | Vehicle journey + animated route | 🟡 no average speed, no playback |
 | 5 | Plate search | 🟡 exact and prefix only, no fuzzy |
 | 6 | Blacklist alert **with plate crop** | 🟡 alert fires; the crop cannot be shown |
@@ -76,7 +76,6 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ## ⏳ What is missing, in priority order
 
-1. **A fleet.** One camera. Blocks steps 1, 3, 4, 7 and 8. → **P1**
 2. **Traffic analytics.** No router, no page, no heatmap. `recharts` is a dependency imported zero
    times; every "chart" today is a Tailwind div bar. → **P4**
 3. **Journey completeness.** No route-level average speed anywhere; `first_seen`/`last_seen` are
@@ -114,26 +113,27 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ---
 
-## ▶ Next step: P1 — the Ahmedabad fleet
+## ▶ Next step: P2 — journey profile + animated playback
 
-Full definition and gate: [docs/ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
+Full definition and gate: [ROADMAP.md](ROADMAP.md#p2--journey-profile--animated-playback).
 
-In short: generate 60–80 cameras along real Ahmedabad arterials from OSM geometry, snapping each one
-onto an actual road vertex; port ffmpeg copy-mode into the simulator publisher so the whole fleet can
-stream on one laptop; seed so every camera has a resolving stream URL; replay footage with time
-offsets so plates appear at successive cameras.
+In short: add route-level **average speed** to `correlator.py` and surface
+`first_seen`/`last_seen` (both already fetched by the frontend and displayed nowhere);
+**wire `persist_route`**, which is dead code today so `vehicle_tracks` is never written and
+P5 has no history to baseline against; then add **timeline playback** to `RouteMap.tsx` —
+play/pause, scrubber, a marker moving hop to hop with a clock.
 
-**Two traps, both already paid for once:**
+**Gate:** search a plate → full profile (first seen, last seen, cameras, distance, duration,
+average speed) → press play → the marker animates the route with a moving clock.
 
-- Do **not** set a simulator-published camera's `stream_url` to the gateway's own URL. `gateway.py`
-  registers a MediaMTX *pull* path from `stream_url`, so MediaMTX ends up pulling a path from
-  itself, loops, and blocks publishing.
-- Do **not** seed cameras without a stream source. That was the fiction commit `4d0346f` deleted —
-  251 of 281 cameras that could never produce a detection, making every count on every screen
-  meaningless.
+### What P1 left for P2 to deal with
 
-**Gate:** ≥40 cameras online · ≥6 live feeds · one plate on ≥3 distinct cameras · reached by
-`make demo` from empty volumes.
+Cross-camera sightings are real, but **their timing is not yet plausible**. The only clip
+with legible plates is 15 s long and the median camera gap is 1.7 km, so any offset that
+fits in the clip implies ~415 km/h and the correlator rightly flags the hop. Journeys that
+look like real driving need either longer footage with legible plates (P7 sources it) or a
+scheduled replay through the real pipeline (`scripts/replay_history.py`). Decide which
+before building the playback UI on top.
 
 ---
 
