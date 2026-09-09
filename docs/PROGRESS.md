@@ -2,7 +2,7 @@
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
-*Updated 9 Sep 2026 · P1 complete · **next task: P2, journey profile + playback***
+*Updated 9 Sep 2026 · P1 and P2 complete · **next task: P3, evidence crops in MinIO***
 
 | Document | What it holds |
 |---|---|
@@ -30,9 +30,9 @@ And the immediate blocker is smaller than any of that: **the registry holds one 
 platform about connecting observations across cameras currently has nothing to connect.
 
 ```
-DONE     platform ──▶ ANPR ──▶ alerts ──▶ trajectory engine ──▶ scale ──▶ P1 city fleet
-NEXT     P2 journey ← start here
-THEN     P3 crops ──▶ P4 analytics ──▶ P5 anomaly ──▶ P6 harden                 (V1, ~2 weeks)
+DONE     platform ──▶ ANPR ──▶ alerts ──▶ scale ──▶ P1 city fleet ──▶ P2 journey + playback
+NEXT     P3 crops ← start here
+THEN     P4 analytics ──▶ P5 anomaly ──▶ P6 harden                             (V1, ~2 weeks)
 LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
 ```
 
@@ -45,7 +45,7 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 | 1 | Live multi-camera detection (4–6 feeds) | ✅ **51 cameras live** on 12 real Ahmedabad corridors |
 | 2 | ANPR: plate, confidence, camera, time | ✅ works — 9 fps, p90 266 ms, 0.70–0.94 confidence |
 | 3 | Same vehicle linked across cameras | 🟡 engine ready and linking real sightings; timing not yet plausible (see below) |
-| 4 | Vehicle journey + animated route | 🟡 no average speed, no playback |
+| 4 | Vehicle journey + animated route | ✅ **profile + timeline playback** on the map |
 | 5 | Plate search | 🟡 exact and prefix only, no fuzzy |
 | 6 | Blacklist alert **with plate crop** | 🟡 alert fires; the crop cannot be shown |
 | 7 | Trajectory anomaly + explanation | 🟡 a physics filter, not a detector |
@@ -78,8 +78,6 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 2. **Traffic analytics.** No router, no page, no heatmap. `recharts` is a dependency imported zero
    times; every "chart" today is a Tailwind div bar. → **P4**
-3. **Journey completeness.** No route-level average speed anywhere; `first_seen`/`last_seen` are
-   fetched but never rendered; no animation. → **P2**
 4. **Anomaly detection.** The six existing flags are a cloned-plate/OCR physics filter. Nothing
    compares a journey to a norm. `AlertType.ANOMALY` has zero producers. → **P5**
 5. **Evidence crops.** The alert cannot show a plate crop. → **P3**
@@ -91,8 +89,6 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 - **Five `detections` columns are permanently NULL** — `vehicle_colour`, `crop_key`, `frame_key`,
   `direction`, `speed_kmph`. Nothing produces them anywhere in pipeline, event or consumer.
-- **`persist_route` is dead code**, never called, so `vehicle_tracks` is never written. There is no
-  journey history to learn anomaly baselines from. P2 wires it.
 - **No MinIO client exists** anywhere in the repo — zero `put_object`/`boto3` hits. MinIO is config
   and a health probe only.
 - **`packages/contracts/` is one empty file.** The event is a hand-rolled dict, duplicated by hand in
@@ -113,27 +109,17 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ---
 
-## ▶ Next step: P2 — journey profile + animated playback
+## ▶ Next step: P3 — evidence crops in MinIO
 
-Full definition and gate: [ROADMAP.md](ROADMAP.md#p2--journey-profile--animated-playback).
+Full definition and gate: [ROADMAP.md](ROADMAP.md#p3--evidence-crops-in-minio).
 
-In short: add route-level **average speed** to `correlator.py` and surface
-`first_seen`/`last_seen` (both already fetched by the frontend and displayed nowhere);
-**wire `persist_route`**, which is dead code today so `vehicle_tracks` is never written and
-P5 has no history to baseline against; then add **timeline playback** to `RouteMap.tsx` —
-play/pause, scrubber, a marker moving hop to hop with a clock.
+Bigger than it looks: **two failures stack, and no MinIO client exists anywhere in the
+repo** (zero `put_object`/`boto3` hits — MinIO is config plus a health probe). The worker
+also never writes crops at all, because `worker.py` builds `StreamRunner` with no `run_dir`
+and `_NullRunDir` discards them. And the lab's `save_crop` returns a filesystem path where
+`Detection.crop_key` wants an object key, so the two sides are not even type-compatible.
 
-**Gate:** search a plate → full profile (first seen, last seen, cameras, distance, duration,
-average speed) → press play → the marker animates the route with a moving clock.
-
-### What P1 left for P2 to deal with
-
-Cross-camera sightings are real, but **their timing is not yet plausible**. The only clip
-with legible plates is 15 s long and the median camera gap is 1.7 km, so any offset that
-fits in the clip implies ~415 km/h and the correlator rightly flags the hop. Journeys that
-look like real driving need either longer footage with legible plates (P7 sources it) or a
-scheduled replay through the real pipeline (`scripts/replay_history.py`). Decide which
-before building the playback UI on top.
+**Gate:** a blacklist alert renders with a visible plate crop image.
 
 ---
 

@@ -20,7 +20,7 @@
 
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   applyBasemap,
@@ -29,6 +29,13 @@ import {
   satelliteReachable,
   type Basemap,
 } from '@/lib/basemap'
+import {
+  buildTimeline,
+  istClock,
+  journeySeconds,
+  positionAt,
+  travelledPath,
+} from '@/lib/journey'
 import type { RouteGeoJSON, RouteHop } from '@/lib/types'
 
 interface Props {
@@ -42,6 +49,18 @@ interface Props {
 
 const PLAUSIBLE = '#38bdf8'
 const IMPLAUSIBLE = '#ef4444'
+const TRAVELLED = '#fbbf24'
+
+/**
+ * Wall-clock seconds the whole journey takes to play back.
+ *
+ * Playback is **proportional to real elapsed time**, not one step per hop: a
+ * four-minute leg takes eight times as long to cross as a thirty-second one.
+ * Stepping uniformly per hop would be easier and would quietly misrepresent the
+ * journey, making a vehicle that sat at a junction for ten minutes look like it
+ * drove straight through.
+ */
+const PLAYBACK_SECONDS = 16
 
 export default function RouteMap({
   route,
@@ -53,8 +72,49 @@ export default function RouteMap({
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
   const markers = useRef<maplibregl.Marker[]>([])
+  const vehicle = useRef<maplibregl.Marker | null>(null)
   const [ready, setReady] = useState(false)
   const [effective, setEffective] = useState<Basemap>(basemap)
+
+  // ── Playback ────────────────────────────────────────────────────────
+  const [playing, setPlaying] = useState(false)
+  /** Position along the journey, in seconds since the first sighting. */
+  const [playhead, setPlayhead] = useState(0)
+
+  const timeline = useMemo(() => buildTimeline(hops), [hops])
+  const totalSeconds = journeySeconds(timeline)
+  const canPlay = totalSeconds > 0
+
+  // Reset when a different journey is loaded.
+  useEffect(() => {
+    setPlaying(false)
+    setPlayhead(0)
+  }, [hops])
+
+  // Advance the playhead. requestAnimationFrame rather than setInterval so the
+  // marker moves smoothly and stops costing anything when the tab is hidden.
+  useEffect(() => {
+    if (!playing || totalSeconds <= 0) return
+    let frame = 0
+    let previous = performance.now()
+    const rate = totalSeconds / PLAYBACK_SECONDS
+
+    const tick = (now: number) => {
+      const delta = (now - previous) / 1000
+      previous = now
+      setPlayhead((current) => {
+        const next = current + delta * rate
+        if (next >= totalSeconds) {
+          setPlaying(false)
+          return totalSeconds
+        }
+        return next
+      })
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [playing, totalSeconds])
 
   // ── Create the map once ─────────────────────────────────────────────
   useEffect(() => {
@@ -203,6 +263,74 @@ export default function RouteMap({
     void lineFeatures
   }, [ready, route, hops, activeSequence, onSelectHop])
 
+  // ── Playback overlay: the moving vehicle, and the path behind it ─────
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+
+    const here = positionAt(hops, timeline, playhead)
+
+    // The path travelled so far, drawn solid over the dashed inferred legs.
+    // Solid is defensible here for a different reason than the legs: it marks
+    // how far through the *timeline* playback has reached, not which roads
+    // were used.
+    const travelled: GeoJSON.Feature[] = []
+    const path = travelledPath(hops, timeline, playhead)
+    if (path.length > 1) {
+      travelled.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: path },
+        properties: {},
+      })
+    }
+
+    const collection: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: travelled,
+    }
+    const source = m.getSource('route-travelled') as maplibregl.GeoJSONSource | undefined
+    if (source) {
+      source.setData(collection)
+    } else {
+      m.addSource('route-travelled', { type: 'geojson', data: collection })
+      m.addLayer({
+        id: 'route-travelled',
+        type: 'line',
+        source: 'route-travelled',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': TRAVELLED, 'line-width': 4, 'line-opacity': 0.85 },
+      })
+    }
+
+    // The vehicle itself. Only while a journey is being played back — a static
+    // marker sitting on the first camera would read as a sighting.
+    if (!here || !canPlay || (playhead === 0 && !playing)) {
+      vehicle.current?.remove()
+      vehicle.current = null
+      return
+    }
+
+    if (!vehicle.current) {
+      const element = document.createElement('div')
+      element.className =
+        'h-4 w-4 rounded-full border-2 border-white bg-amber-400 shadow-lg ' +
+        'ring-4 ring-amber-400/30'
+      element.title = 'Vehicle position, interpolated between sightings'
+      vehicle.current = new maplibregl.Marker({ element }).setLngLat(here).addTo(m)
+    } else {
+      vehicle.current.setLngLat(here)
+    }
+  }, [ready, hops, timeline, playhead, playing, canPlay])
+
+  // Remove the vehicle marker when the component goes away.
+  useEffect(
+    () => () => {
+      vehicle.current?.remove()
+      vehicle.current = null
+    },
+    [],
+  )
+
   return (
     <div className="relative h-full w-full">
       <div ref={container} className="h-full w-full rounded-md" />
@@ -212,6 +340,43 @@ export default function RouteMap({
           <p className="rounded bg-black/70 px-3 py-2 text-xs text-muted-foreground">
             No sightings in this window.
           </p>
+        </div>
+      )}
+
+      {canPlay && (
+        <div className="absolute left-2 right-2 top-2 flex items-center gap-2 rounded bg-black/75 px-2 py-1.5 backdrop-blur">
+          <button
+            type="button"
+            onClick={() => {
+              // Replay from the start once it has run to the end, rather than
+              // sitting on the final frame doing nothing when pressed.
+              if (!playing && playhead >= totalSeconds) setPlayhead(0)
+              setPlaying((p) => !p)
+            }}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-amber-400 text-black transition hover:bg-amber-300"
+            aria-label={playing ? 'Pause journey playback' : 'Play journey playback'}
+            title={playing ? 'Pause' : 'Play the journey'}
+          >
+            <span className="text-[11px] leading-none">{playing ? '❚❚' : '▶'}</span>
+          </button>
+
+          <input
+            type="range"
+            min={0}
+            max={Math.max(1, Math.round(totalSeconds))}
+            step={1}
+            value={Math.round(playhead)}
+            onChange={(event) => {
+              setPlaying(false)
+              setPlayhead(Number(event.target.value))
+            }}
+            className="h-1 flex-1 cursor-pointer accent-amber-400"
+            aria-label="Journey timeline"
+          />
+
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-amber-200">
+            {hops[0] ? istClock(hops[0].arrived_at, playhead) : '--:--:--'}
+          </span>
         </div>
       )}
 

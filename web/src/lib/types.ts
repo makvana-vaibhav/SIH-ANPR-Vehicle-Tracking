@@ -399,6 +399,17 @@ export interface VehicleRoute {
   camera_count: number
   distance_km: number
   duration_s: number
+  /** Time between cameras, excluding dwell at each one. */
+  moving_s: number
+  /**
+   * Journey average, first sighting to last — so it includes time spent
+   * stationary. A lower bound twice over: distances are great-circle rather
+   * than road, and dwell inflates the denominator. Null when there is no
+   * elapsed time to divide by; a single sighting has no speed.
+   */
+  average_kmph: number | null
+  /** Average while moving, ignoring dwell. Null on the same terms. */
+  moving_kmph: number | null
   is_plausible: boolean
   confidence: number
   flagged_hop_count: number

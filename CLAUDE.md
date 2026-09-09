@@ -13,7 +13,7 @@ Read this before writing any code in this repository. It is the contract between
 > | this file | the rules you must follow |
 > | [BUILD_STATE.md](docs/BUILD_STATE.md) | what was already built, the evidence, and the audited gap list |
 >
-> **The current task is P2** (journey profile + playback) unless docs/PROGRESS.md says otherwise.
+> **The current task is P3** (evidence crops in MinIO) unless docs/PROGRESS.md says otherwise.
 > Do not start a phase whose gate you cannot run.
 >
 > **Three traps that have each cost real time already — do not rediscover them:**
@@ -369,8 +369,8 @@ stream gateway (WHEP/HLS, scoped tokens) · watchlist → alert → WebSocket ·
 |---|---|---|
 | ~~Multi-camera fleet~~ | ✅ **Done (P1).** 58 cameras on 12 real Ahmedabad corridors, every one on a real OSM road vertex; 51 stream live for ~1.1 cores | — |
 | Traffic analytics | **Nothing.** No router, no page, no heatmap, no time-bucket queries. `recharts` imported zero times | P4 |
-| Route-level average speed | Does not exist; only per-leg `implied_kmph` | P2 |
-| Journey animation | No timeline, scrubber or moving marker anywhere | P2 |
+| ~~Route-level average speed~~ | ✅ **Done (P2).** `average_kmph` and `moving_kmph`, both lower bounds | — |
+| ~~Journey animation~~ | ✅ **Done (P2).** Timeline playback proportional to real elapsed time | — |
 | Trajectory anomaly detection | The six hop flags are a **physics filter**, not a detector. `AlertType.ANOMALY` has zero producers | P5 |
 | Alert reasons | `alerts` has **no** reasons/factors column | P5 |
 | Evidence crops | **No MinIO client exists**; the worker discards crops via `_NullRunDir`; `crop_key` always NULL | P3 |
@@ -383,7 +383,7 @@ stream gateway (WHEP/HLS, scoped tokens) · watchlist → alert → WebSocket ·
 
 | Item | Detail | Phase |
 |---|---|---|
-| `persist_route` | **Dead code, never called.** `vehicle_tracks` is never written, so there is no journey history to baseline anomalies against | P2 |
+| ~~`persist_route`~~ | ✅ **Done (P2).** Called by `route_history.snapshot` from the monitor daemon; its first run exposed that the function had never worked at all (`st_makeline(unknown) is not unique`) | — |
 | `packages/contracts/` | One empty `.gitkeep`. Event is a hand-rolled dict, duplicated by hand in `simulator/load_mode.py`, no validation either side | P12 |
 | Five `detections` columns | `vehicle_colour`, `crop_key`, `frame_key`, `direction`, `speed_kmph` — permanently NULL, no producer anywhere | P3, P9 |
 | Six real bugs | Listed in [BUILD_STATE.md](docs/BUILD_STATE.md) — two demo-visible, one silently loses data | P6 |

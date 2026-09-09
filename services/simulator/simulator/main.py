@@ -52,13 +52,17 @@ RTSP_BASE = f"rtsp://{settings.mediamtx_host}:{settings.mediamtx_rtsp_port}"
 #: one city; it stays a tuple because a metro deployment spans several.
 DEMO_ROUTE_CITIES = ("Ahmedabad",)
 
-#: Seconds by which consecutive cameras are seeked into their shared clip.
+#: Seconds between the seek offsets of two cameras that share a clip.
 #:
-#: Purely to desynchronise: without it every camera on the same clip shows the
-#: same vehicle at the same instant, and the correlator correctly reports one
-#: plate in two places at once. This spreads them out instead. It is not an
-#: attempt to simulate a journey — see StreamSpec.start_offset_s.
-OFFSET_STEP_S = float(os.environ.get("SIM_OFFSET_STEP_S", "3.5"))
+#: Purely to desynchronise. Without it, every camera playing the same clip shows
+#: the same vehicle at the same instant and the correlator correctly reports one
+#: plate in two places at once. It is not an attempt to simulate a journey — see
+#: StreamSpec.start_offset_s.
+OFFSET_STEP_S = float(os.environ.get("SIM_OFFSET_STEP_S", "1.8"))
+
+#: Offsets wrap inside this window, which must stay under the shortest playable
+#: clip (street_crossing.mp4, 13.2 s) — seeking past the end yields no video.
+OFFSET_WINDOW_S = 12.0
 
 publisher = StreamPublisher(RTSP_BASE)
 _supervisor_task: asyncio.Task[None] | None = None
@@ -188,9 +192,18 @@ def build_specs(cameras: list[Camera], videos: list[Path]) -> list[StreamSpec]:
             # cheap `-c:v copy` path produces decodable video and `-ss` has
             # keyframes to land on. Built once per clip and cached.
             source = prepare_clip(source)
-        # Stagger cameras that share a clip, so they do not all show the same
-        # vehicle at the same instant. Wrapped well inside the shortest clip.
-        offset = (index * OFFSET_STEP_S) % 10.0 if source is not None else 0.0
+        # Stagger by position *within the clip group*, not by overall index.
+        #
+        # Clips are handed out round-robin, so cameras i and j share a clip when
+        # i == j (mod len(videos)). Offsetting by overall index therefore gave
+        # cameras that share a clip offsets differing by a multiple of
+        # len(videos) * step — which collided regularly, and two cameras at the
+        # same phase produced a 7.7 km "hop" two seconds apart, correctly
+        # flagged implausible. Dividing by len(videos) first numbers the cameras
+        # within their own group, so they spread across the clip instead.
+        offset = 0.0
+        if source is not None and videos:
+            offset = ((index // len(videos)) * OFFSET_STEP_S) % OFFSET_WINDOW_S
         specs.append(
             StreamSpec(
                 camera_code=camera.camera_code,

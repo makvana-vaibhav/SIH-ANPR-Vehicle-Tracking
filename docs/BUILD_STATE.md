@@ -32,8 +32,8 @@ accurate as history. The work that remains is the **P1–P12** sequence, defined
 | Phase | Title | Milestone | State |
 |---|---|---|---|
 | **P1** | Multi-camera Ahmedabad fleet | V1 | ✅ **complete** — 58 cameras, 51 live, gate passed |
-| **P2** | Journey profile + animated playback | V1 | ⬜ **next — start here** |
-| **P3** | Evidence crops in MinIO | V1 | ⬜ not started |
+| **P2** | Journey profile + animated playback | V1 | ✅ **complete** — profile, speeds, playback, history |
+| **P3** | Evidence crops in MinIO | V1 | ⬜ **next — start here** |
 | **P4** | City traffic analytics | V1 | ⬜ not started |
 | **P5** | Trajectory anomaly + explainable alerts | V1 | ⬜ not started |
 | **P6** | Bug fixes, tests, demo hardening | V1 | ⬜ not started |
@@ -1320,6 +1320,92 @@ cameras the gateway's own address makes MediaMTX pull each path from itself: an 
 loop that silently blocks publishing for the **whole fleet**, on every restart. The
 simulated adapter derives every URL from `camera_code` and probes health by asking
 MediaMTX which paths are live, which is a better check than a stored string.
+
+---
+
+## P2 — Journey profile + animated playback  ✅
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p2--journey-profile--animated-playback).
+
+### What was built
+
+- **Route-level speed.** `Route.average_kmph` (first sighting to last, so it includes
+  dwell) and `Route.moving_kmph` (legs that covered ground only), plus `moving_s`. No
+  route-level speed existed before — the only figure anywhere was per-leg `implied_kmph`.
+- **`persist_route` is finally called.** New `app/services/route_history.py` snapshots
+  journeys from the health-monitor daemon, every 4th sweep (~1 min), bounded to 40 plates
+  a cycle and skipping routes that have not changed.
+- **Journey profile on screen.** `VehicleSearch.tsx` now renders first seen, last seen and
+  average speed. `first_seen`/`last_seen` were already in the API payload and in the TS
+  type, and were displayed nowhere.
+- **Timeline playback.** `RouteMap.tsx` gains play/pause, a scrubber, an IST clock, a
+  moving vehicle marker and a solid "travelled so far" line over the dashed inferred legs.
+- **`web/src/lib/journey.ts`** — the interpolation extracted as pure functions so it can be
+  tested. A wrong interpolation makes the map lie *smoothly*: the marker still glides along
+  the route, it is simply in the wrong place at the wrong time.
+
+### Playback follows elapsed time, not hop count
+
+The property the module exists for, and the one the tests pin. A four-minute leg takes
+eight times as long to cross as a thirty-second one. Stepping uniformly per hop would be
+simpler and would misrepresent the journey — a vehicle that sat at a junction for ten
+minutes would appear to drive straight through.
+
+### Gate output
+
+```
+GET /api/v1/vehicles/EYGINBG/route?window_hours=24
+
+  first_seen      2026-09-09T14:22:25Z      OK
+  last_seen       2026-09-09T14:34:29Z      OK
+  camera_count    5                         OK
+  distance_km     25.86                     OK
+  duration_s      723.6                     OK
+  average_kmph    128.7                     OK
+  moving_kmph     128.7                     OK
+  timeline        14:22:25 → 14:22:27 → 14:26:26 → 14:30:30 → 14:34:29
+```
+
+Every field the PS's Vehicle Profile asks for, with a real 12-minute timeline for playback
+to animate.
+
+`vehicle_tracks` went from **0 rows, ever** to a populated history: 17 journeys, up to 5
+hops each, geometry validated as `ST_LineString` / SRID 4326 / `ST_IsValid` true, spanning
+24–44 km.
+
+### Tests
+
+| Suite | Before P2 | After |
+|---|---|---|
+| API | 396 | **402 passed** (6 new: `TestJourneySpeed`) |
+| frontend | 24 | **40 passed** (16 new: `journey.test.ts`) |
+| e2e | 34 | 34 passed |
+| ai-worker | 54 | 54 passed |
+| ruff check | 4 pre-existing | 4 pre-existing |
+
+**Verification note.** The playback UI was verified by `tsc --noEmit`, by 16 unit tests over
+the interpolation arithmetic, and by confirming the API returns every field it consumes —
+**not** visually. Repeated attempts to drive a headless browser failed on Chromium download
+timeouts, which is network friction rather than a code problem. A visual pass is still
+worth doing before the demo.
+
+### Three bugs found
+
+1. **`persist_route` had never worked.** Its first ever execution failed outright:
+   `function st_makeline(unknown) is not unique`. SQLAlchemy renders a Python list as an
+   untyped array and PostGIS has several `ST_MakeLine` overloads, so Postgres refused the
+   call. Nobody noticed because the function had no caller. Now built as WKT and passed as
+   a bound parameter.
+2. **`moving_s` counted parked time as moving time** — caught by the test written for it.
+   A vehicle seen at one camera and again at that same camera 90 minutes later produces a
+   `revisit` leg: 90 minutes across 0 metres. Summing every leg's elapsed time made
+   `moving_kmph` identical to `average_kmph` on exactly the journey the two figures exist
+   to tell apart. Zero-length legs are now excluded.
+3. **The AI worker OOM-killed at 6 concurrent cameras** (exit 137), which silently stopped
+   all detection for two hours and looked like an e2e timing flake. At the compose default
+   of 3 it is stable but heavy: **855% CPU and 1.9 GB**. Raising `AI_WORKER_MAX_CAMERAS` on
+   this hardware is not free, and the e2e watchlist test now targets the pinned camera so
+   it does not depend on rotation luck.
 
 ---
 
