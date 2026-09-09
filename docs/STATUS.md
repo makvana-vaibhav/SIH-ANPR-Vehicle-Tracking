@@ -1,3 +1,15 @@
+> # ⚠️ SUPERSEDED
+>
+> Written **25 August 2026, after Phase 4**, for the old *statewide Gujarat* brief. Much of it is no
+> longer true: the AI pipeline, watchlist alerts, the correlator, the operator screens and the scale
+> proof all landed after it was written, and the project has since been re-aimed at **SIH26127**.
+>
+> For current state read **[PROGRESS.md](PROGRESS.md)**; for what to build next read
+> **[docs/ROADMAP.md](ROADMAP.md)**. This file is kept only as a record of where the build stood at
+> Phase 4. Refreshing or retiring it is P12.
+
+---
+
 # NagarNetra — where the build stands
 
 *Written 25 August 2026, after Phase 4. Event is 10–11 September.*

@@ -146,7 +146,7 @@ demo: ## Full judge demo: fresh data, fleet, worker, verified
 
 .PHONY: models
 models: ## Download and export AI model weights to ONNX
-	@./scripts/fetch_models.sh
+	@./ai-lab/scripts/fetch_models.sh
 
 .PHONY: videos
 videos: ## Download sample traffic clips

@@ -28,7 +28,7 @@ Then confirm by eye:
 If `make demo` says the watchlist is empty, stop — two of the five moments will
 have nothing to show.
 
-Have `PANIC.md` open on a second screen. Record in **two takes and cut**, rather
+Have `docs/PANIC.md` open on a second screen. Record in **two takes and cut**, rather
 than one nervous continuous take.
 
 ---
