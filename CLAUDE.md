@@ -8,12 +8,12 @@ Read this before writing any code in this repository. It is the contract between
 >
 > | Read | For |
 > |---|---|
-> | [PROGRESS.md](PROGRESS.md) | one page: what works, what doesn't, **the next task** |
+> | [PROGRESS.md](docs/PROGRESS.md) | one page: what works, what doesn't, **the next task** |
 > | [docs/ROADMAP.md](docs/ROADMAP.md) | **the plan of record** — phase definitions and gates (P1–P12) |
 > | this file | the rules you must follow |
-> | [BUILD_STATE.md](BUILD_STATE.md) | what was already built, the evidence, and the audited gap list |
+> | [BUILD_STATE.md](docs/BUILD_STATE.md) | what was already built, the evidence, and the audited gap list |
 >
-> **The current task is P1** (the Ahmedabad fleet) unless PROGRESS.md says otherwise.
+> **The current task is P1** (the Ahmedabad fleet) unless docs/PROGRESS.md says otherwise.
 > Do not start a phase whose gate you cannot run.
 >
 > **Three traps that have each cost real time already — do not rediscover them:**
@@ -293,10 +293,14 @@ infra/                mediamtx, opensearch, postgres/init, grafana, nginx, prome
 data/seed/            cameras.csv, blacklist.csv, city + district GeoJSON
 data/models/          model weights (gitignored, fetch script committed)
 data/videos/          sample clips (gitignored, fetch script committed)
-scripts/              fetch_models.sh, fetch_videos.sh, seed.py, generate_synthetic_plates.py
+scripts/              seed.py, generate_cameras.py, fetch_videos.sh, fetch_geodata.sh,
+                      capacity_model.py (fleet sizing + cost), demo_up.sh, prune_registry.py
+                      (model weights are fetched by ai-lab/scripts/fetch_models.sh)
 deploy/               EC2 staging/main deployment (not on the demo path)
 tests/e2e, tests/load/k6
-docs/                 HLD, INFRASTRUCTURE, SECURITY, API, DEMO_SCRIPT, diagrams/
+docs/                 ROADMAP (the plan), PROGRESS (current state), BUILD_STATE (history
+                      + gap list), PANIC (demo triage), HLD, INFRASTRUCTURE, SECURITY,
+                      API, DEMO_SCRIPT, submission/
 ```
 
 ---
@@ -305,7 +309,7 @@ docs/                 HLD, INFRASTRUCTURE, SECURITY, API, DEMO_SCRIPT, diagrams/
 
 1. **One phase per commit**, conventional messages: `feat(ai): multi-frame plate consensus`.
 2. **A phase is complete when its gate command passes**, not when the code exists. Show real output.
-3. **Update `BUILD_STATE.md` after every phase** — what was built, how it was verified, what the next
+3. **Update `docs/BUILD_STATE.md` after every phase** — what was built, how it was verified, what the next
    phase needs. Write it for a session that remembers nothing.
 4. **Tests belong to the phase that creates the code**, never deferred to a later phase.
 5. **Never commit** `.env`, model weights, videos, or MinIO data.
@@ -382,10 +386,10 @@ stream gateway (WHEP/HLS, scoped tokens) · watchlist → alert → WebSocket ·
 | `persist_route` | **Dead code, never called.** `vehicle_tracks` is never written, so there is no journey history to baseline anomalies against | P2 |
 | `packages/contracts/` | One empty `.gitkeep`. Event is a hand-rolled dict, duplicated by hand in `simulator/load_mode.py`, no validation either side | P12 |
 | Five `detections` columns | `vehicle_colour`, `crop_key`, `frame_key`, `direction`, `speed_kmph` — permanently NULL, no producer anywhere | P3, P9 |
-| Six real bugs | Listed in [BUILD_STATE.md](BUILD_STATE.md) — two demo-visible, one silently loses data | P6 |
+| Six real bugs | Listed in [BUILD_STATE.md](docs/BUILD_STATE.md) — two demo-visible, one silently loses data | P6 |
 | Sizing docs | `docs/INFRASTRUCTURE.md` §2 is **~4× optimistic** (treats a 4-thread worker as one core). `scripts/capacity_model.py` supersedes it | P12 |
 | `mypy` | 17 errors; `make lint` does not run it | P12 |
-| Old-brief prose | `docs/*`, `BUILD_STATE.md` history, `docs/submission/*` still argue statewide / 80,000 cameras / Model 1-3-5 / FAQ Q12-Q15-Q26 / Gujarat Police / SCRB | P12 |
+| Old-brief prose | `docs/*` (incl. `BUILD_STATE.md` history), `docs/submission/*` still argue statewide / 80,000 cameras / Model 1-3-5 / FAQ Q12-Q15-Q26 / Gujarat Police / SCRB | P12 |
 | `HOSTED_GRID` adapter | Federates the old challenge's grid at `sentinel.gujarat.gov.in`, which has no standing in SIH26127. **Removal candidate** | P12 |
 | `docs/REQUIREMENTS.md` | Maps the **old** challenge's requirements | P12 |
 | `docs/STATUS.md` | Stale — written 25 Aug after Phase 4 | P12 |

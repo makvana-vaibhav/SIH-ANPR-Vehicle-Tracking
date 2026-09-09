@@ -4,7 +4,7 @@
 > longer true: the AI pipeline, watchlist alerts, the correlator, the operator screens and the scale
 > proof all landed after it was written, and the project has since been re-aimed at **SIH26127**.
 >
-> For current state read **[PROGRESS.md](../PROGRESS.md)**; for what to build next read
+> For current state read **[PROGRESS.md](PROGRESS.md)**; for what to build next read
 > **[docs/ROADMAP.md](ROADMAP.md)**. This file is kept only as a record of where the build stood at
 > Phase 4. Refreshing or retiring it is P12.
 

@@ -7,9 +7,9 @@
 | Document | What it holds |
 |---|---|
 | this file | one-page state, and the next thing to do |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | **phase definitions and gates** — the plan of record |
+| [docs/ROADMAP.md](ROADMAP.md) | **phase definitions and gates** — the plan of record |
 | [BUILD_STATE.md](BUILD_STATE.md) | per-phase build history and the evidence each gate produced |
-| [CLAUDE.md](CLAUDE.md) | the contract: rules, conventions, architecture |
+| [CLAUDE.md](../CLAUDE.md) | the contract: rules, conventions, architecture |
 
 ---
 
@@ -109,14 +109,14 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 - **Sizing docs are ~4× optimistic.** `docs/INFRASTRUCTURE.md` §2 treats a 4-thread worker as one
   core. `scripts/capacity_model.py` supersedes it.
 - **`mypy` does not pass** (17 errors) and `make lint` does not run it.
-- Six specific bugs are listed in [docs/ROADMAP.md](docs/ROADMAP.md) under **P6** — two are
+- Six specific bugs are listed in [docs/ROADMAP.md](ROADMAP.md) under **P6** — two are
   demo-visible, one silently loses data.
 
 ---
 
 ## ▶ Next step: P1 — the Ahmedabad fleet
 
-Full definition and gate: [docs/ROADMAP.md](docs/ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
+Full definition and gate: [docs/ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
 
 In short: generate 60–80 cameras along real Ahmedabad arterials from OSM geometry, snapping each one
 onto an actual road vertex; port ffmpeg copy-mode into the simulator publisher so the whole fleet can

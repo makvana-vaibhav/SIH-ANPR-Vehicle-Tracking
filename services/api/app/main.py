@@ -4,7 +4,7 @@ City-wide vehicle intelligence platform (SIH26127). This tier owns the camera
 registry, GIS queries, auth and audit, the event and alert engines, search,
 and cross-camera trajectory correlation.
 
-Phases are built in order (see BUILD_STATE.md); routers are mounted here as
+Phases are built in order (see docs/BUILD_STATE.md); routers are mounted here as
 each phase lands.
 """
 

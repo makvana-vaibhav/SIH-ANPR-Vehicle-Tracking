@@ -1,8 +1,8 @@
 # ROADMAP — SIH26127
 
 The plan of record. **Phase definitions and gates live here.** Per-phase build history and the
-evidence each gate produced live in [BUILD_STATE.md](../BUILD_STATE.md); the one-page "where are we
-right now" is [PROGRESS.md](../PROGRESS.md).
+evidence each gate produced live in [BUILD_STATE.md](BUILD_STATE.md); the one-page "where are we
+right now" is [PROGRESS.md](PROGRESS.md).
 
 *Written 9 Sep 2026, from an audit of the code rather than of the documents — the documents were
 found wrong in several places, and those corrections are recorded in
@@ -320,7 +320,7 @@ can start in earnest. P4 needs its contract agreed before either track begins.
 
 ## Verification
 
-Every phase gate must produce **real output, pasted into [BUILD_STATE.md](../BUILD_STATE.md)** — not
+Every phase gate must produce **real output, pasted into [BUILD_STATE.md](BUILD_STATE.md)** — not
 "the code exists". Repo-wide, after every phase:
 
 ```bash

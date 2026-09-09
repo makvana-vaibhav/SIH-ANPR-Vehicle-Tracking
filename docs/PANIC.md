@@ -158,8 +158,7 @@ demonstrating it deliberately turns a failure into a feature.
 
 If there are no markers at all, the seed did not run:
 ```bash
-docker compose exec api python /app/scripts/seed.py
-docker compose exec api python /app/scripts/shape_fleet.py
+docker compose exec api python -m scripts.seed
 ```
 
 ---

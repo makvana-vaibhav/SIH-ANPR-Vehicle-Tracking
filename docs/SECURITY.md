@@ -269,7 +269,7 @@ Stated plainly, because a security document that omits its gaps is misleading.
 | **No penetration test** | Unknown unknowns | |
 | **mypy does not pass** | 33 errors, 11 files | `make lint` does not run it; CLAUDE.md §5's claim is currently false |
 
-**None of these is hidden anywhere else in this repository.** `BUILD_STATE.md`
+**None of these is hidden anywhere else in this repository.** `docs/BUILD_STATE.md`
 carries the same list.
 
 ---

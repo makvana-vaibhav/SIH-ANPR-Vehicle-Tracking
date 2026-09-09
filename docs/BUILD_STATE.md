@@ -4,7 +4,7 @@ Living checklist for the NagarNetra build. **Updated after every phase.**
 Written for a session that remembers nothing about previous sessions.
 
 **Read in this order:** [PROGRESS.md](PROGRESS.md) for the one-page state →
-[docs/ROADMAP.md](docs/ROADMAP.md) for what to build and each phase's gate → [CLAUDE.md](CLAUDE.md)
+[docs/ROADMAP.md](ROADMAP.md) for what to build and each phase's gate → [CLAUDE.md](../CLAUDE.md)
 for the rules → then this file for what has already been built and what evidence it produced.
 
 - **Cadence:** stop after every phase and wait for the user.
@@ -25,7 +25,7 @@ record what was measured and why the defaults are what they are.
 The project was re-aimed from a **statewide Gujarat Police CCTV** brief to **SIH26127**, a city-wide
 vehicle intelligence problem. The old phases 0–14 below are the **build history** and remain
 accurate as history. The work that remains is the **P1–P12** sequence, defined in
-[docs/ROADMAP.md](docs/ROADMAP.md).
+[docs/ROADMAP.md](ROADMAP.md).
 
 ### SIH26127 phases — what remains
 
@@ -76,7 +76,7 @@ Corrected 9 Sep 2026: this table previously disagreed with its own body, marking
 Kept because it records *what was measured and which bugs were fixed*, which is still
 true and still useful. The framing (statewide, 80,000 cameras, judge moments, FAQ
 references) belongs to the previous brief. Do not treat the goals in this section as
-current; [docs/ROADMAP.md](docs/ROADMAP.md) is current.
+current; [docs/ROADMAP.md](ROADMAP.md) is current.
 
 ---
 
@@ -1217,7 +1217,7 @@ found along the way that the next session must not re-discover.
 
 ## P1 — Multi-camera Ahmedabad fleet  ⬜
 
-Definition and gate: [docs/ROADMAP.md](docs/ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
+Definition and gate: [docs/ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
 
 *Not started. Evidence goes here.*
 

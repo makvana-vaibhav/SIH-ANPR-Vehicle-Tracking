@@ -836,7 +836,7 @@ Be able to list these. It is a strength.
 
 | # | Item | Why it matters |
 |---|---|---|
-| ~~1~~ | ~~Phase 12 — demo hardening~~ | **Done.** `make demo` verifies each judge moment; PANIC.md; 35 headless e2e tests |
+| ~~1~~ | ~~Phase 12 — demo hardening~~ | **Done.** `make demo` verifies each judge moment; docs/PANIC.md; 35 headless e2e tests |
 | ~~2~~ | ~~Phase 10 — load test~~ | **Done.** 2,774 events/s across 80,000 identities, 0 failures — and it found three real bugs |
 | 1 | **Detector re-export at 1280** | YOLOv8n is fixed at 640×640, so 1080p is downscaled and distant vehicles vanish. ~8% recall on grid night scenes |
 | 2 | Phase 8 — real fuzzy search | Exact + prefix works; ranked fuzzy does not exist |
@@ -855,7 +855,7 @@ Be able to list these. It is a strength.
 | **Vendor adapters** | Real and unit-tested; no Milestone/Genetec server has ever been on the other end |
 | **Penetration test** | Never done |
 
-**All of this is already in `BUILD_STATE.md` and `docs/SECURITY.md` §8.** None
+**All of this is already in `docs/BUILD_STATE.md` and `docs/SECURITY.md` §8.** None
 of it is hidden. If a judge finds something not on this list, that is a genuine
 finding — thank them.
 
@@ -885,5 +885,5 @@ finding — thank them.
 | `docs/DEMO_SCRIPT.md` | The eight minutes, with fallbacks |
 | `docs/API.md` | Every endpoint, generated from OpenAPI |
 | `docs/REQUIREMENTS.md` | Challenge compliance map |
-| `BUILD_STATE.md` | Per-phase state and every known gap |
+| `docs/BUILD_STATE.md` | Per-phase state and every known gap |
 | **`docs/BRIEFING.md`** | **This file — your answers** |

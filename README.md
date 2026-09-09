@@ -141,7 +141,7 @@ status is per-item, because the interesting part of a hackathon README is the pa
 Beyond the eight, the differentiators — **predictive traffic**, **attribute search** (find a white
 SUV when the plate is unreadable) and **vehicle re-identification** — are not built.
 
-**[docs/ROADMAP.md](docs/ROADMAP.md) is the plan of record** for all of it; [PROGRESS.md](PROGRESS.md)
+**[docs/ROADMAP.md](docs/ROADMAP.md) is the plan of record** for all of it; [PROGRESS.md](docs/PROGRESS.md)
 is the one-page current state. Nothing in this README describes a screen that does not exist.
 
 ### Accuracy
@@ -203,10 +203,10 @@ Everything is pinned to an exact version, and every image runs natively on both
 
 | Document | Contents |
 |---|---|
-| [PROGRESS.md](PROGRESS.md) | One page: what works, what doesn't, **the next task** |
+| [PROGRESS.md](docs/PROGRESS.md) | One page: what works, what doesn't, **the next task** |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | **The plan of record** — phases P1–P12, each with its gate |
 | [CLAUDE.md](CLAUDE.md) | The contract: conventions, the rules, the migration ledger |
-| [BUILD_STATE.md](BUILD_STATE.md) | Build history, gate evidence, and the audited gap list |
+| [BUILD_STATE.md](docs/BUILD_STATE.md) | Build history, gate evidence, and the audited gap list |
 
 **Reference:**
 
@@ -221,7 +221,7 @@ Everything is pinned to an exact version, and every image runs natively on both
 
 > **Note:** this codebase was renamed and re-aimed from an earlier *statewide* CCTV project.
 > `docs/HLD.md`, `docs/INFRASTRUCTURE.md`, `docs/BRIEFING.md`, `docs/REQUIREMENTS.md`,
-> `docs/STATUS.md`, `docs/submission/*` and the build history in `BUILD_STATE.md` still argue that
+> `docs/STATUS.md`, `docs/submission/*` and the build history in `docs/BUILD_STATE.md` still argue that
 > older brief in places, and `docs/INFRASTRUCTURE.md`'s compute sizing is known to be ~4×
 > optimistic — use `scripts/capacity_model.py` instead. [CLAUDE.md §10](CLAUDE.md#10-migration-ledger)
 > tracks every site; fixing them is P12.
