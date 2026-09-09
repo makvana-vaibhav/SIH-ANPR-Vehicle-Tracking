@@ -152,5 +152,5 @@ curl -sf "$WEB" >/dev/null 2>&1 && ok "command centre reachable" || fail "web is
 
 # ── Done ─────────────────────────────────────────────────────────────
 printf '\n%s%sDemo ready%s → %s\n' "$BOLD" "$GREEN" "$RESET" "$WEB"
-printf '%s  admin / %s · script: docs/DEMO_SCRIPT.md · if it breaks: PANIC.md%s\n\n' \
+printf '%s  admin / %s · script: docs/DEMO_SCRIPT.md · if it breaks: docs/PANIC.md%s\n\n' \
     "$DIM" "$ADMIN_PW" "$RESET"

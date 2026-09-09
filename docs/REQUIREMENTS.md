@@ -1,3 +1,15 @@
+> # ⚠️ MAPS THE WRONG BRIEF
+>
+> This document maps the requirements of the **old statewide Gujarat CCTV challenge** —
+> its reference models, its FAQ items, its live test case. The project now targets
+> **SIH26127 — City-Wide AI Engine for Multi-Camera ANPR Trajectory Tracking and Urban Traffic
+> Analytics**, whose requirements are different.
+>
+> Do **not** use this as the compliance map. The current requirements and their status are the
+> 8 demo steps in **[docs/ROADMAP.md](ROADMAP.md)**. Rewriting this file for SIH26127 is P12.
+
+---
+
 # Challenge requirements → where we implement them
 
 Source: **sentinel.gujarat.gov.in** (home, /resource, /faqs), retrieved 25 Aug 2026.

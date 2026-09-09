@@ -313,7 +313,7 @@ the record of who looked at whom outlives the data it describes."
 > | **Media retention unwired** | The 90-day crop rule currently deletes nothing |
 > | **No penetration test** | Unknown unknowns |
 >
-> All of this is in our `SECURITY.md` §8 and `BUILD_STATE.md`.
+> All of this is in our `docs/SECURITY.md` §8 and `docs/BUILD_STATE.md`.
 > **If you find something not on this list, that is a real finding.**
 
 **Speaker note:** Put this slide in. Every judge is looking for what you are
@@ -397,7 +397,7 @@ police infrastructure — it cannot depend on someone else's uptime or invoice."
 > | Judge scenarios run headlessly | **5 of 5** |
 > | Database schema | Alembic migrations — never `create_all` |
 > | Demo path | `make demo` **verifies each judge moment** before saying ready |
-> | If it breaks on stage | `PANIC.md` — triage per component |
+> | If it breaks on stage | `docs/PANIC.md` — triage per component |
 >
 > `make demo` → populated map, live ANPR, alerts firing. **Under 5 minutes,
 > from a fresh clone.**

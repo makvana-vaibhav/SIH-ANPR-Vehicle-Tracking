@@ -123,30 +123,43 @@ commodity hardware. Full derivation is in [docs/HLD.md](docs/HLD.md).
 
 ## What it does
 
-1. **Live multi-camera detection** — several feeds at once, vehicles detected automatically.
-2. **ANPR** — plate, confidence, camera, timestamp: `GJ03AB1234 · 96.4% · CAM-01 · 10:31:04`.
-3. **Multi-camera linking** — the same vehicle on a second camera is connected to the first
-   automatically. This is the core module.
-4. **Vehicle journey** — cameras visited, distance, average speed, duration, and the full
-   trajectory drawn and animated on the city map.
-5. **Vehicle search** — one plate in, every historical sighting and the complete route out.
-6. **Blacklist alerts** — a listed vehicle fires a red alert with plate crop, camera, time,
-   confidence and map location.
-7. **Trajectory anomalies** — an unusual route is flagged *with the reasons that flagged it*.
-8. **City traffic analytics** — density, average speed, route density, travel time, hotspots.
+The PS defines eight things a city command centre must do. This is where each one honestly stands —
+status is per-item, because the interesting part of a hackathon README is the part that says what is
+*not* finished.
 
-Items 7 and 8, predictive traffic, and attribute search are **in progress** — see the
-migration ledger in [CLAUDE.md](CLAUDE.md#10-migration-ledger-sentinel-gj--nagarnetra) for
-exactly what is built and what is not. Nothing in this README describes a screen that does
-not exist except where it says so here.
+| # | Capability | State |
+|---|---|---|
+| 1 | **Live multi-camera detection** — several feeds, vehicles found automatically | 🟡 pipeline works; the registry currently holds one camera |
+| 2 | **ANPR** — plate, confidence, camera, timestamp | ✅ 9 fps, p90 266 ms, 0.70–0.94 confidence |
+| 3 | **Multi-camera linking** — the same vehicle on a second camera joined to the first | 🟡 engine built and tested; needs a fleet to link across |
+| 4 | **Vehicle journey** — cameras, distance, duration, route on the map | 🟡 route draws; no average speed, no animation yet |
+| 5 | **Vehicle search** — a plate in, every sighting and the route out | 🟡 exact and prefix match; fuzzy not yet |
+| 6 | **Blacklist alerts** — automatic red alert with camera, time, confidence, map location | 🟡 the alert fires by itself; the plate crop cannot be shown yet |
+| 7 | **Trajectory anomalies** — an unusual route flagged *with its reasons* | 🟡 physical-plausibility flags only; no learned-norm detector |
+| 8 | **City traffic analytics** — density, average speed, route density, travel time, hotspots | 🔴 not built |
+
+Beyond the eight, the differentiators — **predictive traffic**, **attribute search** (find a white
+SUV when the plate is unreadable) and **vehicle re-identification** — are not built.
+
+**[docs/ROADMAP.md](docs/ROADMAP.md) is the plan of record** for all of it; [PROGRESS.md](docs/PROGRESS.md)
+is the one-page current state. Nothing in this README describes a screen that does not exist.
 
 ### Accuracy
 
-The PS sets a hard target of **>90% plate recognition accuracy under real-world
-conditions** — motion blur, night, angle, occlusion, damaged plates. That number is
-earned and measured in [`ai-lab/`](ai-lab/), a standalone evaluation harness that is
-deliberately *not* wired into the platform, on held-out footage. The figure we publish
-is the figure the harness printed.
+The PS sets a hard target of **>90% plate recognition accuracy under real-world conditions** —
+motion blur, night, angle, occlusion, damaged plates.
+
+**We cannot make that claim yet, and we do not.** Accuracy has only been measured on *synthetic*
+footage — 62.5–87.5% end to end, with 100% exact-match on the plates the pipeline chooses to attempt
+and a character error rate of 0.000. Those numbers are optimistic by construction: the plates are
+rendered from a clean font, with no embossing, dirt or real motion blur.
+
+The interesting part is *where* it falls short. When the pipeline commits to a read, it is almost
+always right; it simply declines to read roughly a third of plates. **The bottleneck is recall, not
+recognition** — which means a better recogniser is the wrong fix.
+
+Measurement lives in [`ai-lab/`](ai-lab/), a harness with a hard-case mining and labelling loop. The
+figure we publish will be the figure the harness printed, with its conditions attached.
 
 ---
 
@@ -157,9 +170,9 @@ is the figure the harness printed.
 | **One laptop** | `docker compose up`. No cluster, no cloud account, no manual data entry. |
 | **Fully offline** | Local models, local database, local map data. No Google Maps, no hosted inference, no paid API anywhere. |
 | **CPU must work** | GPU is an accelerator, never a requirement. Device is auto-detected with a clean CPU fallback. |
-| **Degrades, never dies** | Lose OpenSearch and plate search falls back to Postgres trigram. Lose WebRTC and video falls back to HLS. The readiness endpoint reports exactly which. |
+| **Degrades, never dies** | Lose WebRTC and video falls back to HLS. Lose a dependency and the readiness endpoint names it rather than failing opaquely. *(The documented OpenSearch→trigram search fallback is not built yet — see [docs/ROADMAP.md](docs/ROADMAP.md) P8.)* |
 | **Computed, never invented** | Every congestion figure, delay and score is derived from observed data. Where there is not enough data to compute one, the UI says so rather than showing a plausible number. |
-| **Explainable** | An alert carries the factors that raised it. `Risk: 87%` on its own is a bug. |
+| **Explainable** | Intended: an alert carries the factors that raised it, because `Risk: 87%` on its own is a bug. *(Not yet true — `alerts` has no reasons column; P5 adds it.)* |
 | **Auditable** | Every plate search, every stream open, and every blacklist change writes an `audit_log` row. This platform tracks the movement of private vehicles; traceability of who looked at what is a feature. |
 | **No secrets in git** | `.env.example` is committed, `.env` is not. Secrets have no in-code defaults — the API refuses to start rather than sign tokens with a key that is readable in this repository. |
 
@@ -186,21 +199,32 @@ Everything is pinned to an exact version, and every image runs natively on both
 
 ## Documentation
 
+**Start here, in this order:**
+
 | Document | Contents |
 |---|---|
-| [CLAUDE.md](CLAUDE.md) | The contract: product definition, conventions, migration ledger, recorded stack deviations |
-| [BUILD_STATE.md](BUILD_STATE.md) | Phase-by-phase build status and acceptance criteria |
+| [PROGRESS.md](docs/PROGRESS.md) | One page: what works, what doesn't, **the next task** |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | **The plan of record** — phases P1–P12, each with its gate |
+| [CLAUDE.md](CLAUDE.md) | The contract: conventions, the rules, the migration ledger |
+| [BUILD_STATE.md](docs/BUILD_STATE.md) | Build history, gate evidence, and the audited gap list |
+
+**Reference:**
+
+| Document | Contents |
+|---|---|
+| [ai-lab/README.md](ai-lab/README.md) | The accuracy harness — how the >90% claim gets measured |
+| [docs/API.md](docs/API.md) | Every endpoint, generated from the live OpenAPI document |
+| [docs/SECURITY.md](docs/SECURITY.md) | RBAC, encryption, audit, retention, lawful-use safeguards |
 | [docs/HLD.md](docs/HLD.md) | High-level design, scaling, measured performance |
 | [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md) | Bandwidth, GPU sizing, storage tiering, DR |
-| [docs/SECURITY.md](docs/SECURITY.md) | RBAC, encryption, audit, retention, lawful-use safeguards |
-| [docs/API.md](docs/API.md) | Every endpoint, generated from the live OpenAPI document |
 | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Minute-by-minute walkthrough, with fallbacks |
-| [ai-lab/README.md](ai-lab/README.md) | The accuracy harness — how the >90% claim is measured |
 
-> **Note:** this codebase was renamed and re-aimed from an earlier statewide CCTV
-> project. Documents under `docs/` and `BUILD_STATE.md` / `PROGRESS.md` still argue that
-> older brief in places. [CLAUDE.md §10](CLAUDE.md#10-migration-ledger-sentinel-gj--nagarnetra)
-> tracks what has been migrated and what has not.
+> **Note:** this codebase was renamed and re-aimed from an earlier *statewide* CCTV project.
+> `docs/HLD.md`, `docs/INFRASTRUCTURE.md`, `docs/BRIEFING.md`, `docs/REQUIREMENTS.md`,
+> `docs/STATUS.md`, `docs/submission/*` and the build history in `docs/BUILD_STATE.md` still argue that
+> older brief in places, and `docs/INFRASTRUCTURE.md`'s compute sizing is known to be ~4×
+> optimistic — use `scripts/capacity_model.py` instead. [CLAUDE.md §10](CLAUDE.md#10-migration-ledger)
+> tracks every site; fixing them is P12.
 
 ---
 

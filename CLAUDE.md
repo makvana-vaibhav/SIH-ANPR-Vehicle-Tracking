@@ -2,6 +2,29 @@
 
 Read this before writing any code in this repository. It is the contract between sessions.
 
+> ## Start here
+>
+> **You are working on SIH26127 — a city-wide vehicle intelligence platform.**
+>
+> | Read | For |
+> |---|---|
+> | [PROGRESS.md](docs/PROGRESS.md) | one page: what works, what doesn't, **the next task** |
+> | [docs/ROADMAP.md](docs/ROADMAP.md) | **the plan of record** — phase definitions and gates (P1–P12) |
+> | this file | the rules you must follow |
+> | [BUILD_STATE.md](docs/BUILD_STATE.md) | what was already built, the evidence, and the audited gap list |
+>
+> **The current task is P1** (the Ahmedabad fleet) unless docs/PROGRESS.md says otherwise.
+> Do not start a phase whose gate you cannot run.
+>
+> **Three traps that have each cost real time already — do not rediscover them:**
+> 1. Never set a simulator-published camera's `stream_url` to the gateway's own URL. `gateway.py`
+>    registers a MediaMTX *pull* path from `stream_url`, so MediaMTX pulls a path from itself, loops
+>    forever, and silently blocks publishing.
+> 2. Never seed a camera without a real video source. Commit `4d0346f` deleted 251 such cameras
+>    precisely because they made every count on every screen meaningless.
+> 3. `make ai` is required for any ANPR work — the worker sits behind the `ai` compose profile, so
+>    plain `make up` starts no AI at all and the pipeline looks broken when it is merely absent.
+
 > **Lineage.** This codebase began as *Sentinel-GJ*, a **statewide** Gujarat Police CCTV
 > federation platform. It was renamed and re-aimed at **SIH26127**, a **city-wide** vehicle
 > intelligence problem. Most of the platform carries over; the framing does not.
@@ -185,21 +208,31 @@ claim. If there is not enough data to compute a figure, the UI says so.
   `request_id`). No `print()` outside `scripts/`.
 - **Time: UTC internally, IST for display.** Every timestamp stored and transported is timezone-aware
   UTC. Conversion to `Asia/Kolkata` happens at the presentation edge only. Never store naive datetimes.
-- **Contracts are generated, not hand-written.** Event shapes live in `packages/contracts/schemas`
-  as JSON Schema; Pydantic models and TS types are generated from them. No service hand-rolls a dict.
-- **Typed.** Python passes `mypy`; frontend passes `tsc --noEmit`. Public functions get type hints.
+- **Contracts — ⚠️ ASPIRATIONAL, NOT TRUE TODAY (P12).** The intent is that event shapes live in
+  `packages/contracts/schemas` as JSON Schema with Pydantic and TS generated from them. In reality
+  `packages/contracts/` is a single empty `.gitkeep`, the event is a hand-rolled dict in
+  `ai-lab/ailab/stream/events.py`, it is duplicated by hand in `simulator/load_mode.py`, and there is
+  no validation on either side of the bus. Do not cite this rule as satisfied. If you change the
+  event shape, change **both** hand-rolled copies.
+- **Typed.** Frontend passes `tsc --noEmit` (enforced by `make lint`). Public functions get type
+  hints. **`mypy` does NOT currently pass** — 17 errors across 8 files, and `make lint` does not run
+  it (P12). Do not claim it passes.
 - **Config via env, parsed once** into a Pydantic `Settings` object in `app/core/config.py`.
   No `os.getenv` scattered through the codebase.
 - **Migrations, never `create_all`.** Schema changes are Alembic revisions.
 - **Every DB query that can return many rows is paginated.** No unbounded `SELECT *`.
 
-### Explainability rule (enforced, tested)
+### Explainability rule (⚠️ not yet enforceable — P5)
 
-**Every alert and every score carries its reasons.** An alert row stores the factors that
-produced it, and the API returns them. `Risk: 87%` alone is a bug; `Risk: HIGH — unusual route,
-unusual travel time, unexpected camera sequence` is the feature. Anomaly detection that cannot
-say *why* does not ship.
+**Every alert and every score must carry its reasons.** `Risk: 87%` alone is a bug;
+`Risk: HIGH — unusual route, unusual travel time, unexpected camera sequence` is the feature.
+Anomaly detection that cannot say *why* does not ship.
 
+**Today the `alerts` table has no reasons/factors column**, so this cannot be honoured and no test
+enforces it. The only explanation ever stored is free-text prose in `notes` for near matches. P5
+adds a `reasons` JSONB column, which is what makes this rule real. Until then, do not describe it as
+enforced.
+8
 ### Audit rule (enforced, tested)
 
 **Every plate search, every camera stream open, and every watchlist/blacklist mutation writes an
@@ -248,19 +281,26 @@ services/api/app/ingest/   adapters (RTSP/ONVIF/VendorVMS/Simulated) + stream su
                       + health monitor — runs from the API image, separate container (§11.5)
 services/ai-worker/   the vision pipeline (detect → track → plate → OCR → consensus)
 services/simulator/   synthetic camera fleet + video replay → RTSP + load mode
-ai-lab/               standalone AI evaluation harness — accuracy measurement, OCR/detector
-                      shootouts, hard-case mining. Deliberately NOT wired into the platform.
-                      This is where the >90% accuracy claim is earned.
+ai-lab/               the vision pipeline AND its evaluation harness. `services/ai-worker/`
+                      IMPORTS this as a library (ailab.config, ailab.stream) — it is a thin
+                      supervisor around `ailab.stream.StreamRunner`, so every field in every
+                      detection event originates here. Older wording called the lab "not wired
+                      into the platform"; that was wrong. It is also where accuracy is measured
+                      and where the >90% claim is earned.
 web/                  React command centre
 packages/contracts/   JSON Schema + generated TS types + Python models (single source of truth)
 infra/                mediamtx, opensearch, postgres/init, grafana, nginx, prometheus config
 data/seed/            cameras.csv, blacklist.csv, city + district GeoJSON
 data/models/          model weights (gitignored, fetch script committed)
 data/videos/          sample clips (gitignored, fetch script committed)
-scripts/              fetch_models.sh, fetch_videos.sh, seed.py, generate_synthetic_plates.py
+scripts/              seed.py, generate_cameras.py, fetch_videos.sh, fetch_geodata.sh,
+                      capacity_model.py (fleet sizing + cost), demo_up.sh, prune_registry.py
+                      (model weights are fetched by ai-lab/scripts/fetch_models.sh)
 deploy/               EC2 staging/main deployment (not on the demo path)
 tests/e2e, tests/load/k6
-docs/                 HLD, INFRASTRUCTURE, SECURITY, API, DEMO_SCRIPT, diagrams/
+docs/                 ROADMAP (the plan), PROGRESS (current state), BUILD_STATE (history
+                      + gap list), PANIC (demo triage), HLD, INFRASTRUCTURE, SECURITY,
+                      API, DEMO_SCRIPT, submission/
 ```
 
 ---
@@ -269,7 +309,7 @@ docs/                 HLD, INFRASTRUCTURE, SECURITY, API, DEMO_SCRIPT, diagrams/
 
 1. **One phase per commit**, conventional messages: `feat(ai): multi-frame plate consensus`.
 2. **A phase is complete when its gate command passes**, not when the code exists. Show real output.
-3. **Update `BUILD_STATE.md` after every phase** — what was built, how it was verified, what the next
+3. **Update `docs/BUILD_STATE.md` after every phase** — what was built, how it was verified, what the next
    phase needs. Write it for a session that remembers nothing.
 4. **Tests belong to the phase that creates the code**, never deferred to a later phase.
 5. **Never commit** `.env`, model weights, videos, or MinIO data.
@@ -282,6 +322,9 @@ docs/                 HLD, INFRASTRUCTURE, SECURITY, API, DEMO_SCRIPT, diagrams/
 ---
 
 ## 9. Two milestones, one product
+
+**Phase definitions and gates live in [docs/ROADMAP.md](docs/ROADMAP.md) (P1–P12), not here.**
+This section is the *why*; the roadmap is the *what and in what order*.
 
 **Internal hackathon (v1) — make the core pipeline work reliably.**
 Multiple feeds → detection → ANPR → tracking → multi-camera linking → trajectory → map →
@@ -308,31 +351,56 @@ v1 is the prototype v2 is built on. Nothing in v1 should be throwaway.
 
 ---
 
-## 10. Migration ledger (Sentinel-GJ → NagarNetra)
+## 10. Migration ledger
 
-The rename is done: no identifier, container, database, Redis key, hostname or path says
-"sentinel" any more. **The re-framing is not done.** Status:
+Audited against the code on **9 Sep 2026**. The rename is complete: no identifier, container,
+database, Redis key, hostname or path says "sentinel". **The re-framing is not.**
 
-| Area | State |
-|---|---|
-| Names, Docker, DB/Redis/MinIO identifiers, env vars, file names | ✅ done |
-| `CLAUDE.md`, `README.md`, user-facing taglines, OpenAPI identity | ✅ done |
-| Registry, GIS map, camera onboarding, fleet health, auth, RBAC, audit | ✅ carries over unchanged |
-| ANPR pipeline, tracking, plate consensus, `ai-lab` harness | ✅ carries over; accuracy target now >90%, measured |
-| Correlator → **trajectory engine** | ⚠️ computes camera count, distance, duration, GeoJSON already. Needs journey-profile framing, average speed, animation support |
-| Blacklist | ⚠️ exists as `watchlist` (`WatchlistCategory`, `/watchlist`). Rename to blacklist or keep both vocabularies — **undecided** |
-| Traffic analytics | ❌ not built. No analytics router. Density, avg speed, route density, travel time all missing |
-| Trajectory anomaly detection | ❌ `AlertType.ANOMALY` is an enum value only. No detector, no explanation payload |
-| Predictive traffic | ❌ not built |
-| Attribute / appearance search | ❌ not built |
-| Vehicle re-identification | ❌ not built |
-| `docs/*`, `BUILD_STATE.md`, `PROGRESS.md`, `docs/submission/*` | ❌ still argue the **old** brief — statewide, 80,000 cameras, Model 1/3/5, FAQ Q12/Q15/Q26, five judge moments, Gujarat Police / Home Department |
-| `DepartmentCode` enum (HEALTH/GSRTC/PANCHAYAT/SCRB…) | ❌ modelled the Gujarat *departmental* estate. A city deployment needs different owners (traffic police, municipal corporation, …) — **undecided** |
-| `HOSTED_GRID` adapter (`app/adapters/sandbox.py`) | ❌ was the old challenge's own camera grid at `sentinel.gujarat.gov.in`. Neutrally renamed so our product is not named as the vendor. **Removal candidate** — it federates a system that has no standing in SIH26127 |
-| 80,000-camera load test (`services/simulator/load_mode.py`, `tests/load/`) | ❌ scale story needs re-aiming at city/metro volumes |
-| Statewide prose in code docstrings (`enums.py`, `registry.py`, `event_consumer.py`, `fleet.py`) | ❌ ~20 sites still say "statewide" |
+### Carries over, works, keep it
 
----
+Auth · RBAC · audit trail · camera registry · bulk CSV onboarding · GIS map with offline basemap ·
+fleet health and gap analysis · ANPR pipeline (detect → track → plate → OCR → consensus) ·
+stream gateway (WHEP/HLS, scoped tokens) · watchlist → alert → WebSocket · trajectory engine core ·
+`ai-lab` evaluation harness · the 2,774 events/s scale proof · 546 tests.
+
+### Not built — these are the phases
+
+| Area | State | Phase |
+|---|---|---|
+| Multi-camera fleet | Registry holds **one** camera (`CAM-DEMO`) | P1 |
+| Traffic analytics | **Nothing.** No router, no page, no heatmap, no time-bucket queries. `recharts` imported zero times | P4 |
+| Route-level average speed | Does not exist; only per-leg `implied_kmph` | P2 |
+| Journey animation | No timeline, scrubber or moving marker anywhere | P2 |
+| Trajectory anomaly detection | The six hop flags are a **physics filter**, not a detector. `AlertType.ANOMALY` has zero producers | P5 |
+| Alert reasons | `alerts` has **no** reasons/factors column | P5 |
+| Evidence crops | **No MinIO client exists**; the worker discards crops via `_NullRunDir`; `crop_key` always NULL | P3 |
+| Fuzzy search | The `pg_trgm` index exists and **nothing queries it**. OpenSearch runs and indexes nothing | P8 |
+| Attribute search | `vehicle_colour` never computed | P9 |
+| Predictive traffic | Nothing | P10 |
+| Re-identification | Nothing — tracking is motion-only, cross-camera linking is plate equality | P11 |
+
+### Wrong or dead in the current code
+
+| Item | Detail | Phase |
+|---|---|---|
+| `persist_route` | **Dead code, never called.** `vehicle_tracks` is never written, so there is no journey history to baseline anomalies against | P2 |
+| `packages/contracts/` | One empty `.gitkeep`. Event is a hand-rolled dict, duplicated by hand in `simulator/load_mode.py`, no validation either side | P12 |
+| Five `detections` columns | `vehicle_colour`, `crop_key`, `frame_key`, `direction`, `speed_kmph` — permanently NULL, no producer anywhere | P3, P9 |
+| Six real bugs | Listed in [BUILD_STATE.md](docs/BUILD_STATE.md) — two demo-visible, one silently loses data | P6 |
+| Sizing docs | `docs/INFRASTRUCTURE.md` §2 is **~4× optimistic** (treats a 4-thread worker as one core). `scripts/capacity_model.py` supersedes it | P12 |
+| `mypy` | 17 errors; `make lint` does not run it | P12 |
+| Old-brief prose | `docs/*` (incl. `BUILD_STATE.md` history), `docs/submission/*` still argue statewide / 80,000 cameras / Model 1-3-5 / FAQ Q12-Q15-Q26 / Gujarat Police / SCRB | P12 |
+| `HOSTED_GRID` adapter | Federates the old challenge's grid at `sentinel.gujarat.gov.in`, which has no standing in SIH26127. **Removal candidate** | P12 |
+| `docs/REQUIREMENTS.md` | Maps the **old** challenge's requirements | P12 |
+| `docs/STATUS.md` | Stale — written 25 Aug after Phase 4 | P12 |
+
+### Accuracy — the claim we cannot yet make
+
+The PS demands **>90% under real-world conditions**. There is **no real-world measurement**: only
+synthetic footage, at **62.5–87.5% end-to-end** and 100% exact-match on plates attempted.
+`ai-lab/FINDINGS.md` says plainly these are optimistic and must not be quoted as system accuracy.
+**The bottleneck is recall, not OCR** — when the pipeline commits it is right; it declines to read
+3 of 8 plates. See P7.
 
 ## 11. Recorded stack deviations
 

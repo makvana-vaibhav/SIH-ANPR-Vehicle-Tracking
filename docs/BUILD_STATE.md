@@ -1,42 +1,82 @@
 # BUILD_STATE.md
 
 Living checklist for the NagarNetra build. **Updated after every phase.**
-Written for a session that remembers nothing about previous sessions — read this, then `CLAUDE.md`,
-then continue at the first unchecked phase.
+Written for a session that remembers nothing about previous sessions.
 
-- **Cadence:** stop after every phase and wait for the user. 12 review gates.
+**Read in this order:** [PROGRESS.md](PROGRESS.md) for the one-page state →
+[docs/ROADMAP.md](ROADMAP.md) for what to build and each phase's gate → [CLAUDE.md](../CLAUDE.md)
+for the rules → then this file for what has already been built and what evidence it produced.
+
+- **Cadence:** stop after every phase and wait for the user.
 - **Commits:** one per phase, conventional (`feat(ai): multi-frame plate consensus`).
-- **A phase is complete only when its gate command passes with real output shown.**
+- **A phase is complete only when its gate command passes with real output shown here.**
 - **Commits carry the repository owner's name only** — no co-author trailers.
 
-**Where the AI lives.** Phase 5 produced two things: `ai-lab/`, a standalone
-evaluation environment that is *not* part of the deployed system, and
-`services/ai-worker/`, which consumes the lab as a library and runs live
-cameras. Read `ai-lab/README.md`, `ai-lab/PERFORMANCE.md` and
-`ai-lab/ARCHITECTURE.md` before changing anything in the vision pipeline — they
+**Where the AI lives.** `ai-lab/` is a standalone evaluation environment and
+`services/ai-worker/` is the live worker. The worker *imports* the lab as a library — it is not
+separate from the deployed system, despite older wording that said so. Read `ai-lab/README.md`,
+`ai-lab/PERFORMANCE.md` and `ai-lab/ARCHITECTURE.md` before changing the vision pipeline; they
 record what was measured and why the defaults are what they are.
 
 ---
 
 ## Status
 
+The project was re-aimed from a **statewide Gujarat Police CCTV** brief to **SIH26127**, a city-wide
+vehicle intelligence problem. The old phases 0–14 below are the **build history** and remain
+accurate as history. The work that remains is the **P1–P12** sequence, defined in
+[docs/ROADMAP.md](ROADMAP.md).
+
+### SIH26127 phases — what remains
+
+| Phase | Title | Milestone | State |
+|---|---|---|---|
+| **P1** | Multi-camera Ahmedabad fleet | V1 | ⬜ **next — start here** |
+| **P2** | Journey profile + animated playback | V1 | ⬜ not started |
+| **P3** | Evidence crops in MinIO | V1 | ⬜ not started |
+| **P4** | City traffic analytics | V1 | ⬜ not started |
+| **P5** | Trajectory anomaly + explainable alerts | V1 | ⬜ not started |
+| **P6** | Bug fixes, tests, demo hardening | V1 | ⬜ not started |
+| **P7** | Earn the >90% accuracy claim | V2 | ⬜ not started |
+| **P8** | Fuzzy and partial plate search | V2 | ⬜ not started |
+| **P9** | Attribute search (colour / type) | V2 | ⬜ not started |
+| **P10** | Predictive traffic | V2 | ⬜ not started |
+| **P11** | Vehicle re-identification | V2 | ⬜ not started |
+| **P12** | Truth pass on docs and contracts | V2 | ⬜ not started |
+
+Evidence for each is logged under *SIH26127 phase evidence* near the end of this file.
+
+### Old-brief phases 0–14 — build history
+
+Corrected 9 Sep 2026: this table previously disagreed with its own body, marking phases 10 and 12
+"not started" while their sections were headed ✅.
+
 | Phase | Title | State |
 |---|---|---|
-| 0 | Foundation & self-documentation | ✅ **complete** |
-| 1 | Auth, RBAC, audit | ✅ **complete** — accounts, audit viewer and UI enforcement added Sep 2 |
-| 2 | Camera registry + GIS + bulk onboarding | ✅ **complete** |
-| 3 | Integration layer (adapters) + health monitoring | ✅ **complete** |
-| 4 | Stream gateway | ✅ **complete** |
-| 5 | AI pipeline | ✅ **complete** |
-| 6 | Event engine, watchlist, alerts | ✅ **complete** |
-| 7 | Correlator: cross-camera tracking & routes | 🟡 **built and tested; gate blocked on data** |
-| 8 | Search | ⬜ not started |
-| 9 | Command centre UI | 🟡 **operator screens complete**, rest pending |
-| 10 | Scale profile & 80,000-camera proof | ⬜ not started |
-| 11 | Documentation & submission artifacts | ✅ **complete** |
-| 12 | Demo hardening | ⬜ not started |
-| **13** | **Person & face detection, crowd counting** | ⬜ **added — see below** |
-| **14** | **Government database integration (VAHAN/SARTHI/eGujCop)** | ⬜ **added — see below** |
+| 0 | Foundation & self-documentation | ✅ complete |
+| 1 | Auth, RBAC, audit | ✅ complete |
+| 2 | Camera registry + GIS + bulk onboarding | ✅ complete |
+| 3 | Integration layer (adapters) + health monitoring | ✅ complete |
+| 4 | Stream gateway | ✅ complete |
+| 5 | AI pipeline | ✅ complete |
+| 6 | Event engine, watchlist, alerts | ✅ complete |
+| 7 | Correlator: cross-camera tracking & routes | 🟡 engine built and tested; **superseded by P2 / P5** |
+| 8 | Search | ⬜ never started — **superseded by P8** |
+| 9 | Command centre UI | 🟡 operator screens complete; **analytics page is P4** |
+| 10 | Scale profile & 80,000-camera proof | ✅ complete — 2,774 events/s, 0 failures |
+| 11 | Documentation & submission artifacts | ✅ complete, but **written for the old brief** — P12 |
+| 12 | Demo hardening | ✅ complete for the old brief's demo — **P6 redoes it for the 8 PS steps** |
+| 13 | Person & face detection, crowd counting | ⬜ **out of scope for SIH26127** |
+| 14 | Government database integration (VAHAN/SARTHI) | ⬜ **out of scope for SIH26127** |
+
+---
+
+# Build history — old-brief phases 0–14
+
+Kept because it records *what was measured and which bugs were fixed*, which is still
+true and still useful. The framing (statewide, 80,000 cameras, judge moments, FAQ
+references) belongs to the previous brief. Do not treat the goals in this section as
+current; [docs/ROADMAP.md](ROADMAP.md) is current.
 
 ---
 
@@ -1169,39 +1209,118 @@ alert is measured in the Phase 6 tests).
 
 ---
 
-## Known gaps (honest list, as of Phase 6 + the ANPR demonstration)
+# SIH26127 phase evidence
 
-Recorded so no session mistakes these for done.
+Append each phase's real gate output here as it completes. A phase is not done until its evidence is
+in this section. Keep the format: what was built, the gate command, the actual output, and anything
+found along the way that the next session must not re-discover.
 
-| Gap | Detail |
-|---|---|
-| **mypy does not pass** | 17 errors across 8 files, and `make lint` does not run it. CLAUDE.md §5 claims "Python passes mypy" — currently untrue. Fix or amend the claim. |
-| **ANPR accuracy is measured on generated plates** | Still true for the *measured* accuracy figure. The pipeline now also runs on real footage with legible plates (`anpr_demo.mp4`, 12 of 13 plates resolving to a valid format), but that clip has no ground truth, so those are model-confidence numbers, not measured accuracy. Real labelled **Gujarat** footage remains the single most valuable thing that could be added. |
-| **The grid yields plates rarely, and mostly at daytime** | **Superseded 3 Sep.** The earlier "zero plates" finding was sampled at ~22:00 from night footage. In daylight, with credentials, the grid *does* yield plates: `GJ11CO5913` at 0.92 confidence and grammar-valid from `SBX-00007 hero-showroom-gir-somnath` — GJ11 is the Junagadh RTO, geographically consistent with that camera. The rate is low (roughly 1 valid plate per 100 detections) and most cameras are still junction overviews. Treat the grid as an occasional ANPR source, not a reliable one. |
-| **Grid OCR reads signage as plates** | `DELIGHT` was read at 0.99 confidence from `SBX-00014 Delight` — the camera's own signage. Grammar correctly marks it invalid, so it never reaches the watchlist, but a confidence figure alone would have been badly misleading. This is why `grammar_valid` gates the alert path and not confidence. |
-| **Vehicle detection is weak on the grid's night scenes** | On a junction frame with 15+ visible vehicles the detector finds 1–2. YOLOv8n at a **fixed 640×640** export, downscaling 1080p, leaves distant vehicles a few pixels across. `detector.imgsz` cannot fix this — the ONNX input shape is static, and setting it now warns loudly instead of being silently ignored. Re-exporting at 1280 is the obvious next step and is untried. |
-| **Plate detector weights are AGPL-3.0** | An Ultralytics export. Acceptable for evaluation — the lab is a development tool and does not ship — but must be replaced before production. |
-| **One OCR error survives consensus** | `GJ35K5714` read as `GJ35X5714`. Both are letters in a letter slot, so grammar cannot repair it, and every frame agreed. A genuine recognition error needing a better model or a fine-tune, not a consensus failure. |
-| **Evidence crops are not in MinIO** | `Detection.crop_key` expects an object key; the worker currently records a path. Upload is unwired. |
-| **The GPU path has never executed** | Provider selection is one function and the CUDA branch is written, but this machine has no CUDA. **No GPU figure is claimed anywhere in this repository.** |
-| **Roughly one camera per CPU worker** | 4.4 fps at 720p, 2.8 at 4K in `bench` mode. Reaching many cameras is a GPU and node-count question this hardware cannot answer. |
-| **24 of 250 cameras stream** | A laptop encoding limit, not an architectural one. `SIM_STREAM_COUNT` raises it toward ~50 for the live test case. |
-| **Vendor adapters unexercised against real VMS** | The code is real and unit-tested, but no Milestone/Genetec/Hikvision server has been on the other end. Only the sandbox adapter targets a genuinely remote endpoint. |
-| **Health debounce counters are in-memory** | A monitor restart resets the consecutive-failure count, so the first post-restart sweep cannot flip a camera offline. Deliberate (it is debounce state, not a fact), but worth knowing. |
-| **Portrait source clips are pillarboxed** | `fetch_videos.sh` pads to 16:9 rather than cropping. |
-| ~~No rate limiting~~ | **Cleared.** Redis-backed, per-deployment, counting *failed* auth attempts so a shift change cannot lock a control room out. |
-| **HLS fallback opens a raw .m3u8** | Browsers other than Safari will download rather than play it. Needs hls.js or an embedded player page. |
-| ~~Alembic downgrade untested~~ | **Cleared.** `0002` was applied, rolled back and re-applied; the column disappeared and returned. |
-| **The demonstration footage carries UK plates** | `anpr_demo.mp4` is the only clip available with legible plates. `configs/demo.yaml` and `configs/stream_demo.yaml` accept UK grammar for it; a Gujarat deployment runs `stream`, which is Indian-only. Do not ship a config that accepts GB. |
-| **Live reads converge less than offline ones** | Streaming emits `vehicle.observed` incrementally, so an early event can carry a partial read (`FJ4ZHY` before `FJ14ZHY`). The final `vehicle.completed` is right; consumers that act on the first event see the rougher answer. |
-| **No frontend for alerts or the watchlist** | Both APIs are complete and tested over HTTP, but `web/src/pages/` has only Map, Fleet Health, Integration and Login. The demonstration is a terminal script, not a screen. |
+## P1 — Multi-camera Ahmedabad fleet  ⬜
+
+Definition and gate: [docs/ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
+
+*Not started. Evidence goes here.*
 
 ---
 
-## Definition of done
+# Known gaps (audited 9 Sep 2026)
 
-A judge clones the repo, runs `make demo`, and within five minutes sees: 250 cameras on a Gujarat
-map, live video from a click, plates read from moving traffic in real time, a red watchlist alert
-firing automatically with the plate crop, a searched plate producing a four-camera route drawn on the
-map with timestamps and implied speeds, and an architecture page with load-tested numbers backing an
-80,000-camera claim.
+Recorded so no session mistakes these for done. Verified against the code, not the docs.
+
+## Capability gaps — these are the phases
+
+| Gap | Detail | Phase |
+|---|---|---|
+| **Only one camera in the registry** | `CAM-DEMO` alone. A platform about linking observations across cameras has nothing to link. Blocks PS steps 1, 3, 4, 7, 8. | P1 |
+| **No traffic analytics at all** | No analytics router, no analytics page, no heatmap layer, zero `time_bucket`/`date_trunc`/continuous aggregates. `recharts` is a dependency **imported zero times** — every "chart" on screen is a Tailwind div with a percentage width. | P4 |
+| **No route-level average speed** | The only speed figure in the system is per-leg `implied_kmph`. `Route` has no speed property. | P2 |
+| **`first_seen` / `last_seen` never rendered** | Present in the API payload and in the TS type; displayed on no screen. | P2 |
+| **No journey animation** | `RouteMap.tsx` animates only camera movement (`easeTo`/`fitBounds`). No timeline, scrubber, moving marker or `requestAnimationFrame` anywhere in `web/src`. | P2 |
+| **No anomaly detector** | The six per-leg flags are a cloned-plate/OCR **physics filter**; nothing compares a journey to a norm. `AlertType.ANOMALY`, `SPEED` and `CONVOY` have **zero producers** — the only two alert producers are watchlist match and camera-down. | P5 |
+| **`alerts` has no reasons/factors column** | So CLAUDE.md's "explainability rule (enforced, tested)" cannot be true. There is no column and no test. P5 adds the migration. | P5 |
+| **Search is exact + prefix only** | The `pg_trgm` GIN index on `plate_normalised` **exists and nothing queries it**. A misread plate suggests nothing. | P8 |
+| **OpenSearch runs and does nothing** | Health-probed only; indexes nothing, queries nothing. Costs demo-laptop memory for no function. Wire it or drop it. | P8 |
+| **Attribute search impossible** | `vehicle_colour` is never computed anywhere. | P9 |
+| **No re-identification** | Intra-camera tracking is motion-only (ByteTrack, no appearance branch); cross-camera linking is plate-string equality. No embedding model anywhere. | P11 |
+
+## Data and wiring gaps
+
+| Gap | Detail | Phase |
+|---|---|---|
+| **Five `detections` columns are permanently NULL** | `vehicle_colour`, `crop_key`, `frame_key`, `direction`, `speed_kmph` — **no producer anywhere** in pipeline, event or consumer. | P3, P9 |
+| **No MinIO client exists** | Zero `put_object` / `presigned` / `boto3` hits in the repo. MinIO is config plus a health probe. Nothing is ever uploaded. | P3 |
+| **The worker never writes crops** | `worker.py` builds `StreamRunner` with no `run_dir`, so `_NullRunDir` discards every crop and `evidence.plate_crop` is always null. Two failures stack with the missing client. | P3 |
+| **`persist_route` is dead code** | Never called from anywhere, so `vehicle_tracks` is **never written**. There is no journey history to learn anomaly baselines from. | P2 |
+| **`packages/contracts/` is one empty file** | `generated/.gitkeep`, 0 bytes. No schemas, no generated types, nothing imports it. The event is a hand-rolled dict in `ai-lab/ailab/stream/events.py`, duplicated by hand in `simulator/load_mode.py` (which emits `"auto"`, a vehicle type the real COCO detector cannot produce), with **no validation on either side**. CLAUDE.md §5's contracts claim is false. | P12 |
+| **`vehicle_type` is a raw COCO class** | Stored verbatim, so `person` rows land in `detections`. | P9 |
+| **`plate_text` and `plate_normalised` hold the same value** | Both read the consensus string. The model docstring claiming one is raw OCR is wrong; raw text survives only inside `ocr_raw`. | P12 |
+| **`detection_confidence` is the vehicle detector's** | The plate detector's own confidence is carried in the event and silently dropped by the consumer. Easy to misread this column. | P12 |
+
+## Bugs found, not yet fixed → P6
+
+| # | Bug |
+|---|---|
+| 1 | `revisit` / `co_located` legs `continue` early in `score_legs`, **skipping** the `unobserved_gap` and `heading_conflict` checks entirely. A vehicle returning 5 hours later never gets `unobserved_gap`. |
+| 2 | `sightings_for` applies `LIMIT 5000` in SQL *before* NULL positions are dropped in Python, returns the **oldest** rows, and carries **no truncation indicator** — a route claiming a 30-day window can silently stop at day 3. |
+| 3 | `Match.distance` is hardcoded to `1`, so every near-match alert note reads "(1 character different)" regardless of the actual edit. |
+| 4 | The dedup **repeat count is never persisted**, though `alerts.py`'s docstring claims "seen 12 times" is kept on the original alert. There is no column and the payload omits it. |
+| 5 | `transition()` sets `acknowledged_by`/`acknowledged_at` unconditionally, so closing an alert **erases who originally acknowledged it**. Untested — the lifecycle test only covers NEW→ACKNOWLEDGED. |
+| 6 | `_within_one_edit` exists **twice** with two different implementations (`watchlist.py` two-pointer, `correlator.py` slice comparison). The correlator docstring says "shared with the watchlist matcher" — it is a copy. |
+
+Untested critical paths: `raise_for_match`, `build_route`, `sightings_for`, `find_convoys`,
+`WatchlistIndex.refresh()`, `alert_fanout.publish`.
+
+## Accuracy and measurement
+
+| Gap | Detail |
+|---|---|
+| **Accuracy is unmeasured on real footage** | Synthetic only: **62.5–87.5% end-to-end** across two runs, **100% exact-match on plates attempted**, CER 0.000. `ai-lab/FINDINGS.md` states these are optimistic and must not be quoted as system accuracy. The PS demands >90% real-world. → P7 |
+| **The bottleneck is recall, not OCR** | When the pipeline commits to a read it is right; it declines to read 3 of 8 plates. A better recogniser is the wrong fix. → P7 |
+| **Demo footage carries UK plates** | `anpr_demo.mp4` is the only clip with legible plates. A per-camera `plate-region:GB` tag handles it. **Never ship a config that accepts GB.** |
+| **Sizing docs are ~4× optimistic** | `docs/INFRASTRUCTURE.md` §2 divides by 8.78 cameras-per-worker but treats the 4-thread worker as one core. 80,000 cameras needs ~36,000 cores, not ~10,000. `scripts/capacity_model.py` supersedes both sizing tables. → P12 |
+| **Load-test latency missed its gate** | Throughput passed (2,774 events/s, 0 failures); p95 capture-to-persisted was **5.7 s against a 3 s target**. Queue wait, not processing. Reported rather than tuned away. |
+| **The GPU path has never executed** | The CUDA branch is written; this machine has no CUDA. **No GPU figure is claimed anywhere.** |
+| **`mypy` does not pass** | 17 errors across 8 files, and `make lint` does not run it, while CLAUDE.md §5 claims it passes. → P12 |
+| **Plate detector weights are AGPL-3.0** | An Ultralytics export. Acceptable for evaluation; must be replaced before any real production deployment. Out of scope at the current demo-grade bar. |
+
+## Smaller, still real
+
+- **HLS fallback opens a raw `.m3u8`**, which downloads rather than plays outside Safari. Needs
+  `hls.js`. → P6
+- **Health debounce counters are in-memory**, so a monitor restart resets the consecutive-failure
+  count. Deliberate (it is debounce state, not a fact), but worth knowing.
+- **Vendor adapters are unexercised against real VMS.** The code is real and unit-tested; no
+  Milestone/Genetec/Hikvision server has ever been on the other end.
+- **Live reads converge less than offline ones.** Streaming emits `vehicle.observed` incrementally,
+  so an early event can carry a partial read; the final `vehicle.completed` is right.
+- **The simulator publisher re-encodes with libx264** (~10% of a core per stream), capping the live
+  fleet. The clips are already H.264 — copy-mode was measured at **64 streams on ~1.1 cores**. → P1
+- **`gateway.py` registers a MediaMTX pull path from `camera.stream_url`.** Pointing a
+  simulator-published camera's `stream_url` at the gateway makes MediaMTX pull a path from itself,
+  which loops and blocks publishing. Diagnosed once already; do not repeat.
+- **Portrait source clips are pillarboxed** — `fetch_videos.sh` pads to 16:9 rather than cropping.
+
+---
+
+# Definition of done
+
+**V1 (internal hackathon).** A judge clones the repo, runs `make demo`, and within five minutes
+walks all **8 PS demo steps** in the browser:
+
+1. Several live camera feeds, vehicles detected automatically.
+2. A plate resolving with confidence, camera and timestamp.
+3. The same vehicle appearing on a second camera and being **linked automatically**.
+4. That vehicle's **journey** — cameras visited, distance, duration, average speed — drawn and
+   **animated** on the city map.
+5. A plate search returning every historical sighting and the full route.
+6. A blacklisted vehicle firing a **red alert by itself**, with a visible plate crop.
+7. A **trajectory anomaly** raised, with the factors that raised it shown.
+8. A **city analytics** dashboard: density, average speed, route density, travel time, hotspots,
+   heatmap — every figure computed from real rows.
+
+**V2 (SIH).** All of the above, plus a **measured** >90% plate accuracy figure on labelled real
+footage, attribute search, predictive traffic with a backtested error figure, and
+re-identification.
+
+The bar throughout: **nothing fake**. No placeholder numbers, no stubbed functions, no cameras
+without a source. If there is not enough data to compute a figure, the UI says so.

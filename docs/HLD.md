@@ -355,5 +355,5 @@ Recorded in full in `CLAUDE.md` §9. The three that affect this design:
 * [`INFRASTRUCTURE.md`](INFRASTRUCTURE.md) — bandwidth, storage, DR
 * [`REQUIREMENTS.md`](REQUIREMENTS.md) — challenge compliance map
 * [`STATUS.md`](STATUS.md) — real vs simulated, explained
-* [`../BUILD_STATE.md`](../BUILD_STATE.md) — per-phase state and every known gap
+* [`BUILD_STATE.md`](BUILD_STATE.md) — per-phase state and every known gap
 * [`../ai-lab/PERFORMANCE.md`](../ai-lab/PERFORMANCE.md) — the profiling behind §6
