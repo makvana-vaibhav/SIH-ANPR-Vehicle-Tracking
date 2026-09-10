@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
+from ailab import runtime
 from ailab.config import OcrConfig
 from ailab.detect.onnx_backend import select_providers
 from ailab.ocr.base import OcrEngine, OcrResult
@@ -56,7 +57,15 @@ class CrnnOnnxEngine(OcrEngine):
 
         self.config = config
         self.providers = select_providers("auto")
-        self.session = ort.InferenceSession(str(path), providers=self.providers)
+        # Built with explicit options for the same reason the detector is: a
+        # bare InferenceSession takes ONNX Runtime's default of one intra-op
+        # thread per core, which on a worker running one pipeline per camera
+        # multiplies straight into the core count. See `ailab.runtime`.
+        opts = ort.SessionOptions()
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        opts.intra_op_num_threads = runtime.threads_per_model()
+        opts.inter_op_num_threads = 1
+        self.session = ort.InferenceSession(str(path), opts, providers=self.providers)
         self.weights_path = str(path)
 
         inp = self.session.get_inputs()[0]

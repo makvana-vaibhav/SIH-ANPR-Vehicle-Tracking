@@ -2,7 +2,8 @@
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
-*Updated 10 Sep 2026 · P1–P3 complete · **next task: P4, city traffic analytics***
+*Updated 10 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
+**next task: P4, city traffic analytics***
 
 | Document | What it holds |
 |---|---|
@@ -26,11 +27,20 @@ But of the PS's **8 demo steps: 2 work, 4 are partial, 2 do not exist.** There i
 analytics router and no analytics page. Trajectory anomaly detection is an enum value with zero
 producers. Predictive traffic, attribute search and re-identification do not exist.
 
-And the immediate blocker is smaller than any of that: **the registry holds one camera.** A
-platform about connecting observations across cameras currently has nothing to connect.
+*(That last paragraph described the state before P1. The registry now holds 58 Ahmedabad
+cameras; see BUILD_STATE P1.)*
+
+**The worker no longer starves the machine.** It was taking 866% CPU and 168 threads on a
+10-core host, which is why camera tiles hung — nothing was left to render them. One thread
+budget divided across cameras, plus a pipeline pool that stops rotation leaking a thread pool
+per camera change, took it to ~570% and **doubled** detections/min (79 → ~150). Slots are now
+capped by memory rather than CPU, so the default moved 3 → 4. Details and knobs in
+[PERFORMANCE.md](PERFORMANCE.md); the GPU question is answered in [GPU.md](GPU.md) — inside
+Docker on Apple Silicon there is none, and no setting creates one.
 
 ```
 DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops
+         └─ plus: worker CPU budget + pipeline pool (unplanned, 10 Sep)
 NEXT     P4 analytics ← start here
 THEN     P5 anomaly ──▶ P6 harden                                              (V1, ~2 weeks)
 LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs

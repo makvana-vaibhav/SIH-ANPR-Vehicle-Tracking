@@ -24,6 +24,14 @@ Read this before writing any code in this repository. It is the contract between
 >    precisely because they made every count on every screen meaningless.
 > 3. `make ai` is required for any ANPR work — the worker sits behind the `ai` compose profile, so
 >    plain `make up` starts no AI at all and the pipeline looks broken when it is merely absent.
+> 4. Never construct an inference session without going through `ailab.runtime`. The worker runs
+>    one pipeline **per camera**, so a session that takes ONNX Runtime's default thread count
+>    multiplies by the camera count: measured 168 threads and 866% CPU on a 10-core box, which
+>    starves the browser and presents as "cameras won't load". Never set `AILAB_ORT_THREADS` in
+>    compose — it bypasses the division. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+> 5. There is **no GPU inside Docker on Apple Silicon** — providers are exactly
+>    `['AzureExecutionProvider', 'CPUExecutionProvider']` and no setting changes that. Before
+>    spending time on it, read [docs/GPU.md](docs/GPU.md).
 
 > **Lineage.** This codebase began as *Sentinel-GJ*, a **statewide** Gujarat Police CCTV
 > federation platform. It was renamed and re-aimed at **SIH26127**, a **city-wide** vehicle
@@ -248,9 +256,16 @@ asserting the rows appear.
 Developed on **macOS arm64 (Apple Silicon)**, 10 cores / 16 GB RAM. These are not preferences,
 they are constraints discovered by probing:
 
-- **No CUDA.** Apple Silicon does not pass a GPU to Linux containers. The AI pipeline runs CPU-only
-  here. GPU code paths exist and are unit-tested, but any GPU number in the docs is labelled
-  *extrapolated*, never *measured*.
+- **No CUDA, and no accelerator of any kind in a container.** Virtualization.framework passes no
+  GPU to a Linux guest, so onnxruntime inside the worker reports exactly
+  `['AzureExecutionProvider', 'CPUExecutionProvider']` — verified, not assumed. CoreML exists only
+  when the worker runs natively on macOS; CUDA needs an amd64 host with an NVIDIA card. Both paths
+  are wired (`device: auto|cpu|cuda|coreml`) and neither is measured here, so any GPU number in the
+  docs is labelled *extrapolated*. Full matrix in [docs/GPU.md](docs/GPU.md).
+- **CPU is shared, and the worker must be told so.** One pipeline runs per camera, each with five
+  ONNX sessions. `ailab.runtime` divides a single process-wide budget (`cores - 2`) across the
+  concurrent cameras; sessions built outside it take one thread per core each and saturate the
+  machine. Slot count is capped by **memory** (~1.4 GB per slot), not CPU.
 - **`postgis/postgis` has no arm64 build.** We use `timescale/timescaledb-ha:*-all`, which ships
   PostGIS **and** TimescaleDB in one arm64 image. Migration 0001 asserts both extensions exist.
 - **PaddlePaddle publishes no aarch64 Linux wheel.** OCR is ONNX CRNN behind an `OcrEngine`

@@ -233,6 +233,11 @@ services:
       # runner, so its tests run from here. They cover scheduling and
       # discovery, which need neither a model nor a camera.
       - ./services/ai-worker:/app/services/ai-worker
+      # The pipeline library the worker imports, for the same reason. Only its
+      # dependency-free modules are importable here — `ailab.runtime`, which
+      # decides the CPU thread budget and is pure stdlib. Anything touching
+      # OpenCV or onnxruntime belongs in ai-lab's own suite.
+      - ./ai-lab/ailab:/app/ai-lab/ailab:ro
       - ./services/simulator:/app/services/simulator
       - ./scripts:/app/scripts
       # End-to-end tests run from this image against the live stack.
@@ -351,19 +356,40 @@ services:
       SANDBOX_RTSP_PASSWORD: ${SANDBOX_RTSP_PASSWORD:-}
       AI_WORKER_INDEX: "0"
       AI_WORKER_COUNT: "1"
-      # Concurrent inference slots. Measured at ~one camera per spare core
-      # (ai-lab/PERFORMANCE.md); raise it only after measuring on the target
-      # box. Cameras beyond this are rotated through the slots, not dropped.
-      AI_WORKER_MAX_CAMERAS: ${AI_WORKER_MAX_CAMERAS:-3}
+      # Concurrent inference slots. Cameras beyond this are rotated through
+      # the slots, not dropped.
+      #
+      # Slots no longer cost CPU: they divide the budget above rather than
+      # each claiming the machine, and CPU measured flat at 574/647/589% for
+      # 3/4/6 slots. What they cost is **memory** — ~1.4 GB each, since every
+      # slot holds its own five models. Four keeps the worker near 4.1 GB with
+      # the rest of the stack at ~2.7 GB, comfortably inside the 11.67 GB VM;
+      # six reaches 6.8 GB and is where the exit-137 kills start. Raise
+      # Docker's memory allocation before raising this. See docs/PERFORMANCE.md.
+      AI_WORKER_MAX_CAMERAS: ${AI_WORKER_MAX_CAMERAS:-4}
       # How long a camera holds a slot before yielding to one that is waiting.
       AI_WORKER_SLICE_SECONDS: ${AI_WORKER_SLICE_SECONDS:-45}
       # The demonstration feed never yields its slot: it is the camera a judge
       # is most likely to be watching, and the only one guaranteed to have
       # legible plates.
       AI_WORKER_PINNED: ${AI_WORKER_PINNED:-CAM-DEMO}
-      # ONNX Runtime's own default is one thread per core and is markedly
-      # slower on these small models — measured 452ms against 126ms at four.
-      AILAB_ORT_THREADS: "4"
+      # ── CPU budget ──
+      #
+      # Total intra-op inference threads for the whole worker, divided evenly
+      # across the concurrent cameras by `ailab.runtime`. Empty means
+      # "cores - 2", reserving two for RTSP decode, the media gateway and the
+      # browser rendering the map.
+      #
+      # Do NOT set AILAB_ORT_THREADS here. It is a per-model override for
+      # sweeping thread counts by hand, and setting it bypasses the division —
+      # which is exactly the bug this replaced: every model taking four
+      # threads, times five sessions, times one pipeline per camera.
+      AILAB_INFERENCE_BUDGET: ${AILAB_INFERENCE_BUDGET:-}
+      # OpenCV parallelises single resize/cvtColor calls. The worker already
+      # has one thread per camera, so an inner pool on top of that only
+      # multiplies threads against the same cores. Empty means 1 whenever more
+      # than one camera runs.
+      AILAB_OPENCV_THREADS: ${AILAB_OPENCV_THREADS:-}
     volumes:
       # Weights are fetched by a committed script and mounted, never baked into
       # an image or committed to git.

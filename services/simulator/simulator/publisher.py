@@ -176,6 +176,72 @@ PREPARED_DIR = Path(os.environ.get("SIM_PREPARED_DIR", "/data/prepared"))
 #: Target keyframe interval, in seconds, for a prepared clip.
 KEYFRAME_INTERVAL_S = 1.0
 
+#: Ceiling on a published stream's height and frame rate.
+#:
+#: Two of the seed clips are **3840x2160 at 24 Mbps** — `anpr_sample.mp4` at
+#: 60 fps and `test1.mp4` at 30 — and roughly a quarter of the fleet is
+#: assigned one of them. Publishing that verbatim costs on both sides of the
+#: wire: a browser tile has to decode 4K60, and the AI worker decodes every 4K
+#: frame only to letterbox it to the detector's fixed 640px input. Neither
+#: gains anything from the extra pixels at that stage.
+#:
+#: 1080p15 is also simply more faithful to the problem. City ANPR cameras are
+#: 1080p and run at 12-15 fps; a 4K60 feed is not what a municipal deployment
+#: looks like, and `scripts/capacity_model.py` sizes against the realistic
+#: figure. Capping here makes the demo cheaper *and* more representative.
+#:
+#: Applied only in the prepare pass, which already re-encodes once to disk, so
+#: it adds no per-stream cost. Clips at or below the cap are untouched —
+#: scaling up would invent detail and cost plate legibility for nothing.
+MAX_HEIGHT = int(os.environ.get("SIM_MAX_HEIGHT", "1080"))
+MAX_FPS = float(os.environ.get("SIM_MAX_FPS", "15"))
+
+
+@dataclass(frozen=True)
+class EncodePlan:
+    """What the prepare pass should do to one clip."""
+
+    #: Frame rate to publish at — never above the source's own.
+    fps: float
+    #: The source's rate, so the caller can tell "capped" from "unchanged".
+    source_fps: float
+    #: ffmpeg `-vf` filters, empty when the clip is already within the cap.
+    filters: tuple[str, ...]
+
+    @property
+    def resampled(self) -> bool:
+        return self.fps < self.source_fps
+
+
+def encode_plan(
+    source_height: int | None,
+    source_fps: float | None,
+    max_height: int | None = None,
+    max_fps: float | None = None,
+) -> EncodePlan:
+    """Decide how to bring one clip within the publishing cap.
+
+    Pure, so the policy can be tested without ffmpeg — which the shared test
+    image does not carry.
+
+    The rule that matters is **never up**. A 720p15 clip is left exactly as it
+    is: upscaling invents detail the sensor never captured, and resampling
+    15 fps to 15 fps would re-encode for nothing. An unreadable probe is
+    likewise treated as "leave it alone", because rescaling on a guess costs
+    plate legibility and a clip that cannot be probed may be perfectly fine.
+    """
+    ceiling_h = MAX_HEIGHT if max_height is None else max_height
+    ceiling_fps = MAX_FPS if max_fps is None else max_fps
+
+    known_fps = source_fps or 15.0
+    fps = min(known_fps, ceiling_fps)
+
+    # `-2` keeps the width even — H.264 requires it — while preserving aspect.
+    downscale = source_height is not None and source_height > ceiling_h
+    filters = (f"scale=-2:{ceiling_h}",) if downscale else ()
+
+    return EncodePlan(fps=fps, source_fps=known_fps, filters=filters)
+
 
 @functools.lru_cache(maxsize=64)
 def prepare_clip(source: Path) -> Path:
@@ -211,7 +277,13 @@ def prepare_clip(source: Path) -> Path:
         log.warning("simulator.prepare_dir_failed", error=str(exc))
         return source
 
-    target = PREPARED_DIR / f"{source.stem}.mp4"
+    plan = encode_plan(probe_height(source), probe_fps(source))
+    fps, source_fps, filters = plan.fps, plan.source_fps, plan.filters
+
+    # The cap is part of the cache identity, so changing MAX_HEIGHT or MAX_FPS
+    # invalidates prepared clips instead of silently serving ones built to the
+    # old ceiling.
+    target = PREPARED_DIR / f"{source.stem}_{MAX_HEIGHT}p{fps:g}.mp4"
     # Rebuild when missing or older than the source, so replacing a clip in
     # data/videos does not leave a stale prepared copy behind.
     try:
@@ -220,9 +292,15 @@ def prepare_clip(source: Path) -> Path:
     except OSError:
         pass
 
-    fps = probe_fps(source) or 15.0
     gop = max(1, round(fps * KEYFRAME_INTERVAL_S))
-    log.info("simulator.preparing_clip", source=str(source), gop=gop)
+    log.info(
+        "simulator.preparing_clip",
+        source=str(source),
+        gop=gop,
+        fps=fps,
+        source_fps=source_fps,
+        filters=filters or None,
+    )
     try:
         result = subprocess.run(
             [
@@ -234,6 +312,10 @@ def prepare_clip(source: Path) -> Path:
                 "-i",
                 str(source),
                 "-an",
+                *(["-vf", ",".join(filters)] if filters else []),
+                # Capped, never raised — `fps` is min(source, MAX_FPS), so a
+                # 15 fps clip is not resampled to 15 fps for no reason.
+                *(["-r", f"{fps:g}"] if fps < source_fps else []),
                 "-c:v",
                 "libx264",
                 "-preset",
@@ -301,6 +383,41 @@ def probe_fps(source: Path) -> float | None:
         return float(num) / float(den) if float(den) else None
     except (ValueError, ZeroDivisionError):
         return None
+
+
+@functools.lru_cache(maxsize=64)
+def probe_height(source: Path) -> int | None:
+    """Source frame height, or None when it cannot be read.
+
+    None means "leave it alone": an unreadable probe must not be taken as a
+    reason to re-encode, since the clip may be fine and rescaling on a guess
+    would cost plate legibility.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=height",
+                "-of",
+                "default=nw=1:nk=1",
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    raw = result.stdout.strip()
+    if result.returncode != 0 or not raw.isdigit():
+        return None
+    return int(raw)
 
 
 def build_command(spec: StreamSpec, rtsp_base: str) -> list[str]:

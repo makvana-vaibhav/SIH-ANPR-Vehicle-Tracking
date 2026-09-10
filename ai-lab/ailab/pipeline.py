@@ -101,6 +101,27 @@ class Pipeline:
         self._best_inset: dict[int, float] = {}
         self._tracker = None  # built per run, since it needs the source frame rate
 
+    def reset_run_state(self) -> None:
+        """Forget the previous run, keeping the loaded models.
+
+        Constructing a Pipeline loads and graph-optimises five ONNX models, and
+        each one allocates a native thread pool and memory arena that live
+        until the object is collected. The worker rotates cameras through a
+        fixed set of slots, so building a fresh Pipeline per rotation left the
+        old pools waiting on Python's cyclic collector: measured, the worker
+        grew from 29 threads and 1.4 GB to 62 threads and 3.5 GB in twelve
+        minutes, on the way to the exit-137 kills this project has seen.
+
+        Reusing the models and clearing the counters avoids that entirely.
+        Tracker, scheduler and crop gate are not reset here because
+        `StreamRunner.run` already rebuilds them per run — the tracker needs
+        the source frame rate, which is only known once the stream is open.
+        """
+        self._duplicate_plates = 0
+        self._reattributed_plates = 0
+        self._best_inset.clear()
+        self._tracker = None
+
     @staticmethod
     def _is_converged(track: Track | None, cfg: RunConfig) -> bool:
         """Has this vehicle's plate settled beyond useful doubt?

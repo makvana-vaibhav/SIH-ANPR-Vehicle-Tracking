@@ -167,8 +167,13 @@ test: ## Run backend and frontend test suites
 	@printf "\033[1mAPI tests\033[0m\n"
 	@$(COMPOSE) exec -T -w /app/services/api api python -m pytest tests -q
 	@printf "\n\033[1mAI worker tests\033[0m\n"
-	@$(COMPOSE) exec -T -e PYTHONPATH=/app/services/ai-worker api \
+	@$(COMPOSE) exec -T -e PYTHONPATH=/app/services/ai-worker:/app/ai-lab api \
 		python -m pytest /app/services/ai-worker/tests -q
+	@printf "\n\033[1mSimulator tests\033[0m\n"
+	@# Same reason as the AI worker: the simulator image carries no test
+	@# runner. `app` is on the path because publisher.py uses the shared logger.
+	@$(COMPOSE) exec -T -e PYTHONPATH=/app/services/simulator:/app/services/api api \
+		python -m pytest /app/services/simulator/tests -q
 	@printf "\n\033[1mEnd-to-end: the five judge moments\033[0m\n"
 	@# Run from the suite's own directory so tests/e2e/pytest.ini applies —
 	@# without it async fixtures are never awaited and every test fails.

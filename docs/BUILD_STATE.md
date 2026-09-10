@@ -1496,6 +1496,158 @@ failures logged.
 
 ---
 
+## Worker CPU and the thread budget  ✅ (unplanned — 10 Sep 2026)
+
+Not a roadmap phase. Raised as "cameras are not loading properly, and if they
+load it hangs", which turned out to be the platform starving itself.
+
+### What was wrong
+
+The AI worker was taking **866% CPU and 168 OS threads on a 10-core host**,
+with a load average of 18.8. MediaMTX, the browser and the compositor were
+competing for what was left, so a WebRTC handshake that could not get
+scheduled looked exactly like a camera that would not load.
+
+Two independent causes, both invisible from the outside:
+
+1. **Nothing divided the thread budget by the camera count.** The worker runs
+   one `Pipeline` per camera, each building five ONNX sessions. The two YOLO
+   sessions were capped at four threads; the three OCR sessions were capped at
+   nothing — `RapidOCR()` was constructed with no arguments and the wheel
+   defaults to `intra_op_num_threads: -1`, ONNX Runtime's one-per-core.
+   `crnn_onnx.py` built its session with no `SessionOptions` at all.
+   `OMP_NUM_THREADS` was set in `ai-lab/Dockerfile` but **not** in the worker
+   Dockerfile that ships, and `cv2.setNumThreads` was never called anywhere.
+
+2. **Rotation leaked a thread pool per camera change.** Each rotation built a
+   fresh `Pipeline`; every ONNX session allocates a native thread pool and
+   arena freed only when Python collects the object, which for objects in
+   reference cycles means whenever the cyclic collector next runs. Measured:
+   29 threads / 1.4 GB at four minutes became 62 threads / 3.5 GB at twelve,
+   doing identical work — the road to the `exit 137` kills seen before.
+
+### The measurement that settles it
+
+Oversubscription was not a trade of latency for throughput. RapidOCR
+recognition on one plate crop:
+
+| | wall/call | CPU/call | cores used |
+|---|---|---|---|
+| `intra_op=2` | 11.8 ms | 23.6 ms | 2.0x |
+| `intra_op=4` | 8.0 ms | 32.0 ms | 4.0x |
+| **ORT default** | **14.3 ms** | **132.6 ms** | **9.3x** |
+
+The default burned **5.6x the CPU to return a slower answer**.
+
+### What was built
+
+* `ai-lab/ailab/runtime.py` — one process-wide budget (`cores - 2`), divided by
+  the camera count, clamped to a measured per-model ceiling of 4. The worker
+  declares its slot count in `AiWorker.__init__`, before any session exists,
+  because a session's thread pool is fixed at construction.
+* `services/ai-worker/ai_worker/pipeline_pool.py` — models loaded once per slot
+  and lent to whichever camera holds it. A pool rather than one shared
+  instance, because `Pipeline` mutates per-track state and is not thread-safe.
+* Thread discipline applied to `rapid.py`, `crnn_onnx.py` and
+  `onnx_backend.py`; `OMP_NUM_THREADS` added to the worker Dockerfile;
+  `cv2.setNumThreads` set from the same budget.
+* `device` gains `coreml`; `cuda`/`coreml` now raise when the provider is
+  absent rather than silently running on CPU.
+
+### A third cause: the fleet was publishing 4K60
+
+Two seed clips are **3840x2160 at 24 Mbps** (`anpr_sample.mp4` at 60 fps,
+`test1.mp4` at 30), and roughly a quarter of the 51 cameras is assigned one.
+So a browser tile was decoding 4K60, and the worker was decoding every 4K
+frame **only to letterbox it to the detector's fixed 640px input** — the extra
+pixels are discarded before inference sees them. It is also unrepresentative;
+city ANPR cameras are 1080p at 12–15 fps.
+
+`prepare_clip` already re-encodes once to disk to fix keyframe sparsity, so a
+`SIM_MAX_HEIGHT`/`SIM_MAX_FPS` cap there costs nothing per stream. It never
+upscales: only the two 4K clips are touched, 126 MB → 35 MB and 129 MB → 30 MB.
+
+### Gate output
+
+Same fleet, same footage, same models:
+
+```
+                            before          after
+OS threads                     168        79, stable
+worker CPU              866% (1 sample)   ~656% (38-sample mean)
+memory                  3.2 GB, climbing  3.3 GB, flat
+detections/min                  79            202
+inference slots                  3              4
+models loaded per hour         ~180              4
+published 4K cameras     2160p60 24Mbps    1080p15
+```
+
+**Detections per minute rose 2.6x while CPU fell**, because the machine had
+been losing most of its work to context switching and to decoding pixels that
+were thrown away before inference.
+
+The resolution cap measured on its own, 4 slots either side, everything else
+identical:
+
+| | 4K sources | capped |
+|---|---|---|
+| detections/min | 124 | **202** |
+| worker memory | 4.1 GB | 3.3 GB |
+| **plate yield** | **34.1%** | **33.9%** |
+
+Yield is the figure that had to hold, since downscaling is the one change that
+could have cost legibility. It did not.
+
+**Two caveats, stated rather than buried.** The 866% "before" is a single
+`docker stats` sample against a 38-sample mean after; worker CPU swings between
+~230% and ~770% as cameras rotate, so thread count, memory trend and
+detections/min are the trustworthy comparisons. And overall plate yield moved
+38% → 34% across the whole exercise — that is the slot count changing which
+cameras rotate, not a regression, as the controlled comparison above shows.
+
+Pool health is in the periodic log line — `built` must settle at the slot count:
+
+```
+watching 3/51 camera(s): ... · models built 3, reused 18
+```
+
+### Slots are now bounded by memory, not CPU
+
+| slots | threads/model | CPU | memory | detections/min | cameras / 5 min |
+|---|---|---|---|---|---|
+| 3 | 2 | 574% | 2.7 GB | 150 | 10 |
+| **4** (new default) | 2 | 647% | 4.1 GB | 124 | 15 |
+| 6 | 1 | 589% | 6.8 GB | 133 | 27 |
+
+CPU and throughput are flat; only memory scales, at ~1.4 GB per slot. The
+default moved 3 → 4: free in CPU, safe in memory, and the floor of the PS's
+"4–6 feeds". Six reaches 6.8 GB against an 11.67 GB VM ceiling with ~2.7 GB
+already spent — that is where the OOM kills start, so Docker's memory
+allocation has to rise first.
+
+### Tests
+
+33 new — `test_runtime.py` (14), `test_pipeline_pool.py` (7) and
+`test_publisher.py` (12). ai-worker **61 → 82**; the simulator had **no tests
+at all** and now has 12, wired into `make test`. API 408 and frontend 40
+unchanged, `tsc` clean, ruff at the pre-existing baseline. The worker tests
+live in `services/ai-worker/tests/` and run in the shared API
+image, which meant `ailab.runtime` had to stay stdlib-only (no `rich`) and the
+pool had to take its factory by injection — the worker image has no pytest and
+the test image has no OpenCV, so anything reaching through `worker.py` would
+have run in neither.
+
+### GPU — what is actually possible
+
+`docs/GPU.md` records the matrix. Inside Docker on Apple Silicon the providers
+are exactly `['AzureExecutionProvider', 'CPUExecutionProvider']`, verified:
+Virtualization.framework passes no GPU to a Linux guest, so there is no setting
+that creates one. CoreML is reachable only by running the worker natively on
+macOS; CUDA needs an amd64 host with an NVIDIA card. Both paths are wired and
+neither is measured here.
+
+---
+
 # Known gaps (audited 9 Sep 2026)
 
 Recorded so no session mistakes these for done. Verified against the code, not the docs.
