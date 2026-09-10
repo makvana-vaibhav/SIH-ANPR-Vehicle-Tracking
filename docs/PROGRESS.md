@@ -2,7 +2,7 @@
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
-*Updated 9 Sep 2026 · P1 and P2 complete · **next task: P3, evidence crops in MinIO***
+*Updated 10 Sep 2026 · P1–P3 complete · **next task: P4, city traffic analytics***
 
 | Document | What it holds |
 |---|---|
@@ -30,9 +30,9 @@ And the immediate blocker is smaller than any of that: **the registry holds one 
 platform about connecting observations across cameras currently has nothing to connect.
 
 ```
-DONE     platform ──▶ ANPR ──▶ alerts ──▶ scale ──▶ P1 city fleet ──▶ P2 journey + playback
-NEXT     P3 crops ← start here
-THEN     P4 analytics ──▶ P5 anomaly ──▶ P6 harden                             (V1, ~2 weeks)
+DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops
+NEXT     P4 analytics ← start here
+THEN     P5 anomaly ──▶ P6 harden                                              (V1, ~2 weeks)
 LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
 ```
 
@@ -47,7 +47,7 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 | 3 | Same vehicle linked across cameras | 🟡 engine ready and linking real sightings; timing not yet plausible (see below) |
 | 4 | Vehicle journey + animated route | ✅ **profile + timeline playback** on the map |
 | 5 | Plate search | 🟡 exact and prefix only, no fuzzy |
-| 6 | Blacklist alert **with plate crop** | 🟡 alert fires; the crop cannot be shown |
+| 6 | Blacklist alert **with plate crop** | ✅ **alert fires by itself, with the plate crop** |
 | 7 | Trajectory anomaly + explanation | 🟡 a physics filter, not a detector |
 | 8 | City traffic analytics | 🔴 **absent — no router, no page** |
 
@@ -80,17 +80,14 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
    times; every "chart" today is a Tailwind div bar. → **P4**
 4. **Anomaly detection.** The six existing flags are a cloned-plate/OCR physics filter. Nothing
    compares a journey to a norm. `AlertType.ANOMALY` has zero producers. → **P5**
-5. **Evidence crops.** The alert cannot show a plate crop. → **P3**
 6. **A real accuracy number.** → **P7**
 
 ---
 
 ## 🔧 Known debt worth knowing before you touch anything
 
-- **Five `detections` columns are permanently NULL** — `vehicle_colour`, `crop_key`, `frame_key`,
-  `direction`, `speed_kmph`. Nothing produces them anywhere in pipeline, event or consumer.
-- **No MinIO client exists** anywhere in the repo — zero `put_object`/`boto3` hits. MinIO is config
-  and a health probe only.
+- **Four `detections` columns are permanently NULL** — `vehicle_colour`, `frame_key`, `direction`,
+  `speed_kmph`. (`crop_key` is populated as of P3.)
 - **`packages/contracts/` is one empty file.** The event is a hand-rolled dict, duplicated by hand in
   the load generator, with no validation on either side.
 - **`alerts` has no reasons/factors column**, so the "explainability rule" in CLAUDE.md cannot be
@@ -109,17 +106,27 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ---
 
-## ▶ Next step: P3 — evidence crops in MinIO
+## ▶ Next step: P4 — city traffic analytics
 
-Full definition and gate: [ROADMAP.md](ROADMAP.md#p3--evidence-crops-in-minio).
+Full definition and gate: [ROADMAP.md](ROADMAP.md#p4--city-traffic-analytics--biggest-missing-module).
 
-Bigger than it looks: **two failures stack, and no MinIO client exists anywhere in the
-repo** (zero `put_object`/`boto3` hits — MinIO is config plus a health probe). The worker
-also never writes crops at all, because `worker.py` builds `StreamRunner` with no `run_dir`
-and `_NullRunDir` discards them. And the lab's `save_crop` returns a filesystem path where
-`Detection.crop_key` wants an object key, so the two sides are not even type-compatible.
+The biggest missing module, and the only PS demo step with **nothing at all**
+behind it — no analytics router, no analytics page, no heatmap layer, and zero
+`time_bucket`/`date_trunc`/continuous aggregates anywhere. `recharts` is already
+a dependency and is imported zero times; every "chart" on screen today is a
+Tailwind div with a percentage width.
 
-**Gate:** a blacklist alert renders with a visible plate crop image.
+Build a new `analytics.py` router over the existing `detections` hypertable
+(density, corridor average speed, route density, travel time vs baseline,
+hotspots) and a new `Analytics.tsx` that actually uses recharts, plus a heatmap
+layer on the camera map.
+
+**Agree the response shapes before either track starts** — this is the one phase
+where backend and frontend touch the same thing.
+
+**Honesty rule:** every figure computed from observed rows. Where a baseline has
+too little history, the UI says "insufficient history" — never a plausible
+invented number.
 
 ---
 

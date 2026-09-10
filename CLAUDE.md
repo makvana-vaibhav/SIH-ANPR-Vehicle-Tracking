@@ -13,7 +13,7 @@ Read this before writing any code in this repository. It is the contract between
 > | this file | the rules you must follow |
 > | [BUILD_STATE.md](docs/BUILD_STATE.md) | what was already built, the evidence, and the audited gap list |
 >
-> **The current task is P3** (evidence crops in MinIO) unless docs/PROGRESS.md says otherwise.
+> **The current task is P4** (city traffic analytics) unless docs/PROGRESS.md says otherwise.
 > Do not start a phase whose gate you cannot run.
 >
 > **Three traps that have each cost real time already — do not rediscover them:**
@@ -373,7 +373,7 @@ stream gateway (WHEP/HLS, scoped tokens) · watchlist → alert → WebSocket ·
 | ~~Journey animation~~ | ✅ **Done (P2).** Timeline playback proportional to real elapsed time | — |
 | Trajectory anomaly detection | The six hop flags are a **physics filter**, not a detector. `AlertType.ANOMALY` has zero producers | P5 |
 | Alert reasons | `alerts` has **no** reasons/factors column | P5 |
-| Evidence crops | **No MinIO client exists**; the worker discards crops via `_NullRunDir`; `crop_key` always NULL | P3 |
+| ~~Evidence crops~~ | ✅ **Done (P3).** Worker uploads from the edge; only the key rides the bus; alerts render the crop | — |
 | Fuzzy search | The `pg_trgm` index exists and **nothing queries it**. OpenSearch runs and indexes nothing | P8 |
 | Attribute search | `vehicle_colour` never computed | P9 |
 | Predictive traffic | Nothing | P10 |
@@ -385,7 +385,7 @@ stream gateway (WHEP/HLS, scoped tokens) · watchlist → alert → WebSocket ·
 |---|---|---|
 | ~~`persist_route`~~ | ✅ **Done (P2).** Called by `route_history.snapshot` from the monitor daemon; its first run exposed that the function had never worked at all (`st_makeline(unknown) is not unique`) | — |
 | `packages/contracts/` | One empty `.gitkeep`. Event is a hand-rolled dict, duplicated by hand in `simulator/load_mode.py`, no validation either side | P12 |
-| Five `detections` columns | `vehicle_colour`, `crop_key`, `frame_key`, `direction`, `speed_kmph` — permanently NULL, no producer anywhere | P3, P9 |
+| Four `detections` columns | `vehicle_colour`, `frame_key`, `direction`, `speed_kmph` — permanently NULL, no producer anywhere (`crop_key` fixed in P3) | P9 |
 | Six real bugs | Listed in [BUILD_STATE.md](docs/BUILD_STATE.md) — two demo-visible, one silently loses data | P6 |
 | Sizing docs | `docs/INFRASTRUCTURE.md` §2 is **~4× optimistic** (treats a 4-thread worker as one core). `scripts/capacity_model.py` supersedes it | P12 |
 | `mypy` | 17 errors; `make lint` does not run it | P12 |

@@ -236,6 +236,8 @@ export interface Detection {
   bbox: BBox | null
   plate_bbox: BBox | null
   crop_key: string | null
+  /** Short-lived signed URL for the plate crop. See Alert.crop_url. */
+  crop_url: string | null
   reads_total: number | null
   agreement: number | null
   corrected_from: string | null
@@ -287,6 +289,13 @@ export interface Alert {
   acknowledged_by: string | null
   acknowledged_at: string | null
   notes: string | null
+  /**
+   * Short-lived signed URL for the plate crop of the detection that raised
+   * this alert. Null when there is no crop. May 404 briefly after a detection
+   * while the upload is still in flight, so render it with an onError that
+   * hides the image rather than showing a broken one.
+   */
+  crop_url: string | null
 }
 
 export interface AlertPage {
@@ -327,6 +336,18 @@ export interface LiveVehicleEvent {
     format: string
     bbox?: BBox | null
     evidence?: { reads_total?: number; agreement?: number; method?: string }
+  }
+  /**
+   * Crop evidence for this sighting. The worker publishes only the object
+   * `plate_crop` key — putting the JPEG on the bus would multiply event
+   * traffic tenfold — and the API signs `plate_crop_url` on the way out,
+   * because a browser can use neither a key nor an Authorization header on an
+   * `<img>`. Absent until the upload lands, and possibly never.
+   */
+  evidence?: {
+    plate_crop?: string | null
+    vehicle_crop?: string | null
+    plate_crop_url?: string | null
   }
   frame?: { width: number; height: number } | null
 }

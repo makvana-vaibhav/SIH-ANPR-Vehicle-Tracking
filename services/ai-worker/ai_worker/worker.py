@@ -26,6 +26,7 @@ from ailab.stream import SourceIdentity, StreamRunner, StreamUnavailable
 from ailab.stream.reader import redact
 
 from ai_worker.config import WorkerSettings
+from ai_worker.crops import MinioCropStore
 from ai_worker.discovery import (
     CameraStream,
     discover,
@@ -91,6 +92,11 @@ class AiWorker:
                 c.strip() for c in settings.ai_worker_pinned.split(",") if c.strip()
             ),
         )
+        # Evidence crops go straight from here to object storage; only the
+        # object key rides the event bus. Created once and shared by every
+        # camera thread, because it owns a bounded upload queue and its whole
+        # purpose is to keep that bounded.
+        self._crops = MinioCropStore()
         self._transport: str | None = None
         # Whether RTSP works to a given host, probed once. Which transport a
         # federated grid accepts is a property of this worker's network.
@@ -118,6 +124,9 @@ class AiWorker:
                     continue
         finally:
             await self._stop_all()
+            # Drain queued crops before the sink closes, so a clean shutdown
+            # does not throw away evidence that was already encoded.
+            self._crops.close()
             self.sink.close()
 
     async def _discover(self) -> list[CameraStream]:
@@ -279,7 +288,12 @@ class AiWorker:
     ) -> None:
         """One camera's inference loop. Runs on its own thread."""
         source = SourceIdentity(camera_id=stream.camera_code, name=stream.camera_code)
-        runner = StreamRunner(self._config_for(stream), source, self.sink)
+        # Passing a run_dir is what makes crops exist at all: without one the
+        # runner substitutes _NullRunDir and silently discards every crop, which
+        # is why Detection.crop_key was NULL for the life of the project.
+        runner = StreamRunner(
+            self._config_for(stream), source, self.sink, run_dir=self._crops
+        )
         try:
             # realtime=True: a live source sets the pace, and falling behind is
             # handled by dropping frames rather than by queueing them.

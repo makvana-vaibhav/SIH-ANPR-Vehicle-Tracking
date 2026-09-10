@@ -33,8 +33,8 @@ accurate as history. The work that remains is the **P1–P12** sequence, defined
 |---|---|---|---|
 | **P1** | Multi-camera Ahmedabad fleet | V1 | ✅ **complete** — 58 cameras, 51 live, gate passed |
 | **P2** | Journey profile + animated playback | V1 | ✅ **complete** — profile, speeds, playback, history |
-| **P3** | Evidence crops in MinIO | V1 | ⬜ **next — start here** |
-| **P4** | City traffic analytics | V1 | ⬜ not started |
+| **P3** | Evidence crops in MinIO | V1 | ✅ **complete** — crops upload, alerts show them |
+| **P4** | City traffic analytics | V1 | ⬜ **next — start here** |
 | **P5** | Trajectory anomaly + explainable alerts | V1 | ⬜ not started |
 | **P6** | Bug fixes, tests, demo hardening | V1 | ⬜ not started |
 | **P7** | Earn the >90% accuracy claim | V2 | ⬜ not started |
@@ -1406,6 +1406,93 @@ worth doing before the demo.
    of 3 it is stable but heavy: **855% CPU and 1.9 GB**. Raising `AI_WORKER_MAX_CAMERAS` on
    this hardware is not free, and the e2e watchlist test now targets the pinned camera so
    it does not depend on rotation luck.
+
+---
+
+## P3 — Evidence crops in MinIO  ✅
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p3--evidence-crops-in-minio).
+
+### What was built
+
+`Detection.crop_key` had been NULL for the life of the project, and three
+separate things had to be true before it could be anything else.
+
+- **`ai_worker/crops.py`** — a `MinioCropStore` that duck-types the lab's run
+  directory (`save_plate_crop(image, name) -> str`), so `ailab` needed no change
+  at all. The worker previously passed no `run_dir`, so the runner substituted
+  `_NullRunDir` and discarded every crop silently.
+- **`configs/stream.yaml`** had `save_plate_crops: false`. That was correct when
+  streaming meant latency measurement and crops meant JPEGs on disk; it meant the
+  crop code could never run. Now true, capped at 2 per track rather than the
+  batch default of 25. Vehicle crops stay off — several times the size, shown on
+  no screen.
+- **`api/services/evidence.py`** — signs a short-lived URL per crop.
+
+### Why the worker uploads, not the consumer
+
+Putting crop bytes on the event bus was the obvious alternative and would have
+broken the architecture's one load-bearing claim. A detection event is ~2 KB; a
+15 KB JPEG base64-encoded is ~20 KB, so crops on the bus multiply event traffic
+roughly tenfold and "the central tier carries events, not video" stops being
+true. Crops go from the edge straight to object storage; only the key travels.
+
+The upload is asynchronous but the key is not: `save_plate_crop` is called from
+inside the inference loop, on a worker measured at 855% CPU, so a blocking PUT
+there would add network latency to every frame that resolved a plate. The key is
+derived from camera, date and crop name — knowable before the bytes land — and
+two background threads drain a **bounded** queue. Bounded because an unbounded
+one grows until the worker is OOM-killed, which has already happened once and
+takes every camera down with it.
+
+### Gate output
+
+```
+blacklist a plate being read right now:  BG65USJ
+  watchlist add                          HTTP 201
+  ALERT BG65USJ · watchlist_hit · critical      (fired by itself)
+  crop_url                               PRESENT
+  crop fetches                           HTTP 200, 1977 bytes, image/jpeg
+```
+
+The fetched image is a legible plate reading **BG65 USJ** — the same plate the
+alert names. Verified twice, on `EY61NBG` and `BG65USJ`.
+
+Crops flowing: **68 of 193** detections in a two-minute window carried a key
+(crops are only saved for plates that were actually read, so this tracks the
+plate-read rate), 153 objects in the bucket at ~1.5–2.2 KiB each, zero upload
+failures logged.
+
+### Tests
+
+| Suite | Before P3 | After |
+|---|---|---|
+| API | 402 | **408 passed** (6 new: `test_evidence.py`) |
+| ai-worker | 54 | **61 passed** (7 new: `test_crops.py`) |
+| frontend | 40 | 40 passed, tsc clean |
+| ruff check | 4 pre-existing | 4 pre-existing |
+
+### Three things worth not rediscovering
+
+1. **SigV4 signs the `Host` header.** The first version signed against the
+   internal `minio:9000` and rewrote the host to `localhost:9000` for the
+   browser, which invalidates the signature — and fails as a 403 that looks
+   exactly like a missing image. Sign against the address the browser will
+   actually request; the signing client never connects, so an endpoint this
+   process cannot reach is fine. `test_evidence.py` pins this.
+2. **An `<img>` cannot send an Authorization header.** That is why the crop URL
+   is signed and returned inline rather than served from a protected endpoint,
+   and why `crop_url` appears on `DetectionOut`, `AlertOut` and the WebSocket
+   event. Presigning does no I/O — it is an HMAC — so signing a page of 200
+   alerts costs microseconds, where a `head_object` per row would cost 200 round
+   trips.
+3. **Tests must run where the code does.** `crops.py` imported `cv2` and
+   `ailab.logging` at module scope; the shared test image (the API container)
+   carries neither, so the whole test file was uncollectable. Worse, the
+   worker image has no pytest, so tests needing real OpenCV would have run in
+   **neither** image. The encoder and the thread count are now injected, which
+   leaves the behaviour that matters — key format, bounded queue, never
+   returning a key for a dropped crop — testable everywhere.
 
 ---
 
