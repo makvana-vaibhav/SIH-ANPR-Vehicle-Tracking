@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import AlertStatus, Priority
+from app.services import evidence as evidence_service
 
 
 def normalise_plate(value: str) -> str:
@@ -89,6 +90,11 @@ class AlertOut(BaseModel):
     acknowledged_by: uuid.UUID | None
     acknowledged_at: datetime | None
     notes: str | None
+    #: Signed URL for the plate crop of the detection that raised this alert.
+    #: The PS asks an alert to show the plate crop, and an operator confirming a
+    #: blacklist hit needs to see the vehicle rather than trust a string.
+    #: Resolved from the detection, because `alerts` stores no crop of its own.
+    crop_url: str | None = None
 
 
 class AlertTransition(BaseModel):
@@ -140,6 +146,11 @@ class DetectionOut(BaseModel):
     bbox: dict[str, Any] | None
     plate_bbox: dict[str, Any] | None
     crop_key: str | None
+    #: Short-lived signed URL for the plate crop, or None when the detection
+    #: has no crop. Signed rather than proxied so an <img> can fetch it without
+    #: an Authorization header it cannot send; see app/services/evidence.py.
+    #: May 404 briefly after a detection while the upload is still in flight.
+    crop_url: str | None = None
 
     # ── evidence ──
     reads_total: int | None
@@ -167,6 +178,7 @@ class DetectionOut(BaseModel):
             bbox=row.bbox,
             plate_bbox=row.plate_bbox,
             crop_key=row.crop_key,
+            crop_url=evidence_service.crop_url(row.crop_key),
             reads_total=evidence.get("reads_total"),
             agreement=evidence.get("agreement"),
             corrected_from=raw.get("corrected_from"),

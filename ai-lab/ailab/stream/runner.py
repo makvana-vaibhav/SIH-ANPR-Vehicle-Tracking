@@ -108,12 +108,28 @@ class StreamRunner:
         source: SourceIdentity,
         sink: EventSink,
         run_dir: RunDirectory | None = None,
+        pipeline: Pipeline | None = None,
     ) -> None:
+        """`pipeline` lets a caller supply models that are already loaded.
+
+        A supervisor that rotates cameras through a fixed set of slots builds a
+        runner per camera but wants the five ONNX sessions to outlive it —
+        loading them costs ~500 ms and, more importantly, each carries a native
+        thread pool and arena that are only released when the object is
+        collected. Passed one, this runner borrows it and resets its per-run
+        counters; the caller owns its lifetime and must not share one between
+        two runners at the same time, because inference state is not
+        thread-safe.
+        """
         self.config = config
         self.source = source
         self.sink = sink
         self.run_dir = run_dir
-        self.pipeline = Pipeline(config)
+        if pipeline is None:
+            self.pipeline = Pipeline(config)
+        else:
+            pipeline.reset_run_state()
+            self.pipeline = pipeline
         self.timer: StageTimer = self.pipeline.timer
         self.stats = StreamStats()
 

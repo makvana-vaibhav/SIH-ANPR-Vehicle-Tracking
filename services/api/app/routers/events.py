@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
 from app.core.logging import get_logger
 from app.core.security import TokenError, TokenPayload, decode_token
 from app.services.event_bus import broadcaster
+from app.services.evidence import crop_url
 from app.services.token_store import is_revoked
 
 log = get_logger("events")
@@ -57,6 +59,31 @@ async def _authorise(token: str | None) -> TokenPayload | None:
     return payload
 
 
+def _with_crop_url(event: dict[str, Any]) -> dict[str, Any]:
+    """Add a signed crop URL to an event that carries a crop key.
+
+    The worker publishes the object *key*, because putting the JPEG on the bus
+    would multiply event traffic tenfold and break the "events, not video"
+    claim. The browser cannot use a key, and cannot send an Authorization
+    header from an `<img>` either, so the URL is signed here on the way out.
+
+    Signing performs no I/O — it is an HMAC — so this costs microseconds per
+    event and does not slow the feed. The event is copied rather than mutated
+    because the same dict is fanned out to every subscriber.
+    """
+    evidence = event.get("evidence")
+    if not isinstance(evidence, dict):
+        return event
+    key = evidence.get("plate_crop") or evidence.get("vehicle_crop")
+    if not key:
+        return event
+
+    url = crop_url(key)
+    if not url:
+        return event
+    return {**event, "evidence": {**evidence, "plate_crop_url": url}}
+
+
 @router.websocket("/ws/events")
 async def event_feed(websocket: WebSocket, token: str | None = Query(default=None)) -> None:
     claims = await _authorise(token)
@@ -85,7 +112,7 @@ async def event_feed(websocket: WebSocket, token: str | None = Query(default=Non
                 # culled by something in the middle.
                 await websocket.send_json({"event": "keepalive"})
                 continue
-            await websocket.send_json(event)
+            await websocket.send_json(_with_crop_url(event))
     except WebSocketDisconnect:
         log.info("events.disconnected", user=subject)
     except (RuntimeError, ConnectionError) as exc:

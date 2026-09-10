@@ -307,6 +307,96 @@ class TestTheFullJourney:
         assert self._four_hop().duration_s == 3 * 3600.0
 
 
+class TestJourneySpeed:
+    """Route-level speed — the PS's Vehicle Profile asks for an average.
+
+    Nothing in the system computed one before: the only speed anywhere was
+    per-leg `implied_kmph`.
+    """
+
+    def test_a_single_sighting_has_no_speed(self) -> None:
+        """One sighting is a position, not a journey.
+
+        None rather than 0.0, because "0 km/h" is a claim about a stationary
+        vehicle and we know nothing of the kind.
+        """
+        route = route_of(sighting(RAJKOT, "RJT", T0))
+
+        assert route.average_kmph is None
+        assert route.moving_kmph is None
+
+    def test_average_is_distance_over_elapsed(self) -> None:
+        route = route_of(
+            sighting(RAJKOT, "RJT", T0),
+            sighting(GONDAL, "GND", T0 + timedelta(hours=1)),
+        )
+
+        expected = route.distance_m / route.duration_s * 3.6
+        assert route.average_kmph == round(expected, 1)
+        # Rajkot to Gondal is ~38 km, so an hour of it is a road speed.
+        assert 30 <= route.average_kmph <= 60
+
+    def test_average_is_a_road_speed_across_the_corridor(self) -> None:
+        route = route_of(
+            sighting(RAJKOT, "RJT", T0),
+            sighting(GONDAL, "GND", T0 + timedelta(minutes=45)),
+            sighting(JETPUR, "JTP", T0 + timedelta(minutes=75)),
+            sighting(JUNAGADH, "JND", T0 + timedelta(minutes=120)),
+        )
+
+        assert route.average_kmph is not None
+        assert 20 <= route.average_kmph <= 120, route.average_kmph
+
+    def test_dwell_drags_the_average_below_the_moving_speed(self) -> None:
+        """The distinction the two figures exist for.
+
+        A vehicle that drove for 30 minutes and then sat at a junction for 90
+        was not travelling at its journey average, and an operator judging
+        whether a journey looks normal has to be able to tell those apart.
+        """
+        route = route_of(
+            sighting(RAJKOT, "RJT", T0),
+            # Arrives after 30 minutes...
+            sighting(GONDAL, "GND", T0 + timedelta(minutes=30)),
+            # ...and is still sitting at that same camera two hours in.
+            sighting(GONDAL, "GND", T0 + timedelta(minutes=120)),
+        )
+
+        assert route.average_kmph is not None
+        assert route.moving_kmph is not None
+        assert route.moving_kmph > route.average_kmph
+        # Moving time is the 30-minute leg; total elapsed is two hours.
+        assert route.moving_s < route.duration_s
+
+    def test_speeds_are_lower_bounds_not_estimates(self) -> None:
+        """Straight-line distance under-states the road driven, so the speed
+        derived from it under-states the speed driven. The API says so."""
+        route = route_of(
+            sighting(RAJKOT, "RJT", T0),
+            sighting(JUNAGADH, "JND", T0 + timedelta(hours=2)),
+        )
+        body = route.to_dict()
+
+        assert body["average_kmph"] == route.average_kmph
+        assert body["moving_kmph"] == route.moving_kmph
+        assert "lower bound" in body["geometry_note"]
+        assert "dwell" in body["geometry_note"]
+
+    def test_simultaneous_sightings_yield_no_average(self) -> None:
+        """Two cameras at the same instant give zero elapsed time.
+
+        This is the shape a cloned plate produces, and it must not divide by
+        zero or report an infinite speed.
+        """
+        route = route_of(
+            sighting(RAJKOT, "RJT", T0),
+            sighting(JUNAGADH, "JND", T0),
+        )
+
+        assert route.duration_s == 0.0
+        assert route.average_kmph is None
+
+
 class TestGeoJson:
     def test_the_shape_is_valid_geojson(self) -> None:
         route = route_of(

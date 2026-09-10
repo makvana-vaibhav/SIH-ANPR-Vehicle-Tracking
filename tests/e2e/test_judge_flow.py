@@ -25,6 +25,9 @@ import httpx
 import pytest
 
 API = os.environ.get("NAGARNETRA_API", "http://localhost:8000")
+
+#: The camera the AI worker never rotates away from, so it is always reading.
+PINNED_CAMERA = os.environ.get("AI_WORKER_PINNED", "CAM-DEMO")
 ADMIN_PW = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "NagarNetra@2026")
 
 pytestmark = pytest.mark.asyncio
@@ -167,7 +170,20 @@ class TestMomentThree:
         # the most frequent plate picks one the pipeline keeps seeing, which is
         # the difference between testing the alert chain and testing whether a
         # particular car came back.
-        counts = Counter(
+        #
+        # Restricted to the pinned demonstration camera, and that restriction is
+        # what makes this test deterministic. The worker watches a bounded number
+        # of cameras and rotates the rest through those slots; with a 51-camera
+        # city fleet a full revisit cycle is longer than this test's 180 s wait,
+        # so a plate from a rotating camera may simply not be looked at again in
+        # time. CAM-DEMO is pinned (AI_WORKER_PINNED) and therefore always being
+        # read, which is also exactly the camera the demo script puts on screen.
+        demo_plates = Counter(
+            item["plate"]
+            for item in recent["items"]
+            if item.get("plate") and item.get("camera_code") == PINNED_CAMERA
+        )
+        counts = demo_plates or Counter(
             item["plate"] for item in recent["items"] if item.get("plate")
         )
         if not counts:

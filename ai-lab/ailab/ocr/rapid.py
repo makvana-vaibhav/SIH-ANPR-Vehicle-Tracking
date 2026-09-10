@@ -31,6 +31,7 @@ from typing import Any
 
 import numpy as np
 
+from ailab import runtime
 from ailab.config import OcrConfig
 from ailab.logging import get_logger
 from ailab.ocr.base import OcrEngine, OcrResult
@@ -45,7 +46,23 @@ class RapidOcrEngine(OcrEngine):
         from rapidocr_onnxruntime import RapidOCR
 
         self.config = config
-        self._engine = RapidOCR()
+        # RapidOCR builds three ONNX sessions (detection, classification,
+        # recognition) and its shipped config leaves all three at
+        # `intra_op_num_threads: -1`, which is ONNX Runtime's "one thread per
+        # core". Unset, that is three thread pools of ten *per camera*, and the
+        # worker runs one pipeline per camera: measured 168 OS threads on a
+        # 10-core host, 866% CPU, load average 18.8, and a UI that hung because
+        # nothing was left to render it.
+        #
+        # It does not even buy latency. Measured here on one plate crop:
+        # 132.6 ms of CPU per call at the default for a 14.3 ms answer, against
+        # 23.6 ms of CPU for an 11.8 ms answer at two threads — 5.6x the CPU to
+        # be slower. These are small models and they stop scaling early.
+        #
+        # RapidOCR propagates these two Global keys down to all three stages.
+        threads = runtime.threads_per_model()
+        self._engine = RapidOCR(intra_op_num_threads=threads, inter_op_num_threads=1)
+        self._threads = threads
         self._allow = re.compile(f"[^{re.escape(config.allowlist)}]")
 
     def _clean(self, text: str) -> str:
@@ -179,6 +196,7 @@ class RapidOcrEngine(OcrEngine):
             "version": getattr(rapidocr_onnxruntime, "__version__", "unknown"),
             "char_level_confidence": False,
             "allowlist": self.config.allowlist,
+            "intra_op_threads": self._threads,
             "strategy": (
                 "recognition-first; text detection only as a fallback "
                 "(detection measured at 18x the cost for the same result)"

@@ -238,6 +238,16 @@ export default function VehicleSearch() {
 
             {route.hop_count > 0 && (
               <>
+                {/* First and last seen were already in the API payload and in
+                    the TS type, and were rendered on no screen — so the one
+                    question an operator asks first ("when was it about?") had
+                    no answer in the product. */}
+                {route.first_seen && (
+                  <Stat label="First seen" value={api.formatIST(route.first_seen, false)} />
+                )}
+                {route.last_seen && (
+                  <Stat label="Last seen" value={api.formatIST(route.last_seen, false)} />
+                )}
                 {route.camera_count > 1 && (
                   <Stat
                     label="Straight-line"
@@ -246,6 +256,20 @@ export default function VehicleSearch() {
                   />
                 )}
                 <Stat label="Elapsed" value={duration(route.duration_s)} />
+                {route.average_kmph !== null && (
+                  <Stat
+                    label="Average speed"
+                    value={`≥ ${route.average_kmph} km/h`}
+                    hint={
+                      'First sighting to last, so it includes time parked at a junction. ' +
+                      'Distances are straight-line. Both push this down, so the real ' +
+                      'average is at least this.' +
+                      (route.moving_kmph !== null && route.moving_kmph !== route.average_kmph
+                        ? ` Excluding dwell: ≥ ${route.moving_kmph} km/h.`
+                        : '')
+                    }
+                  />
+                )}
                 <Stat
                   label="Confidence"
                   value={route.confidence.toFixed(2)}

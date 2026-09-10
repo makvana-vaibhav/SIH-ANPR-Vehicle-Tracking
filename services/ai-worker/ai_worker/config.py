@@ -25,6 +25,13 @@ class WorkerSettings(BaseSettings):
     mediamtx_rtsp_port: int = 8554
     mediamtx_api_url: str = "http://mediamtx:9997"
 
+    # ── Object storage for evidence crops ──
+    minio_endpoint: str = "minio:9000"
+    minio_root_user: str = "nagarnetra"
+    minio_root_password: str = ""
+    minio_bucket: str = "nagarnetra-media"
+    minio_secure: bool = False
+
     # ── which cameras this worker owns ──
     #
     # Cameras are split across workers by a stable hash of the camera code, so

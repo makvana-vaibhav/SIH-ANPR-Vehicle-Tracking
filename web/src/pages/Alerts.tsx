@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import PlateCrop from '@/components/PlateCrop'
 import { SkeletonRows } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
 import { useAuth } from '@/hooks/useAuth'
@@ -285,6 +286,11 @@ export default function Alerts() {
                       <span className="font-mono text-lg font-bold tracking-wide">
                         {alert.plate_normalised ?? '—'}
                       </span>
+                      {/* The photograph the alert is about. An operator acting
+                          on a blacklist hit is being asked to trust a string
+                          read off a moving vehicle; showing the pixels it came
+                          from is what makes that judgement possible. */}
+                      <PlateCrop url={alert.crop_url} plate={alert.plate_normalised} />
                       <span className="text-[11px] uppercase text-muted-foreground">
                         {alert.alert_type.replace(/_/g, ' ')}
                       </span>

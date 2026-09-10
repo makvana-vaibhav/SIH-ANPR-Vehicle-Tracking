@@ -125,7 +125,10 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
-    contact={"name": "NagarNetra", "url": "https://github.com/makvana-vaibhav/SIH-ANPR-Vehicle-Tracking"},
+    contact={
+        "name": "NagarNetra",
+        "url": "https://github.com/makvana-vaibhav/SIH-ANPR-Vehicle-Tracking",
+    },
     license_info={"name": "Apache-2.0"},
 )
 

@@ -10,7 +10,6 @@ this at a plate model or a COCO model and it configures itself.
 from __future__ import annotations
 
 import ast
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from typing import Any
 import numpy as np
 import onnxruntime as ort
 
+from ailab import runtime
 from ailab.detect.postprocess import batched_nms, decode_yolo_output, letterbox, undo_letterbox
 from ailab.logging import get_logger
 
@@ -30,42 +30,58 @@ log = get_logger(__name__)
 # more time synchronising than computing, and the library's default of
 # one-thread-per-core is the worst setting available — 3.6x slower than the
 # best. Left alone, this silently dominates every timing the lab reports.
-DEFAULT_INTRA_THREADS = 4
+DEFAULT_INTRA_THREADS = runtime.MAX_THREADS_PER_MODEL
 
 
 def resolve_threads(requested: int) -> int:
-    """Intra-op thread count. 0 means 'choose sensibly', not 'let ORT decide'."""
-    if requested > 0:
-        return requested
+    """Intra-op thread count. 0 means 'choose sensibly', not 'let ORT decide'.
 
-    override = os.environ.get("AILAB_ORT_THREADS")
-    if override and override.isdigit() and int(override) > 0:
-        return int(override)
-
-    available = (
-        len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity")
-        else (os.cpu_count() or 1)
-    )
-    return max(1, min(DEFAULT_INTRA_THREADS, available))
+    Delegated to `ailab.runtime`, which divides one process-wide budget across
+    however many pipelines are running. Capping per model but not per process
+    was the original bug: four threads is right for one camera and three times
+    too many when three cameras each believe they are the only one.
+    """
+    return runtime.threads_per_model(requested)
 
 
 def select_providers(device: str = "auto") -> list[str]:
-    """Choose execution providers, preferring GPU when one is genuinely there.
+    """Choose execution providers, preferring an accelerator when one is real.
 
-    On Apple Silicon there is no CUDA passthrough to containers, so this
-    resolves to CPU here. The CUDA path is real and is exercised on amd64
-    hosts; it is never *claimed* as measured on this machine.
+    ## What is actually available where
+
+    **Docker on Apple Silicon: nothing.** Virtualisation.framework passes no
+    GPU to a Linux guest, so a container on this Mac reports exactly
+    `['AzureExecutionProvider', 'CPUExecutionProvider']` — verified, not
+    assumed. There is no configuration that changes this and no point looking
+    for one; `docs/GPU.md` records the whole matrix.
+
+    **macOS natively: CoreML**, which reaches the GPU and the Neural Engine.
+    Available only when the worker runs outside Docker on the host, because
+    that is where the Apple frameworks are.
+
+    **amd64 with an NVIDIA card: CUDA**, needing `onnxruntime-gpu` and the
+    NVIDIA container toolkit. This is the deployment path in
+    `scripts/capacity_model.py --gpu-speedup`.
+
+    An explicit `cuda` or `coreml` raises when the provider is missing rather
+    than quietly running on CPU: a GPU deployment that silently falls back is a
+    capacity plan that is wrong by an order of magnitude and says nothing.
+    `auto` takes the best present and is what the demo runs.
     """
     installed = list(ort.get_available_providers())
     if device == "cpu":
         return ["CPUExecutionProvider"]
-    if device == "cuda":
-        if "CUDAExecutionProvider" not in installed:
+
+    explicit = {"cuda": "CUDAExecutionProvider", "coreml": "CoreMLExecutionProvider"}
+    if device in explicit:
+        wanted = explicit[device]
+        if wanted not in installed:
             raise RuntimeError(
-                "device='cuda' requested but onnxruntime has no CUDAExecutionProvider. "
-                f"Installed: {installed}. Install onnxruntime-gpu, or use device=auto."
+                f"device={device!r} requested but onnxruntime has no {wanted}. "
+                f"Installed: {installed}. See docs/GPU.md — inside Docker on Apple "
+                f"Silicon no accelerator exists, so use device='auto'."
             )
-        return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        return [wanted, "CPUExecutionProvider"]
 
     preferred = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
     return [p for p in preferred if p in installed] or ["CPUExecutionProvider"]
@@ -91,6 +107,11 @@ class OnnxYoloModel:
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         opts.intra_op_num_threads = resolve_threads(intra_threads)
+        # One inter-op thread. That pool parallelises independent *branches* of
+        # a graph, and a YOLO backbone is a chain — so the extra threads find
+        # nothing to run and are pure scheduler load on a box already carrying
+        # one pipeline per camera.
+        opts.inter_op_num_threads = 1
 
         self.providers = select_providers(device)
         self.session = ort.InferenceSession(str(path), opts, providers=self.providers)
