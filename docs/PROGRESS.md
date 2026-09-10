@@ -2,7 +2,8 @@
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
-*Updated 9 Sep 2026 · after a full code audit · **next task: P1, the Ahmedabad fleet***
+*Updated 10 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
+**next task: P4, city traffic analytics***
 
 | Document | What it holds |
 |---|---|
@@ -26,13 +27,22 @@ But of the PS's **8 demo steps: 2 work, 4 are partial, 2 do not exist.** There i
 analytics router and no analytics page. Trajectory anomaly detection is an enum value with zero
 producers. Predictive traffic, attribute search and re-identification do not exist.
 
-And the immediate blocker is smaller than any of that: **the registry holds one camera.** A
-platform about connecting observations across cameras currently has nothing to connect.
+*(That last paragraph described the state before P1. The registry now holds 58 Ahmedabad
+cameras; see BUILD_STATE P1.)*
+
+**The worker no longer starves the machine.** It was taking 866% CPU and 168 threads on a
+10-core host, which is why camera tiles hung — nothing was left to render them. One thread
+budget divided across cameras, plus a pipeline pool that stops rotation leaking a thread pool
+per camera change, took it to ~570% and **doubled** detections/min (79 → ~150). Slots are now
+capped by memory rather than CPU, so the default moved 3 → 4. Details and knobs in
+[PERFORMANCE.md](PERFORMANCE.md); the GPU question is answered in [GPU.md](GPU.md) — inside
+Docker on Apple Silicon there is none, and no setting creates one.
 
 ```
-DONE     platform ──▶ ANPR ──▶ watchlist alerts ──▶ trajectory engine ──▶ scale proof
-NEXT     P1 fleet ← start here
-THEN     P2 journey ──▶ P3 crops ──▶ P4 analytics ──▶ P5 anomaly ──▶ P6 harden   (V1, ~2 weeks)
+DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops
+         └─ plus: worker CPU budget + pipeline pool (unplanned, 10 Sep)
+NEXT     P4 analytics ← start here
+THEN     P5 anomaly ──▶ P6 harden                                              (V1, ~2 weeks)
 LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
 ```
 
@@ -42,12 +52,12 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 | # | Step | State |
 |---|---|---|
-| 1 | Live multi-camera detection (4–6 feeds) | 🔴 **one camera in the registry** |
+| 1 | Live multi-camera detection (4–6 feeds) | ✅ **51 cameras live** on 12 real Ahmedabad corridors |
 | 2 | ANPR: plate, confidence, camera, time | ✅ works — 9 fps, p90 266 ms, 0.70–0.94 confidence |
-| 3 | Same vehicle linked across cameras | 🟡 engine ready, nothing to link between |
-| 4 | Vehicle journey + animated route | 🟡 no average speed, no playback |
+| 3 | Same vehicle linked across cameras | 🟡 engine ready and linking real sightings; timing not yet plausible (see below) |
+| 4 | Vehicle journey + animated route | ✅ **profile + timeline playback** on the map |
 | 5 | Plate search | 🟡 exact and prefix only, no fuzzy |
-| 6 | Blacklist alert **with plate crop** | 🟡 alert fires; the crop cannot be shown |
+| 6 | Blacklist alert **with plate crop** | ✅ **alert fires by itself, with the plate crop** |
 | 7 | Trajectory anomaly + explanation | 🟡 a physics filter, not a detector |
 | 8 | City traffic analytics | 🔴 **absent — no router, no page** |
 
@@ -76,26 +86,18 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ## ⏳ What is missing, in priority order
 
-1. **A fleet.** One camera. Blocks steps 1, 3, 4, 7 and 8. → **P1**
 2. **Traffic analytics.** No router, no page, no heatmap. `recharts` is a dependency imported zero
    times; every "chart" today is a Tailwind div bar. → **P4**
-3. **Journey completeness.** No route-level average speed anywhere; `first_seen`/`last_seen` are
-   fetched but never rendered; no animation. → **P2**
 4. **Anomaly detection.** The six existing flags are a cloned-plate/OCR physics filter. Nothing
    compares a journey to a norm. `AlertType.ANOMALY` has zero producers. → **P5**
-5. **Evidence crops.** The alert cannot show a plate crop. → **P3**
 6. **A real accuracy number.** → **P7**
 
 ---
 
 ## 🔧 Known debt worth knowing before you touch anything
 
-- **Five `detections` columns are permanently NULL** — `vehicle_colour`, `crop_key`, `frame_key`,
-  `direction`, `speed_kmph`. Nothing produces them anywhere in pipeline, event or consumer.
-- **`persist_route` is dead code**, never called, so `vehicle_tracks` is never written. There is no
-  journey history to learn anomaly baselines from. P2 wires it.
-- **No MinIO client exists** anywhere in the repo — zero `put_object`/`boto3` hits. MinIO is config
-  and a health probe only.
+- **Four `detections` columns are permanently NULL** — `vehicle_colour`, `frame_key`, `direction`,
+  `speed_kmph`. (`crop_key` is populated as of P3.)
 - **`packages/contracts/` is one empty file.** The event is a hand-rolled dict, duplicated by hand in
   the load generator, with no validation on either side.
 - **`alerts` has no reasons/factors column**, so the "explainability rule" in CLAUDE.md cannot be
@@ -114,26 +116,27 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ---
 
-## ▶ Next step: P1 — the Ahmedabad fleet
+## ▶ Next step: P4 — city traffic analytics
 
-Full definition and gate: [docs/ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
+Full definition and gate: [ROADMAP.md](ROADMAP.md#p4--city-traffic-analytics--biggest-missing-module).
 
-In short: generate 60–80 cameras along real Ahmedabad arterials from OSM geometry, snapping each one
-onto an actual road vertex; port ffmpeg copy-mode into the simulator publisher so the whole fleet can
-stream on one laptop; seed so every camera has a resolving stream URL; replay footage with time
-offsets so plates appear at successive cameras.
+The biggest missing module, and the only PS demo step with **nothing at all**
+behind it — no analytics router, no analytics page, no heatmap layer, and zero
+`time_bucket`/`date_trunc`/continuous aggregates anywhere. `recharts` is already
+a dependency and is imported zero times; every "chart" on screen today is a
+Tailwind div with a percentage width.
 
-**Two traps, both already paid for once:**
+Build a new `analytics.py` router over the existing `detections` hypertable
+(density, corridor average speed, route density, travel time vs baseline,
+hotspots) and a new `Analytics.tsx` that actually uses recharts, plus a heatmap
+layer on the camera map.
 
-- Do **not** set a simulator-published camera's `stream_url` to the gateway's own URL. `gateway.py`
-  registers a MediaMTX *pull* path from `stream_url`, so MediaMTX ends up pulling a path from
-  itself, loops, and blocks publishing.
-- Do **not** seed cameras without a stream source. That was the fiction commit `4d0346f` deleted —
-  251 of 281 cameras that could never produce a detection, making every count on every screen
-  meaningless.
+**Agree the response shapes before either track starts** — this is the one phase
+where backend and frontend touch the same thing.
 
-**Gate:** ≥40 cameras online · ≥6 live feeds · one plate on ≥3 distinct cameras · reached by
-`make demo` from empty volumes.
+**Honesty rule:** every figure computed from observed rows. Where a baseline has
+too little history, the UI says "insufficient history" — never a plausible
+invented number.
 
 ---
 

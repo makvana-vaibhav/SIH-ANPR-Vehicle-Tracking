@@ -266,9 +266,9 @@ async def gap_analysis(session: AsyncSession, *, hours: int = 24) -> dict[str, A
                 }
             )
 
-    # ── Coverage: districts of Gujarat with no cameras at all ────────
+    # ── Coverage: city talukas with no cameras at all ────────────────
     covered = {d for d, *_ in district_rows if d}
-    uncovered = sorted(GUJARAT_DISTRICTS - covered)
+    uncovered = sorted(CITY_TALUKAS - covered)
 
     # ── Reliability: cameras that flap ───────────────────────────────
     flapping_rows = (
@@ -341,40 +341,23 @@ async def gap_analysis(session: AsyncSession, *, hours: int = 24) -> dict[str, A
     }
 
 
-#: Gujarat's 33 districts, matching data/seed/gujarat_districts.geojson. Used to
-#: report districts with no camera presence at all.
-GUJARAT_DISTRICTS: set[str] = {
-    "Ahmedabad",
-    "Amreli",
-    "Anand",
-    "Aravalli",
-    "Banaskantha",
-    "Bharuch",
-    "Bhavnagar",
-    "Botad",
-    "Chhota Udaipur",
-    "Dahod",
-    "Dang",
-    "Devbhoomi Dwarka",
-    "Gandhinagar",
-    "Gir Somnath",
-    "Jamnagar",
-    "Junagadh",
-    "Kachchh",
-    "Kheda",
-    "Mahisagar",
-    "Mehsana",
-    "Morbi",
-    "Narmada",
-    "Navsari",
-    "Panchmahal",
-    "Patan",
-    "Porbandar",
-    "Rajkot",
-    "Sabarkantha",
-    "Surat",
-    "Surendranagar",
-    "Tapi",
-    "Vadodara",
-    "Valsad",
+#: The talukas that make up Ahmedabad city and its immediate fringe, matching
+#: what `scripts/generate_ahmedabad_cameras.py` writes into `Camera.district`
+#: and what `data/seed/ahmedabad_talukas.geojson` draws.
+#:
+#: Talukas rather than AMC's 48 numbered wards because the wards are simply not
+#: mapped in OpenStreetMap — admin_level 8, 9 and 10 are all empty inside the
+#: city — whereas the talukas have real, fetchable boundaries.
+#:
+#: This is what makes a coverage gap meaningful: a taluka with no camera is a
+#: part of the city the platform genuinely cannot see, and naming it is more
+#: useful to a planner than any aggregate percentage.
+CITY_TALUKAS: set[str] = {
+    "Asarva",
+    "Daskroi",
+    "Ghatlodiya",
+    "Maninagar",
+    "Sabarmati",
+    "Vatva",
+    "Vejalpur",
 }

@@ -37,3 +37,10 @@ tqdm==4.67.1
 # ── platform integration ──
 redis==5.2.1
 httpx==0.28.1
+
+# Evidence crops go from the edge straight to object storage, so only the object
+# key travels on the event bus. The official MinIO SDK rather than boto3: it is
+# a fraction of the size, and this image is deliberately torch-free and lean
+# (CLAUDE.md deviation 3). The API tier uses aioboto3, which is async and suits
+# an event loop; this side uploads from a background thread and does not need it.
+minio==7.2.12

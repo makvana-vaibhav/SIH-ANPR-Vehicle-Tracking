@@ -13,7 +13,7 @@ Read this before writing any code in this repository. It is the contract between
 > | this file | the rules you must follow |
 > | [BUILD_STATE.md](docs/BUILD_STATE.md) | what was already built, the evidence, and the audited gap list |
 >
-> **The current task is P1** (the Ahmedabad fleet) unless docs/PROGRESS.md says otherwise.
+> **The current task is P4** (city traffic analytics) unless docs/PROGRESS.md says otherwise.
 > Do not start a phase whose gate you cannot run.
 >
 > **Three traps that have each cost real time already — do not rediscover them:**
@@ -24,6 +24,14 @@ Read this before writing any code in this repository. It is the contract between
 >    precisely because they made every count on every screen meaningless.
 > 3. `make ai` is required for any ANPR work — the worker sits behind the `ai` compose profile, so
 >    plain `make up` starts no AI at all and the pipeline looks broken when it is merely absent.
+> 4. Never construct an inference session without going through `ailab.runtime`. The worker runs
+>    one pipeline **per camera**, so a session that takes ONNX Runtime's default thread count
+>    multiplies by the camera count: measured 168 threads and 866% CPU on a 10-core box, which
+>    starves the browser and presents as "cameras won't load". Never set `AILAB_ORT_THREADS` in
+>    compose — it bypasses the division. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+> 5. There is **no GPU inside Docker on Apple Silicon** — providers are exactly
+>    `['AzureExecutionProvider', 'CPUExecutionProvider']` and no setting changes that. Before
+>    spending time on it, read [docs/GPU.md](docs/GPU.md).
 
 > **Lineage.** This codebase began as *Sentinel-GJ*, a **statewide** Gujarat Police CCTV
 > federation platform. It was renamed and re-aimed at **SIH26127**, a **city-wide** vehicle
@@ -248,9 +256,16 @@ asserting the rows appear.
 Developed on **macOS arm64 (Apple Silicon)**, 10 cores / 16 GB RAM. These are not preferences,
 they are constraints discovered by probing:
 
-- **No CUDA.** Apple Silicon does not pass a GPU to Linux containers. The AI pipeline runs CPU-only
-  here. GPU code paths exist and are unit-tested, but any GPU number in the docs is labelled
-  *extrapolated*, never *measured*.
+- **No CUDA, and no accelerator of any kind in a container.** Virtualization.framework passes no
+  GPU to a Linux guest, so onnxruntime inside the worker reports exactly
+  `['AzureExecutionProvider', 'CPUExecutionProvider']` — verified, not assumed. CoreML exists only
+  when the worker runs natively on macOS; CUDA needs an amd64 host with an NVIDIA card. Both paths
+  are wired (`device: auto|cpu|cuda|coreml`) and neither is measured here, so any GPU number in the
+  docs is labelled *extrapolated*. Full matrix in [docs/GPU.md](docs/GPU.md).
+- **CPU is shared, and the worker must be told so.** One pipeline runs per camera, each with five
+  ONNX sessions. `ailab.runtime` divides a single process-wide budget (`cores - 2`) across the
+  concurrent cameras; sessions built outside it take one thread per core each and saturate the
+  machine. Slot count is capped by **memory** (~1.4 GB per slot), not CPU.
 - **`postgis/postgis` has no arm64 build.** We use `timescale/timescaledb-ha:*-all`, which ships
   PostGIS **and** TimescaleDB in one arm64 image. Migration 0001 asserts both extensions exist.
 - **PaddlePaddle publishes no aarch64 Linux wheel.** OCR is ONNX CRNN behind an `OcrEngine`
@@ -367,13 +382,13 @@ stream gateway (WHEP/HLS, scoped tokens) · watchlist → alert → WebSocket ·
 
 | Area | State | Phase |
 |---|---|---|
-| Multi-camera fleet | Registry holds **one** camera (`CAM-DEMO`) | P1 |
+| ~~Multi-camera fleet~~ | ✅ **Done (P1).** 58 cameras on 12 real Ahmedabad corridors, every one on a real OSM road vertex; 51 stream live for ~1.1 cores | — |
 | Traffic analytics | **Nothing.** No router, no page, no heatmap, no time-bucket queries. `recharts` imported zero times | P4 |
-| Route-level average speed | Does not exist; only per-leg `implied_kmph` | P2 |
-| Journey animation | No timeline, scrubber or moving marker anywhere | P2 |
+| ~~Route-level average speed~~ | ✅ **Done (P2).** `average_kmph` and `moving_kmph`, both lower bounds | — |
+| ~~Journey animation~~ | ✅ **Done (P2).** Timeline playback proportional to real elapsed time | — |
 | Trajectory anomaly detection | The six hop flags are a **physics filter**, not a detector. `AlertType.ANOMALY` has zero producers | P5 |
 | Alert reasons | `alerts` has **no** reasons/factors column | P5 |
-| Evidence crops | **No MinIO client exists**; the worker discards crops via `_NullRunDir`; `crop_key` always NULL | P3 |
+| ~~Evidence crops~~ | ✅ **Done (P3).** Worker uploads from the edge; only the key rides the bus; alerts render the crop | — |
 | Fuzzy search | The `pg_trgm` index exists and **nothing queries it**. OpenSearch runs and indexes nothing | P8 |
 | Attribute search | `vehicle_colour` never computed | P9 |
 | Predictive traffic | Nothing | P10 |
@@ -383,9 +398,9 @@ stream gateway (WHEP/HLS, scoped tokens) · watchlist → alert → WebSocket ·
 
 | Item | Detail | Phase |
 |---|---|---|
-| `persist_route` | **Dead code, never called.** `vehicle_tracks` is never written, so there is no journey history to baseline anomalies against | P2 |
+| ~~`persist_route`~~ | ✅ **Done (P2).** Called by `route_history.snapshot` from the monitor daemon; its first run exposed that the function had never worked at all (`st_makeline(unknown) is not unique`) | — |
 | `packages/contracts/` | One empty `.gitkeep`. Event is a hand-rolled dict, duplicated by hand in `simulator/load_mode.py`, no validation either side | P12 |
-| Five `detections` columns | `vehicle_colour`, `crop_key`, `frame_key`, `direction`, `speed_kmph` — permanently NULL, no producer anywhere | P3, P9 |
+| Four `detections` columns | `vehicle_colour`, `frame_key`, `direction`, `speed_kmph` — permanently NULL, no producer anywhere (`crop_key` fixed in P3) | P9 |
 | Six real bugs | Listed in [BUILD_STATE.md](docs/BUILD_STATE.md) — two demo-visible, one silently loses data | P6 |
 | Sizing docs | `docs/INFRASTRUCTURE.md` §2 is **~4× optimistic** (treats a 4-thread worker as one core). `scripts/capacity_model.py` supersedes it | P12 |
 | `mypy` | 17 errors; `make lint` does not run it | P12 |

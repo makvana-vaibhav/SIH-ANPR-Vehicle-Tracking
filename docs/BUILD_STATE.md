@@ -31,10 +31,10 @@ accurate as history. The work that remains is the **P1–P12** sequence, defined
 
 | Phase | Title | Milestone | State |
 |---|---|---|---|
-| **P1** | Multi-camera Ahmedabad fleet | V1 | ⬜ **next — start here** |
-| **P2** | Journey profile + animated playback | V1 | ⬜ not started |
-| **P3** | Evidence crops in MinIO | V1 | ⬜ not started |
-| **P4** | City traffic analytics | V1 | ⬜ not started |
+| **P1** | Multi-camera Ahmedabad fleet | V1 | ✅ **complete** — 58 cameras, 51 live, gate passed |
+| **P2** | Journey profile + animated playback | V1 | ✅ **complete** — profile, speeds, playback, history |
+| **P3** | Evidence crops in MinIO | V1 | ✅ **complete** — crops upload, alerts show them |
+| **P4** | City traffic analytics | V1 | ⬜ **next — start here** |
 | **P5** | Trajectory anomaly + explainable alerts | V1 | ⬜ not started |
 | **P6** | Bug fixes, tests, demo hardening | V1 | ⬜ not started |
 | **P7** | Earn the >90% accuracy claim | V2 | ⬜ not started |
@@ -1215,11 +1215,436 @@ Append each phase's real gate output here as it completes. A phase is not done u
 in this section. Keep the format: what was built, the gate command, the actual output, and anything
 found along the way that the next session must not re-discover.
 
-## P1 — Multi-camera Ahmedabad fleet  ⬜
+## P1 — Multi-camera Ahmedabad fleet  ✅
 
-Definition and gate: [docs/ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
+Definition and gate: [ROADMAP.md](ROADMAP.md#p1--a-real-multi-camera-ahmedabad-fleet--do-this-first).
 
-*Not started. Evidence goes here.*
+### What was built
+
+- `scripts/fetch_ahmedabad_geodata.py` — OSM via Overpass, with mirror fallback and
+  skip-if-present. Writes three committed files: 7 city talukas, 2,319 arterial ways,
+  102 localities.
+- `scripts/generate_ahmedabad_cameras.py` — 58 cameras on 12 real named corridors
+  (Sardar Patel Ring Road, 132 Ft / 120 Feet Ring Roads, Ashram Road, SG Highway,
+  CG Road, Naroda Road, Narol–Sarkhej, Airport Road, Ahmedabad–Vadodara Expressway…).
+- `seed_fleet()` in `scripts/seed.py`, loading the CSV through the real bulk-import path.
+- ffmpeg **copy-mode** and one-time **clip preparation** in the simulator publisher.
+- Gap analysis moved from Gujarat's 33 districts to the 7 city talukas.
+
+### Gate output — from empty volumes (`docker compose down -v` first)
+
+```
+▸ Starting dependencies      ✓ postgres, redis, minio, mediamtx, opensearch healthy
+▸ Schema and seed data       ✓ migrations at head · ✓ seed data loaded
+▸ The camera fleet           ✓ 59 cameras seeded across the city corridors
+▸ Demonstration footage      ✓ 51 cameras publishing live video
+▸ Verifying                  ✓ 51 cameras in the ANPR fleet
+                             ✓ 5 plate reads in the last 10 minutes
+                             ✓ command centre reachable
+make demo: 1m29s
+```
+
+| Gate item | Required | Measured |
+|---|---|---|
+| Cameras online in fleet health | ≥ 40 | **51** |
+| Live ANPR feeds | ≥ 6 | **51** |
+| A plate on ≥ 3 distinct cameras | 1 | **`EYGINBG` on 3** (480 detections across 15 cameras, 2 min after the worker started) |
+
+Three consecutive clean-volume `make demo` runs, all green.
+
+### Placement quality (measured, not asserted)
+
+- **58/58 cameras sit exactly on a real OSM road vertex** (max distance 0.00 m).
+- Closest pair **362 m**, median nearest-neighbour **1,729 m** — clear of the
+  correlator's 50 m `co_located` threshold.
+- Sardar Patel Ring Road: 17 cameras, all 9–14 km from their own centroid,
+  occupying **8/8 compass octants** — a genuine ring.
+- All **7 talukas** covered: Sabarmati 13, Vatva 11, Asarva 9, Daskroi 8,
+  Vejalpur 8, Ghatlodiya 6, Maninagar 3.
+
+### Cost of the live fleet
+
+51 concurrent streams for **~1.1 cores** (simulator 67%, MediaMTX 47%). Re-encoding
+would have cost roughly a tenth of a core *per stream*, capping the fleet at a handful.
+
+### Tests
+
+| Suite | Before | After |
+|---|---|---|
+| API | 384 passed, 12 failed | **396 passed, 0 failed** (twice consecutively) |
+| e2e | 29 passed, 4 failed | **34 passed, 0 failed** |
+| ai-worker | 54 passed | 54 passed |
+| frontend | 24 passed, tsc clean | 24 passed, tsc clean |
+| ruff check | 4 pre-existing errors | 4 pre-existing errors (no new) |
+| ruff format | 6 api + 4 scripts | 5 api + 3 scripts (two incidental cleanups) |
+
+### Five bugs found and fixed along the way
+
+1. **`make demo` could never work from a fresh clone.** It ran `docker compose up -d`
+   and then waited for the API, but the API queries `cameras` during startup, the table
+   does not exist until migrations run, and migrations were run through `compose exec`,
+   which needs a healthy container. Compose returned non-zero, `set -e` fired, and the
+   script died 15 s in with "Error 1" — on exactly the path a judge takes. Dependencies
+   now start first, migrate and seed run via `compose run`, then the app tier starts.
+2. **The dependency wait was a race.** `up -d` returns when containers *start*, so
+   migrations raced a Postgres still initialising a fresh data directory: it failed on one
+   clean run and passed on the next purely on timing. Now `up -d --wait`.
+3. **Cross-corridor camera collisions.** Per-corridor thinning put three cameras within
+   **13 m** where Ashram Road, Nehru Road and the 132 Ft Ring Road meet, and a pair at
+   45 m — under the correlator's 50 m threshold, so hops between them would have been
+   flagged `co_located` and carried no implied speed. A fleet-wide 250 m minimum now applies.
+4. **A corrupt clip silently killed cameras.** `data/videos/test2.mp4` is a truncated
+   download (exactly 8 MiB, unreadable header) and, because clips are handed out
+   round-robin, it took down the two cameras it was assigned to after five restarts.
+   `find_videos` now screens clips through ffprobe.
+5. **The stream check guessed instead of waiting.** A fixed `sleep 8` reported "0 streams
+   publishing" on every fresh clone, because clip preparation takes tens of seconds on a
+   cold cache. It polls now.
+
+### Two findings that shape later phases
+
+**Plausible cross-camera journeys are not achievable with the current footage.** The only
+clip with legible plates is **15 s** long and the fleet's median camera spacing is 1.7 km,
+so any offset that fits inside the clip implies **~415 km/h** — the correlator would
+correctly flag every hop as `implausible_speed`. The 60 s clips would give a plausible
+104 km/h but they are the 4K ones whose plates are not legible. Stream offsets are
+therefore used only to *desynchronise* cameras sharing a clip, which removes false
+`impossible_simultaneous` readings; they do not simulate a journey. **P2/P5 need either
+longer footage with legible plates (P7 sources it) or a scheduled replay
+(`scripts/replay_history.py`).**
+
+**`stream_url` must stay NULL for simulator-served cameras.** `gateway.reconcile()` runs at
+API startup and opens a MediaMTX *pull* path for every camera with a `stream_url` whose
+adapter is not federated — and `simulated` is not in `FEDERATED_ADAPTERS`. Giving these
+cameras the gateway's own address makes MediaMTX pull each path from itself: an infinite
+loop that silently blocks publishing for the **whole fleet**, on every restart. The
+simulated adapter derives every URL from `camera_code` and probes health by asking
+MediaMTX which paths are live, which is a better check than a stored string.
+
+---
+
+## P2 — Journey profile + animated playback  ✅
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p2--journey-profile--animated-playback).
+
+### What was built
+
+- **Route-level speed.** `Route.average_kmph` (first sighting to last, so it includes
+  dwell) and `Route.moving_kmph` (legs that covered ground only), plus `moving_s`. No
+  route-level speed existed before — the only figure anywhere was per-leg `implied_kmph`.
+- **`persist_route` is finally called.** New `app/services/route_history.py` snapshots
+  journeys from the health-monitor daemon, every 4th sweep (~1 min), bounded to 40 plates
+  a cycle and skipping routes that have not changed.
+- **Journey profile on screen.** `VehicleSearch.tsx` now renders first seen, last seen and
+  average speed. `first_seen`/`last_seen` were already in the API payload and in the TS
+  type, and were displayed nowhere.
+- **Timeline playback.** `RouteMap.tsx` gains play/pause, a scrubber, an IST clock, a
+  moving vehicle marker and a solid "travelled so far" line over the dashed inferred legs.
+- **`web/src/lib/journey.ts`** — the interpolation extracted as pure functions so it can be
+  tested. A wrong interpolation makes the map lie *smoothly*: the marker still glides along
+  the route, it is simply in the wrong place at the wrong time.
+
+### Playback follows elapsed time, not hop count
+
+The property the module exists for, and the one the tests pin. A four-minute leg takes
+eight times as long to cross as a thirty-second one. Stepping uniformly per hop would be
+simpler and would misrepresent the journey — a vehicle that sat at a junction for ten
+minutes would appear to drive straight through.
+
+### Gate output
+
+```
+GET /api/v1/vehicles/EYGINBG/route?window_hours=24
+
+  first_seen      2026-09-09T14:22:25Z      OK
+  last_seen       2026-09-09T14:34:29Z      OK
+  camera_count    5                         OK
+  distance_km     25.86                     OK
+  duration_s      723.6                     OK
+  average_kmph    128.7                     OK
+  moving_kmph     128.7                     OK
+  timeline        14:22:25 → 14:22:27 → 14:26:26 → 14:30:30 → 14:34:29
+```
+
+Every field the PS's Vehicle Profile asks for, with a real 12-minute timeline for playback
+to animate.
+
+`vehicle_tracks` went from **0 rows, ever** to a populated history: 17 journeys, up to 5
+hops each, geometry validated as `ST_LineString` / SRID 4326 / `ST_IsValid` true, spanning
+24–44 km.
+
+### Tests
+
+| Suite | Before P2 | After |
+|---|---|---|
+| API | 396 | **402 passed** (6 new: `TestJourneySpeed`) |
+| frontend | 24 | **40 passed** (16 new: `journey.test.ts`) |
+| e2e | 34 | 34 passed |
+| ai-worker | 54 | 54 passed |
+| ruff check | 4 pre-existing | 4 pre-existing |
+
+**Verification note.** The playback UI was verified by `tsc --noEmit`, by 16 unit tests over
+the interpolation arithmetic, and by confirming the API returns every field it consumes —
+**not** visually. Repeated attempts to drive a headless browser failed on Chromium download
+timeouts, which is network friction rather than a code problem. A visual pass is still
+worth doing before the demo.
+
+### Three bugs found
+
+1. **`persist_route` had never worked.** Its first ever execution failed outright:
+   `function st_makeline(unknown) is not unique`. SQLAlchemy renders a Python list as an
+   untyped array and PostGIS has several `ST_MakeLine` overloads, so Postgres refused the
+   call. Nobody noticed because the function had no caller. Now built as WKT and passed as
+   a bound parameter.
+2. **`moving_s` counted parked time as moving time** — caught by the test written for it.
+   A vehicle seen at one camera and again at that same camera 90 minutes later produces a
+   `revisit` leg: 90 minutes across 0 metres. Summing every leg's elapsed time made
+   `moving_kmph` identical to `average_kmph` on exactly the journey the two figures exist
+   to tell apart. Zero-length legs are now excluded.
+3. **The AI worker OOM-killed at 6 concurrent cameras** (exit 137), which silently stopped
+   all detection for two hours and looked like an e2e timing flake. At the compose default
+   of 3 it is stable but heavy: **855% CPU and 1.9 GB**. Raising `AI_WORKER_MAX_CAMERAS` on
+   this hardware is not free, and the e2e watchlist test now targets the pinned camera so
+   it does not depend on rotation luck.
+
+---
+
+## P3 — Evidence crops in MinIO  ✅
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p3--evidence-crops-in-minio).
+
+### What was built
+
+`Detection.crop_key` had been NULL for the life of the project, and three
+separate things had to be true before it could be anything else.
+
+- **`ai_worker/crops.py`** — a `MinioCropStore` that duck-types the lab's run
+  directory (`save_plate_crop(image, name) -> str`), so `ailab` needed no change
+  at all. The worker previously passed no `run_dir`, so the runner substituted
+  `_NullRunDir` and discarded every crop silently.
+- **`configs/stream.yaml`** had `save_plate_crops: false`. That was correct when
+  streaming meant latency measurement and crops meant JPEGs on disk; it meant the
+  crop code could never run. Now true, capped at 2 per track rather than the
+  batch default of 25. Vehicle crops stay off — several times the size, shown on
+  no screen.
+- **`api/services/evidence.py`** — signs a short-lived URL per crop.
+
+### Why the worker uploads, not the consumer
+
+Putting crop bytes on the event bus was the obvious alternative and would have
+broken the architecture's one load-bearing claim. A detection event is ~2 KB; a
+15 KB JPEG base64-encoded is ~20 KB, so crops on the bus multiply event traffic
+roughly tenfold and "the central tier carries events, not video" stops being
+true. Crops go from the edge straight to object storage; only the key travels.
+
+The upload is asynchronous but the key is not: `save_plate_crop` is called from
+inside the inference loop, on a worker measured at 855% CPU, so a blocking PUT
+there would add network latency to every frame that resolved a plate. The key is
+derived from camera, date and crop name — knowable before the bytes land — and
+two background threads drain a **bounded** queue. Bounded because an unbounded
+one grows until the worker is OOM-killed, which has already happened once and
+takes every camera down with it.
+
+### Gate output
+
+```
+blacklist a plate being read right now:  BG65USJ
+  watchlist add                          HTTP 201
+  ALERT BG65USJ · watchlist_hit · critical      (fired by itself)
+  crop_url                               PRESENT
+  crop fetches                           HTTP 200, 1977 bytes, image/jpeg
+```
+
+The fetched image is a legible plate reading **BG65 USJ** — the same plate the
+alert names. Verified twice, on `EY61NBG` and `BG65USJ`.
+
+Crops flowing: **68 of 193** detections in a two-minute window carried a key
+(crops are only saved for plates that were actually read, so this tracks the
+plate-read rate), 153 objects in the bucket at ~1.5–2.2 KiB each, zero upload
+failures logged.
+
+### Tests
+
+| Suite | Before P3 | After |
+|---|---|---|
+| API | 402 | **408 passed** (6 new: `test_evidence.py`) |
+| ai-worker | 54 | **61 passed** (7 new: `test_crops.py`) |
+| frontend | 40 | 40 passed, tsc clean |
+| ruff check | 4 pre-existing | 4 pre-existing |
+
+### Three things worth not rediscovering
+
+1. **SigV4 signs the `Host` header.** The first version signed against the
+   internal `minio:9000` and rewrote the host to `localhost:9000` for the
+   browser, which invalidates the signature — and fails as a 403 that looks
+   exactly like a missing image. Sign against the address the browser will
+   actually request; the signing client never connects, so an endpoint this
+   process cannot reach is fine. `test_evidence.py` pins this.
+2. **An `<img>` cannot send an Authorization header.** That is why the crop URL
+   is signed and returned inline rather than served from a protected endpoint,
+   and why `crop_url` appears on `DetectionOut`, `AlertOut` and the WebSocket
+   event. Presigning does no I/O — it is an HMAC — so signing a page of 200
+   alerts costs microseconds, where a `head_object` per row would cost 200 round
+   trips.
+3. **Tests must run where the code does.** `crops.py` imported `cv2` and
+   `ailab.logging` at module scope; the shared test image (the API container)
+   carries neither, so the whole test file was uncollectable. Worse, the
+   worker image has no pytest, so tests needing real OpenCV would have run in
+   **neither** image. The encoder and the thread count are now injected, which
+   leaves the behaviour that matters — key format, bounded queue, never
+   returning a key for a dropped crop — testable everywhere.
+
+---
+
+## Worker CPU and the thread budget  ✅ (unplanned — 10 Sep 2026)
+
+Not a roadmap phase. Raised as "cameras are not loading properly, and if they
+load it hangs", which turned out to be the platform starving itself.
+
+### What was wrong
+
+The AI worker was taking **866% CPU and 168 OS threads on a 10-core host**,
+with a load average of 18.8. MediaMTX, the browser and the compositor were
+competing for what was left, so a WebRTC handshake that could not get
+scheduled looked exactly like a camera that would not load.
+
+Two independent causes, both invisible from the outside:
+
+1. **Nothing divided the thread budget by the camera count.** The worker runs
+   one `Pipeline` per camera, each building five ONNX sessions. The two YOLO
+   sessions were capped at four threads; the three OCR sessions were capped at
+   nothing — `RapidOCR()` was constructed with no arguments and the wheel
+   defaults to `intra_op_num_threads: -1`, ONNX Runtime's one-per-core.
+   `crnn_onnx.py` built its session with no `SessionOptions` at all.
+   `OMP_NUM_THREADS` was set in `ai-lab/Dockerfile` but **not** in the worker
+   Dockerfile that ships, and `cv2.setNumThreads` was never called anywhere.
+
+2. **Rotation leaked a thread pool per camera change.** Each rotation built a
+   fresh `Pipeline`; every ONNX session allocates a native thread pool and
+   arena freed only when Python collects the object, which for objects in
+   reference cycles means whenever the cyclic collector next runs. Measured:
+   29 threads / 1.4 GB at four minutes became 62 threads / 3.5 GB at twelve,
+   doing identical work — the road to the `exit 137` kills seen before.
+
+### The measurement that settles it
+
+Oversubscription was not a trade of latency for throughput. RapidOCR
+recognition on one plate crop:
+
+| | wall/call | CPU/call | cores used |
+|---|---|---|---|
+| `intra_op=2` | 11.8 ms | 23.6 ms | 2.0x |
+| `intra_op=4` | 8.0 ms | 32.0 ms | 4.0x |
+| **ORT default** | **14.3 ms** | **132.6 ms** | **9.3x** |
+
+The default burned **5.6x the CPU to return a slower answer**.
+
+### What was built
+
+* `ai-lab/ailab/runtime.py` — one process-wide budget (`cores - 2`), divided by
+  the camera count, clamped to a measured per-model ceiling of 4. The worker
+  declares its slot count in `AiWorker.__init__`, before any session exists,
+  because a session's thread pool is fixed at construction.
+* `services/ai-worker/ai_worker/pipeline_pool.py` — models loaded once per slot
+  and lent to whichever camera holds it. A pool rather than one shared
+  instance, because `Pipeline` mutates per-track state and is not thread-safe.
+* Thread discipline applied to `rapid.py`, `crnn_onnx.py` and
+  `onnx_backend.py`; `OMP_NUM_THREADS` added to the worker Dockerfile;
+  `cv2.setNumThreads` set from the same budget.
+* `device` gains `coreml`; `cuda`/`coreml` now raise when the provider is
+  absent rather than silently running on CPU.
+
+### A third cause: the fleet was publishing 4K60
+
+Two seed clips are **3840x2160 at 24 Mbps** (`anpr_sample.mp4` at 60 fps,
+`test1.mp4` at 30), and roughly a quarter of the 51 cameras is assigned one.
+So a browser tile was decoding 4K60, and the worker was decoding every 4K
+frame **only to letterbox it to the detector's fixed 640px input** — the extra
+pixels are discarded before inference sees them. It is also unrepresentative;
+city ANPR cameras are 1080p at 12–15 fps.
+
+`prepare_clip` already re-encodes once to disk to fix keyframe sparsity, so a
+`SIM_MAX_HEIGHT`/`SIM_MAX_FPS` cap there costs nothing per stream. It never
+upscales: only the two 4K clips are touched, 126 MB → 35 MB and 129 MB → 30 MB.
+
+### Gate output
+
+Same fleet, same footage, same models:
+
+```
+                            before          after
+OS threads                     168        79, stable
+worker CPU              866% (1 sample)   ~656% (38-sample mean)
+memory                  3.2 GB, climbing  3.3 GB, flat
+detections/min                  79            202
+inference slots                  3              4
+models loaded per hour         ~180              4
+published 4K cameras     2160p60 24Mbps    1080p15
+```
+
+**Detections per minute rose 2.6x while CPU fell**, because the machine had
+been losing most of its work to context switching and to decoding pixels that
+were thrown away before inference.
+
+The resolution cap measured on its own, 4 slots either side, everything else
+identical:
+
+| | 4K sources | capped |
+|---|---|---|
+| detections/min | 124 | **202** |
+| worker memory | 4.1 GB | 3.3 GB |
+| **plate yield** | **34.1%** | **33.9%** |
+
+Yield is the figure that had to hold, since downscaling is the one change that
+could have cost legibility. It did not.
+
+**Two caveats, stated rather than buried.** The 866% "before" is a single
+`docker stats` sample against a 38-sample mean after; worker CPU swings between
+~230% and ~770% as cameras rotate, so thread count, memory trend and
+detections/min are the trustworthy comparisons. And overall plate yield moved
+38% → 34% across the whole exercise — that is the slot count changing which
+cameras rotate, not a regression, as the controlled comparison above shows.
+
+Pool health is in the periodic log line — `built` must settle at the slot count:
+
+```
+watching 3/51 camera(s): ... · models built 3, reused 18
+```
+
+### Slots are now bounded by memory, not CPU
+
+| slots | threads/model | CPU | memory | detections/min | cameras / 5 min |
+|---|---|---|---|---|---|
+| 3 | 2 | 574% | 2.7 GB | 150 | 10 |
+| **4** (new default) | 2 | 647% | 4.1 GB | 124 | 15 |
+| 6 | 1 | 589% | 6.8 GB | 133 | 27 |
+
+CPU and throughput are flat; only memory scales, at ~1.4 GB per slot. The
+default moved 3 → 4: free in CPU, safe in memory, and the floor of the PS's
+"4–6 feeds". Six reaches 6.8 GB against an 11.67 GB VM ceiling with ~2.7 GB
+already spent — that is where the OOM kills start, so Docker's memory
+allocation has to rise first.
+
+### Tests
+
+33 new — `test_runtime.py` (14), `test_pipeline_pool.py` (7) and
+`test_publisher.py` (12). ai-worker **61 → 82**; the simulator had **no tests
+at all** and now has 12, wired into `make test`. API 408 and frontend 40
+unchanged, `tsc` clean, ruff at the pre-existing baseline. The worker tests
+live in `services/ai-worker/tests/` and run in the shared API
+image, which meant `ailab.runtime` had to stay stdlib-only (no `rich`) and the
+pool had to take its factory by injection — the worker image has no pytest and
+the test image has no OpenCV, so anything reaching through `worker.py` would
+have run in neither.
+
+### GPU — what is actually possible
+
+`docs/GPU.md` records the matrix. Inside Docker on Apple Silicon the providers
+are exactly `['AzureExecutionProvider', 'CPUExecutionProvider']`, verified:
+Virtualization.framework passes no GPU to a Linux guest, so there is no setting
+that creates one. CoreML is reachable only by running the worker natively on
+macOS; CUDA needs an amd64 host with an NVIDIA card. Both paths are wired and
+neither is measured here.
 
 ---
 

@@ -1,8 +1,14 @@
-"""Health monitor daemon.
+"""Background daemon: fleet health, and journey snapshots.
 
-Runs as its own container (`ingest` in docker-compose.yml) so probing 80,000
-cameras never competes with serving operator requests. It shares the API image
-rather than being a separate codebase — see CLAUDE.md §9 for why.
+Runs as its own container (`ingest` in docker-compose.yml) so probing the fleet
+never competes with serving operator requests. It shares the API image rather
+than being a separate codebase — see CLAUDE.md §11 for why.
+
+Two jobs on two cadences. The **health sweep** probes every camera often, because
+a camera that has dropped off should show as down within seconds. The **route
+snapshot** reconstructs journeys far less often: it is much more expensive per
+cycle, nothing depends on it being seconds-fresh, and it belongs off the ingest
+path because that path's measured p95 latency is already over its target.
 
 Run with:  python -m app.ingest.monitor
 """
@@ -17,12 +23,18 @@ from datetime import UTC, datetime
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.db.session import SessionLocal, dispose_engine
-from app.services import health_monitor
+from app.services import health_monitor, route_history
 
 configure_logging(service="ingest")
 log = get_logger("ingest.monitor")
 
 _shutdown = asyncio.Event()
+
+#: Health sweeps between journey snapshots. At the default 15 s sweep interval
+#: this snapshots roughly once a minute — often enough that a journey in progress
+#: is recorded while it is still interesting, rare enough that reconstructing up
+#: to 40 routes never delays a health sweep.
+SNAPSHOT_EVERY_N_SWEEPS = 4
 
 
 def _handle_signal(signum: int, _frame: object) -> None:
@@ -55,6 +67,19 @@ async def run() -> int:
             # known state and nobody notices.
             log.error("monitor.sweep_failed", error=str(exc), exc_info=True)
             summary = {}
+
+        # Journey snapshots, on a slower cadence than the health sweep.
+        if sweeps and sweeps % SNAPSHOT_EVERY_N_SWEEPS == 0:
+            try:
+                async with SessionLocal() as session:
+                    routes = await route_history.snapshot(session)
+                if routes.get("persisted"):
+                    log.info("monitor.routes_snapshotted", sweep=sweeps, **routes)
+            except Exception as exc:
+                # Same supervisor boundary as the sweep: losing a snapshot cycle
+                # costs some journey history, which is recoverable. Killing the
+                # daemon would also stop health monitoring, which is not.
+                log.error("monitor.snapshot_failed", error=str(exc), exc_info=True)
 
         elapsed = (datetime.now(UTC) - started).total_seconds()
 

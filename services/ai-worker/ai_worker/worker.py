@@ -21,17 +21,20 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from ailab import runtime
 from ailab.config import RunConfig
 from ailab.stream import SourceIdentity, StreamRunner, StreamUnavailable
 from ailab.stream.reader import redact
 
 from ai_worker.config import WorkerSettings
+from ai_worker.crops import MinioCropStore
 from ai_worker.discovery import (
     CameraStream,
     discover,
     discover_registry,
     discover_sandbox,
 )
+from ai_worker.pipeline_pool import PipelinePool
 from ai_worker.rotation import Rotation
 from ai_worker.publisher import RedisEventSink
 
@@ -80,6 +83,21 @@ class AiWorker:
     def __init__(self, settings: WorkerSettings, config: RunConfig) -> None:
         self.settings = settings
         self.config = config
+        # Declare the thread budget BEFORE anything builds an inference
+        # session, because a session's thread pool is fixed at construction and
+        # cannot be resized afterwards.
+        #
+        # Each camera runs a whole pipeline on its own thread, and every one of
+        # its five ONNX sessions used to size its pool as though it were alone
+        # on the machine. Left undeclared that is ~124 threads on 10 cores at
+        # three cameras, which measured 866% CPU and a host load average of
+        # 18.8 — the AI worker starving the media gateway and the browser it
+        # exists to serve. See `ailab.runtime`.
+        runtime.set_concurrency(settings.ai_worker_max_cameras)
+        opencv_threads = runtime.apply_opencv_threads()
+        log.info(
+            "inference threading: %s (opencv=%d)", runtime.describe(), opencv_threads
+        )
         self.sink = RedisEventSink(
             settings.redis_url, settings.event_stream_key, settings.event_stream_maxlen
         )
@@ -91,6 +109,13 @@ class AiWorker:
                 c.strip() for c in settings.ai_worker_pinned.split(",") if c.strip()
             ),
         )
+        # Evidence crops go straight from here to object storage; only the
+        # object key rides the event bus. Created once and shared by every
+        # camera thread, because it owns a bounded upload queue and its whole
+        # purpose is to keep that bounded.
+        self._crops = MinioCropStore()
+        # Models outlive the cameras that borrow them; see PipelinePool.
+        self._pipelines = PipelinePool()
         self._transport: str | None = None
         # Whether RTSP works to a given host, probed once. Which transport a
         # federated grid accepts is a property of this worker's network.
@@ -118,6 +143,9 @@ class AiWorker:
                     continue
         finally:
             await self._stop_all()
+            # Drain queued crops before the sink closes, so a clean shutdown
+            # does not throw away evidence that was already encoded.
+            self._crops.close()
             self.sink.close()
 
     async def _discover(self) -> list[CameraStream]:
@@ -226,13 +254,20 @@ class AiWorker:
             if sweep > 0
             else "; every assigned camera runs continuously"
         )
+        pool = self._pipelines.stats()
         log.info(
-            "watching %d/%d camera(s): %s · %d events published%s",
+            "watching %d/%d camera(s): %s · %d events published%s · models built %d, "
+            "reused %d",
             len(self.tasks),
             total,
             ", ".join(sorted(self.tasks)),
             self.sink.written,
             coverage,
+            # `built` should settle at the slot count and stop rising. If it
+            # keeps climbing, pipelines are not being returned and the worker
+            # is back to leaking a thread pool per rotation.
+            pool["built"],
+            pool["reused"],
         )
 
     # ─────────────────────────────────────────────────────────────────
@@ -279,7 +314,17 @@ class AiWorker:
     ) -> None:
         """One camera's inference loop. Runs on its own thread."""
         source = SourceIdentity(camera_id=stream.camera_code, name=stream.camera_code)
-        runner = StreamRunner(self._config_for(stream), source, self.sink)
+        config = self._config_for(stream)
+        # Borrowed, not built. Constructing a Pipeline here loads five ONNX
+        # models and leaks their native thread pools on every rotation — see
+        # PipelinePool.
+        pipeline = self._pipelines.acquire(config)
+        # Passing a run_dir is what makes crops exist at all: without one the
+        # runner substitutes _NullRunDir and silently discards every crop, which
+        # is why Detection.crop_key was NULL for the life of the project.
+        runner = StreamRunner(
+            config, source, self.sink, run_dir=self._crops, pipeline=pipeline
+        )
         try:
             # realtime=True: a live source sets the pace, and falling behind is
             # handled by dropping frames rather than by queueing them.
@@ -317,6 +362,10 @@ class AiWorker:
             # the others, and the traceback has to survive to be diagnosed.
             log.exception("inference loop for %s failed", stream.camera_code)
         finally:
+            # Returned however the run ended, including after a failure: a
+            # pipeline that is not given back is one the next camera has to
+            # rebuild, which is the leak this pool exists to close.
+            self._pipelines.release(config, pipeline)
             stop.set()
 
     def _stop(self, code: str) -> None:

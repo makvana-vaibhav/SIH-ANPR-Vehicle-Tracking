@@ -193,9 +193,7 @@ class EventConsumer:
             await client.hset(
                 WORKER_STATS_KEY,
                 consumer_name,
-                json.dumps(
-                    {"worker": consumer_name, "reported_at": time.time(), **self.stats()}
-                ),
+                json.dumps({"worker": consumer_name, "reported_at": time.time(), **self.stats()}),
             )
             # The hash as a whole expires, so a platform shut down overnight
             # does not come back reporting yesterday's ingest fleet.
@@ -362,6 +360,12 @@ class EventConsumer:
             detection_confidence=vehicle.get("confidence"),
             bbox=vehicle.get("bbox"),
             plate_bbox=plate.get("bbox"),
+            # The object key the worker uploaded the crop under. The worker
+            # returns the key synchronously and uploads on a background thread,
+            # so for a moment after a detection this names an object that does
+            # not exist yet — the crop endpoint answers 404 for that, and the UI
+            # shows no crop rather than a broken image.
+            crop_key=(evidence.get("plate_crop") or evidence.get("vehicle_crop") or None),
             # Everything behind the consensus, so an operator can see why this
             # plate was chosen and overrule it.
             ocr_raw={

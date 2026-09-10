@@ -1,7 +1,7 @@
 """Fleet health, gap analysis, and the stream gateway.
 
-Covers the two named Model 1 requirements from challenge FAQ Q15 — camera
-health monitoring and gap-analysis reports — plus the audited stream-token flow.
+Camera health monitoring, coverage and capability gap reporting, and the
+audited stream-token flow.
 """
 
 from __future__ import annotations
@@ -9,11 +9,15 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
-#: Cameras created by scripts/seed.py; federated sources add to this.
-#: The registry holds only cameras with a real video source: the organisers'
-#: grid plus one demonstration camera. It used to be seeded with 250 synthetic
-#: rows so this number could be large, and 251 of the 281 had no stream URL at
-#: all — they could never be watched, analysed, or be unhealthy. Asserting a
+from app.services.fleet import CITY_TALUKAS
+
+#: A floor, not a count. The Ahmedabad fleet is ~58 cameras
+#: (scripts/generate_ahmedabad_cameras.py) and federated sources add to it, so
+#: an exact figure would fail the moment the registry does its job.
+#:
+#: It is deliberately a floor rather than a large number: the registry was once
+#: seeded with 250 synthetic rows, 251 of 281 of which had no stream URL at all
+#: and so could never be watched, analysed, or even be unhealthy. Asserting a
 #: count in the hundreds tested that a CSV had loaded, not that the platform
 #: worked. What matters is that a real fleet is onboarded and every screen
 #: agrees about its size.
@@ -108,20 +112,34 @@ class TestGapAnalysis:
             "reliability_gaps",
         } <= body.keys()
 
-    async def test_identifies_districts_with_no_cameras(
+    async def test_coverage_gaps_name_only_genuinely_blind_talukas(
         self, client: AsyncClient, auth_headers
     ) -> None:
-        """Gujarat has 33 districts; our fleet covers 8. The rest are blind
-        spots a vehicle can cross entirely unobserved."""
-        body = (
-            await client.get("/api/v1/health/gaps", headers=await auth_headers("analyst"))
-        ).json()
+        """A blind taluka is one a vehicle can cross entirely unobserved.
 
-        uncovered = {g["district"] for g in body["coverage_gaps"]}
-        assert len(uncovered) > 0
-        # Districts we do cover must not be listed as blind.
-        assert "Rajkot" not in uncovered
-        assert "Ahmedabad" not in uncovered
+        This asserts the report is *correct* rather than that gaps exist. The
+        previous version required `len(uncovered) > 0`, which quietly encoded
+        the old statewide fleet's coverage — 8 of Gujarat's 33 districts — and
+        broke as soon as the fleet covered every taluka it claims to. A fully
+        covered city is a passing state, not a failing one.
+        """
+        headers = await auth_headers("analyst")
+        body = (await client.get("/api/v1/health/gaps", headers=headers)).json()
+        summary = (await client.get("/api/v1/cameras/summary", headers=headers)).json()
+
+        # `by_district` is a mapping of district -> camera count.
+        with_cameras = {name for name, count in summary["by_district"].items() if count > 0}
+        uncovered = {gap["district"] for gap in body["coverage_gaps"]}
+
+        # A taluka holding cameras can never be blind.
+        assert not (
+            uncovered & with_cameras
+        ), f"reported as blind despite having cameras: {uncovered & with_cameras}"
+        # And every blind taluka must be one the platform actually claims to
+        # cover, rather than an arbitrary string.
+        assert (
+            uncovered <= CITY_TALUKAS
+        ), f"unknown talukas in gap report: {uncovered - CITY_TALUKAS}"
 
     async def test_every_gap_explains_itself(self, client: AsyncClient, auth_headers) -> None:
         """A report saying only "gap" is not actionable."""

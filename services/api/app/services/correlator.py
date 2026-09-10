@@ -222,6 +222,51 @@ class Route:
         return (self.last_seen - self.first_seen).total_seconds()
 
     @property
+    def moving_s(self) -> float:
+        """Time on legs that actually covered ground.
+
+        Legs of zero length are excluded, and that exclusion is the whole
+        point. A vehicle seen at one camera, then seen at that same camera 90
+        minutes later, produces a `revisit` leg: 90 minutes of elapsed time
+        across 0 metres. That is time parked, not time driving.
+
+        A first version of this summed every leg's elapsed time, which made
+        `moving_kmph` come out identical to `average_kmph` on exactly the
+        journey the two figures exist to tell apart — a test caught it.
+        """
+        return sum(hop.elapsed_s or 0.0 for hop in self.hops if (hop.distance_m or 0.0) > 0.0)
+
+    @property
+    def average_kmph(self) -> float | None:
+        """Journey average speed — a lower bound, for two compounding reasons.
+
+        `distance_m` is great-circle between cameras rather than the road
+        driven, so it is already a floor. `duration_s` runs from the first
+        sighting to the last, so it *includes* time the vehicle spent
+        stationary at a junction. Both push this figure down, which means the
+        speed actually driven is at least this.
+
+        None rather than 0.0 when there is nothing to divide: a single sighting
+        has no speed, and "0 km/h" is a claim we would not be able to defend.
+        """
+        if self.duration_s <= 0 or self.distance_m <= 0:
+            return None
+        return round(self.distance_m / self.duration_s * 3.6, 1)
+
+    @property
+    def moving_kmph(self) -> float | None:
+        """Average speed while moving, ignoring dwell.
+
+        Reported alongside `average_kmph` because they answer different
+        questions: a vehicle that covered 8 km in 40 minutes with 25 of them
+        parked was not driving at 12 km/h, and an operator judging whether a
+        journey looks normal needs to be able to tell those apart.
+        """
+        if self.moving_s <= 0 or self.distance_m <= 0:
+            return None
+        return round(self.distance_m / self.moving_s * 3.6, 1)
+
+    @property
     def flagged_hops(self) -> list[Hop]:
         return [h for h in self.hops if h.flags]
 
@@ -303,13 +348,18 @@ class Route:
             "camera_count": self.camera_count,
             "distance_km": round(self.distance_m / 1000.0, 2),
             "duration_s": round(self.duration_s, 1),
+            "moving_s": round(self.moving_s, 1),
+            "average_kmph": self.average_kmph,
+            "moving_kmph": self.moving_kmph,
             "is_plausible": self.is_plausible,
             "confidence": self.confidence,
             "flagged_hop_count": len(self.flagged_hops),
             "hops": [hop.to_dict() for hop in self.hops],
             "geometry_note": (
                 "Distances are great-circle between cameras, not road distances. "
-                "Implied speeds are therefore a lower bound on the speed driven."
+                "Implied speeds are therefore a lower bound on the speed driven. "
+                "average_kmph spans first to last sighting and so includes dwell; "
+                "moving_kmph excludes it."
             ),
         }
 
@@ -624,10 +674,17 @@ async def persist_route(session: AsyncSession, route: Route) -> uuid.UUID | None
     if len(route.hops) < 2:
         return None
 
-    line = func.ST_SetSRID(
-        func.ST_MakeLine([func.ST_MakePoint(hop.lon, hop.lat) for hop in route.hops]),
-        4326,
-    )
+    # Built as WKT rather than with ST_MakeLine over a list of ST_MakePoint
+    # calls. That was the original form and it never worked: SQLAlchemy renders
+    # a Python list as an untyped array, PostGIS has several ST_MakeLine
+    # overloads, and Postgres rejected the call outright with
+    # "function st_makeline(unknown) is not unique". It went unnoticed because
+    # persist_route had no caller until journey snapshots started using it.
+    #
+    # The coordinates are floats read out of PostGIS, and the WKT travels as a
+    # bound parameter, so there is nothing here to interpolate unsafely.
+    wkt = "LINESTRING({})".format(", ".join(f"{hop.lon:.7f} {hop.lat:.7f}" for hop in route.hops))
+    line = func.ST_SetSRID(func.ST_GeomFromText(wkt), 4326)
 
     track = VehicleTrack(
         plate_normalised=route.plate,

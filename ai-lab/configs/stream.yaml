@@ -32,8 +32,22 @@ ocr:
 
 output:
   annotated_video: false
-  save_plate_crops: false
+  # Plate crops ON, and they do not go to disk.
+  #
+  # This was false because streaming existed to measure latency, and writing
+  # JPEGs to a run directory during a latency run is noise. The platform now
+  # hands the runner a `run_dir` that uploads to object storage instead
+  # (services/ai-worker/ai_worker/crops.py), and the plate crop is what an
+  # operator needs to confirm an alert is the vehicle they were told about.
+  #
+  # Vehicle crops stay off: they are several times the size of a plate crop and
+  # nothing on any screen shows one.
+  save_plate_crops: true
   save_vehicle_crops: false
+  # Two per track, not the batch default of 25. The consensus keeps the best
+  # read anyway, and 25 uploads per vehicle would be paying object-storage cost
+  # to store 23 pictures nobody opens.
+  max_crops_per_track: 2
   keyframes: false
   html_report: false
   events_jsonl: false

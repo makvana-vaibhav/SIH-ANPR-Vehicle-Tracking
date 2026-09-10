@@ -17,10 +17,10 @@ from app.api.deps import CurrentUserDep, DbSession
 from app.core.logging import get_logger
 from app.core.rbac import Permission, permissions_for, require_permission
 from app.models.enums import AlertStatus
-from app.models.intelligence import Alert
+from app.models.intelligence import Alert, Detection
 from app.schemas.intelligence import AlertOut, AlertPage, AlertTransition
 from app.services import alerts as alert_service
-from app.services import audit
+from app.services import audit, evidence
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 log = get_logger(__name__)
@@ -81,12 +81,37 @@ async def list_alerts(
     result = await session.execute(
         query.order_by(Alert.created_at.desc()).limit(limit).offset(offset)
     )
+    alerts = list(result.scalars().all())
     return AlertPage(
-        items=[AlertOut.model_validate(a) for a in result.scalars().all()],
+        items=await _with_crops(session, alerts),
         total=total,
         limit=limit,
         offset=offset,
     )
+
+
+async def _with_crops(session: DbSession, alerts: list[Alert]) -> list[AlertOut]:
+    """Attach each alert's plate crop, resolved from its detection.
+
+    `alerts` deliberately stores no crop of its own — the evidence belongs to
+    the detection that raised it, and duplicating the key would be two places to
+    keep in step. One `IN` query for the whole page rather than a lookup per
+    row, so a page of 200 alerts costs one extra round trip and not 200.
+    """
+    detection_ids = [a.detection_id for a in alerts if a.detection_id]
+    keys: dict[uuid.UUID, str | None] = {}
+    if detection_ids:
+        rows = await session.execute(
+            select(Detection.id, Detection.crop_key).where(Detection.id.in_(detection_ids))
+        )
+        keys = dict(rows.all())
+
+    out: list[AlertOut] = []
+    for alert in alerts:
+        item = AlertOut.model_validate(alert)
+        item.crop_url = evidence.crop_url(keys.get(alert.detection_id))
+        out.append(item)
+    return out
 
 
 @router.get(

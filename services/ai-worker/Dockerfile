@@ -22,6 +22,13 @@ ENV PYTHONUNBUFFERED=1 \
 # integrations use, for exactly this reason.
 ENV OPENCV_FFMPEG_CAPTURE_OPTIONS="rtsp_transport;tcp"
 
+# OpenMP backs numpy and parts of onnxruntime, and its default is one thread
+# per core — per pool, and there is a pool per camera thread. ai-lab's own
+# Dockerfile has always set this; the worker that actually ships did not, so
+# the setting the lab measured with was absent in production. Four is a ceiling
+# under the budget in `ailab.runtime`, which does the real division.
+ENV OMP_NUM_THREADS=4
+
 # libgomp1 is required by numpy/scipy/onnxruntime threading. No ffmpeg: the
 # worker decodes RTSP through OpenCV's bundled FFmpeg and never encodes video.
 RUN apt-get update \
