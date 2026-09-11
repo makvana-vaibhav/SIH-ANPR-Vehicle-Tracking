@@ -14,15 +14,29 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import {
+  Button,
+  EmptyState,
+  ErrorBanner,
+  Field,
+  Input,
+  SegmentedControl,
+  Select,
+  Table,
+  Td,
+  Th,
+  Thead,
+  Tr,
+} from '@/components/ui'
 import * as api from '@/lib/api'
 import { downloadCsv, stampedName } from '@/lib/csv'
 import type { AuditEntry } from '@/lib/types'
 
 const WINDOWS = [
-  { label: '1 h', hours: 1 },
-  { label: '24 h', hours: 24 },
-  { label: '7 d', hours: 168 },
-  { label: '30 d', hours: 720 },
+  { value: '1', label: '1 h', hours: 1 },
+  { value: '24', label: '24 h', hours: 24 },
+  { value: '168', label: '7 d', hours: 168 },
+  { value: '720', label: '30 d', hours: 720 },
 ] as const
 
 /** The actions worth filtering to, in the order a reviewer asks for them. */
@@ -39,7 +53,7 @@ const ACTIONS = [
 
 const RESULT_STYLE: Record<string, string> = {
   success: 'text-muted-foreground',
-  denied: 'text-amber-400',
+  denied: 'text-priority-high',
   failure: 'text-status-offline',
 }
 
@@ -81,61 +95,43 @@ export default function AuditLog() {
         <h1 className="text-xl font-semibold">Audit trail</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Every plate search, stream open, watchlist change and sign-in.{' '}
-          <span className="text-amber-400">
+          <span className="text-priority-high">
             Opening this page is itself recorded.
           </span>
         </p>
       </header>
 
       <div className="flex flex-wrap items-end gap-3">
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Action
-          </span>
-          <select
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-            className="mt-1 rounded border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
-          >
+        <Field label="Action">
+          <Select value={action} onChange={(e) => setAction(e.target.value)}>
             {ACTIONS.map((a) => (
               <option key={a.value} value={a.value}>
                 {a.label}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
 
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            User
-          </span>
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="any"
-            className="mt-1 w-40 rounded border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
-          />
-        </label>
+        <div className="w-40">
+          <Field label="User">
+            <Input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="any"
+            />
+          </Field>
+        </div>
 
         <div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             Window
           </span>
-          <div className="mt-1 flex rounded border border-border">
-            {WINDOWS.map((w) => (
-              <button
-                key={w.hours}
-                type="button"
-                onClick={() => setHours(w.hours)}
-                className={`px-2.5 py-1.5 text-xs transition first:rounded-l last:rounded-r ${
-                  hours === w.hours
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {w.label}
-              </button>
-            ))}
+          <div className="mt-1">
+            <SegmentedControl
+              value={String(hours)}
+              onChange={(v) => setHours(Number(v))}
+              options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
+            />
           </div>
         </div>
 
@@ -143,8 +139,10 @@ export default function AuditLog() {
           {loading ? 'loading…' : `${entries.length} shown of ${total} matching`}
         </span>
 
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="sm"
+          className="mb-0.5"
           disabled={entries.length === 0}
           onClick={() =>
             downloadCsv(stampedName('audit'), entries, [
@@ -160,65 +158,52 @@ export default function AuditLog() {
             ])
           }
           title="Export the rows shown. Timestamps are UTC in the file; the table displays IST."
-          className="mb-0.5 rounded border border-border px-2 py-1.5 text-[11px] transition hover:border-muted-foreground disabled:opacity-40"
         >
           Export CSV
-        </button>
+        </Button>
       </div>
 
-      {error && (
-        <p className="rounded border border-status-offline/40 bg-status-offline/10 px-4 py-2 text-sm text-status-offline">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {entries.length === 0 && !loading ? (
-        <p className="rounded border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          Nothing matching in this window.
-        </p>
+        <EmptyState title="Nothing matching in this window." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-                <th className="pb-1.5 pr-3">When (IST)</th>
-                <th className="pb-1.5 pr-3">Who</th>
-                <th className="pb-1.5 pr-3">Role</th>
-                <th className="pb-1.5 pr-3">Action</th>
-                <th className="pb-1.5 pr-3">Resource</th>
-                <th className="pb-1.5 pr-3">From</th>
-                <th className="pb-1.5">Result</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry) => (
-                <tr key={entry.id} className="border-b border-border/50">
-                  <td className="whitespace-nowrap py-1.5 pr-3 text-[11px] text-muted-foreground">
-                    {api.formatIST(entry.ts)}
-                  </td>
-                  <td className="py-1.5 pr-3 font-mono text-xs">
-                    {entry.username ?? '—'}
-                  </td>
-                  <td className="py-1.5 pr-3 text-[11px] text-muted-foreground">
-                    {entry.role ?? '—'}
-                  </td>
-                  <td className="py-1.5 pr-3 font-mono text-[11px]">{entry.action}</td>
-                  <td className="max-w-56 truncate py-1.5 pr-3 text-[11px] text-muted-foreground">
-                    {entry.resource_id ?? entry.resource_type ?? '—'}
-                  </td>
-                  <td className="py-1.5 pr-3 font-mono text-[10px] text-muted-foreground">
-                    {entry.ip ?? '—'}
-                  </td>
-                  <td
-                    className={`py-1.5 text-[11px] ${RESULT_STYLE[entry.result] ?? ''}`}
-                  >
-                    {entry.result}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table className="min-w-[880px]">
+          <Thead>
+            <tr>
+              <Th>When (IST)</Th>
+              <Th>Who</Th>
+              <Th>Role</Th>
+              <Th>Action</Th>
+              <Th>Resource</Th>
+              <Th>From</Th>
+              <Th>Result</Th>
+            </tr>
+          </Thead>
+          <tbody>
+            {entries.map((entry) => (
+              <Tr key={entry.id}>
+                <Td className="whitespace-nowrap text-[11px] text-muted-foreground">
+                  {api.formatIST(entry.ts)}
+                </Td>
+                <Td className="font-mono text-xs">{entry.username ?? '—'}</Td>
+                <Td className="text-[11px] text-muted-foreground">
+                  {entry.role ?? '—'}
+                </Td>
+                <Td className="font-mono text-[11px]">{entry.action}</Td>
+                <Td className="max-w-56 truncate text-[11px] text-muted-foreground">
+                  {entry.resource_id ?? entry.resource_type ?? '—'}
+                </Td>
+                <Td className="font-mono text-[10px] text-muted-foreground">
+                  {entry.ip ?? '—'}
+                </Td>
+                <Td className={`text-[11px] ${RESULT_STYLE[entry.result] ?? ''}`}>
+                  {entry.result}
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
       )}
     </div>
   )

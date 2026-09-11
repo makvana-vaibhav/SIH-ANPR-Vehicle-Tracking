@@ -9,6 +9,7 @@
 
 import { useState, type FormEvent } from 'react'
 
+import { Button, ErrorBanner, Field, Input } from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
 
@@ -54,7 +55,7 @@ export default function ChangePassword() {
         </p>
 
         {user?.must_change_password && (
-          <p className="mt-3 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
+          <p className="mt-3 rounded border border-priority-high/40 bg-priority-high/10 px-4 py-2 text-xs text-priority-high">
             Your password was set by an administrator, so more than one person
             knows it. Until you change it, actions taken by this account cannot
             be attributed to you alone.
@@ -69,37 +70,34 @@ export default function ChangePassword() {
         ) : (
           <form onSubmit={submit} className="mt-4 space-y-3">
             <Field label="Current password">
-              <input
+              <Input
                 type="password"
                 value={current}
                 onChange={(e) => setCurrent(e.target.value)}
                 required
                 autoComplete="current-password"
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
               />
             </Field>
 
             <Field label="New password">
-              <input
+              <Input
                 type="password"
                 value={next}
                 onChange={(e) => setNext(e.target.value)}
                 minLength={MIN_LENGTH}
                 required
                 autoComplete="new-password"
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
               />
             </Field>
 
             <Field label="New password again">
-              <input
+              <Input
                 type="password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 minLength={MIN_LENGTH}
                 required
                 autoComplete="new-password"
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
               />
             </Field>
 
@@ -111,33 +109,14 @@ export default function ChangePassword() {
               and must not be a single repeated character or a keyboard run.
             </p>
 
-            {error && (
-              <p className="rounded border border-status-offline/40 bg-status-offline/10 px-3 py-2 text-xs text-status-offline">
-                {error}
-              </p>
-            )}
+            {error && <ErrorBanner>{error}</ErrorBanner>}
 
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-            >
+            <Button type="submit" disabled={busy}>
               {busy ? 'Changing…' : 'Change password'}
-            </button>
+            </Button>
           </form>
         )}
       </div>
     </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      {children}
-    </label>
   )
 }

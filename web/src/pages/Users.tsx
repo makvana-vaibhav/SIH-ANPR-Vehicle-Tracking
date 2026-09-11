@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
 import { useToast } from '@/components/Toast'
+import { Button, Field, Input, RoleBadge, Select, Table, Td, Th, Thead, Tr } from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
 import { PERMISSIONS, ROLE_SUMMARY } from '@/lib/permissions'
@@ -36,15 +37,6 @@ const ROLES: Role[] = ['admin', 'supervisor', 'operator', 'analyst', 'auditor']
  * administrator.
  */
 const MACHINE_ROLES: Role[] = ['api_client']
-
-const ROLE_STYLE: Record<string, string> = {
-  admin: 'bg-status-offline/15 text-status-offline border-status-offline/40',
-  supervisor: 'bg-amber-500/15 text-amber-400 border-amber-500/40',
-  operator: 'bg-primary/15 text-primary border-primary/40',
-  analyst: 'bg-muted text-muted-foreground border-border',
-  auditor: 'bg-muted text-muted-foreground border-border',
-  api_client: 'bg-muted text-muted-foreground border-border',
-}
 
 export default function Users() {
   const toast = useToast()
@@ -136,44 +128,38 @@ export default function Users() {
           <h2 className="text-sm font-medium">Create an account</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Username">
-              <input
+              <Input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="insp.desai"
                 pattern="[a-zA-Z0-9._\-]+"
                 required
-                className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 font-mono text-sm outline-none focus:border-primary"
+                className="font-mono"
               />
             </Field>
             <Field label="Full name">
-              <input
+              <Input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Insp. R Desai"
-                className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
               />
             </Field>
             <Field label="Role">
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as Role)}
-                className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
-              >
+              <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
                 {ROLES.map((r) => (
                   <option key={r} value={r}>
                     {r}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Field label="Initial password">
-              <input
+              <Input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={12}
                 required
-                className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
               />
             </Field>
           </div>
@@ -184,149 +170,134 @@ export default function Users() {
             account is attributable.
           </p>
 
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-3 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-          >
+          <Button type="submit" disabled={busy} className="mt-3">
             {busy ? 'Creating…' : 'Create account'}
-          </button>
+          </Button>
         </form>
       )}
 
       {/* ── The accounts ────────────────────────────────────────────── */}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-              <th className="pb-1.5 pr-3">Username</th>
-              <th className="pb-1.5 pr-3">Name</th>
-              <th className="pb-1.5 pr-3">Role</th>
-              <th className="pb-1.5 pr-3">Status</th>
-              <th className="pb-1.5 pr-3">Last sign-in</th>
-              <th className="pb-1.5" />
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((account) => {
-              const self = account.id === me?.id
-              return (
-                <tr key={account.id} className="border-b border-border/50 align-top">
-                  <td className="py-2 pr-3 font-mono text-xs">
-                    {account.username}
-                    {self && (
-                      <span className="ml-1.5 text-[10px] text-muted-foreground">
-                        (you)
+      <Table className="min-w-[760px]">
+        <Thead>
+          <tr>
+            <Th>Username</Th>
+            <Th>Name</Th>
+            <Th>Role</Th>
+            <Th>Status</Th>
+            <Th>Last sign-in</Th>
+            <Th />
+          </tr>
+        </Thead>
+        <tbody>
+          {users.map((account) => {
+            const self = account.id === me?.id
+            return (
+              <Tr key={account.id} className="align-top">
+                <Td className="font-mono text-xs">
+                  {account.username}
+                  {self && (
+                    <span className="ml-1.5 text-[10px] text-muted-foreground">
+                      (you)
+                    </span>
+                  )}
+                </Td>
+                <Td className="text-xs text-muted-foreground">
+                  {account.full_name || '—'}
+                </Td>
+                <Td>
+                  {mayUpdate && !self && !MACHINE_ROLES.includes(account.role) ? (
+                    <Select
+                      value={account.role}
+                      onChange={(e) =>
+                        void change(account, { role: e.target.value as Role })
+                      }
+                      title={ROLE_SUMMARY[account.role]}
+                      className="mt-0 px-1.5 py-0.5 text-[11px]"
+                    >
+                      {ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <RoleBadge role={account.role} title={ROLE_SUMMARY[account.role]} />
+                  )}
+                </Td>
+                <Td>
+                  <div className="flex flex-col gap-0.5">
+                    <span
+                      className={`text-[11px] ${account.is_active ? 'text-status-online' : 'text-muted-foreground'}`}
+                    >
+                      {account.is_active ? 'active' : 'deactivated'}
+                    </span>
+                    {account.must_change_password && (
+                      <span
+                        className="text-[10px] text-priority-high"
+                        title="An administrator set this password, so two people know it. Nothing this account does is attributable until the holder changes it."
+                      >
+                        password not yet personal
                       </span>
                     )}
-                  </td>
-                  <td className="py-2 pr-3 text-xs text-muted-foreground">
-                    {account.full_name || '—'}
-                  </td>
-                  <td className="py-2 pr-3">
-                    {mayUpdate && !self && !MACHINE_ROLES.includes(account.role) ? (
-                      <select
-                        value={account.role}
-                        onChange={(e) =>
-                          void change(account, { role: e.target.value as Role })
-                        }
-                        title={ROLE_SUMMARY[account.role]}
-                        className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] outline-none focus:border-primary"
-                      >
-                        {ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span
-                        title={ROLE_SUMMARY[account.role]}
-                        className={`rounded border px-1.5 py-px text-[10px] font-medium uppercase ${ROLE_STYLE[account.role] ?? ''}`}
-                      >
-                        {account.role}
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2 pr-3">
-                    <div className="flex flex-col gap-0.5">
-                      <span
-                        className={`text-[11px] ${account.is_active ? 'text-status-online' : 'text-muted-foreground'}`}
-                      >
-                        {account.is_active ? 'active' : 'deactivated'}
-                      </span>
-                      {account.must_change_password && (
-                        <span
-                          className="text-[10px] text-amber-400"
-                          title="An administrator set this password, so two people know it. Nothing this account does is attributable until the holder changes it."
+                  </div>
+                </Td>
+                <Td className="text-[11px] text-muted-foreground">
+                  {account.last_login_at
+                    ? api.formatIST(account.last_login_at)
+                    : 'never'}
+                </Td>
+                <Td className="text-right">
+                  {mayUpdate && !self && (
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="flex gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            void change(account, { is_active: !account.is_active })
+                          }
+                          title={
+                            account.is_active
+                              ? 'Deactivating keeps their history readable; deleting would orphan it'
+                              : 'Restore access'
+                          }
                         >
-                          password not yet personal
-                        </span>
+                          {account.is_active ? 'Deactivate' : 'Reactivate'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setResetting(resetting === account.id ? null : account.id)
+                          }
+                        >
+                          Reset password
+                        </Button>
+                      </div>
+
+                      {resetting === account.id && (
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            type="password"
+                            value={resetValue}
+                            onChange={(e) => setResetValue(e.target.value)}
+                            placeholder="new password"
+                            minLength={12}
+                            className="mt-0 w-40 px-2 py-0.5 text-[11px]"
+                          />
+                          <Button size="sm" onClick={() => void submitReset(account)}>
+                            Set
+                          </Button>
+                        </div>
                       )}
                     </div>
-                  </td>
-                  <td className="py-2 pr-3 text-[11px] text-muted-foreground">
-                    {account.last_login_at
-                      ? api.formatIST(account.last_login_at)
-                      : 'never'}
-                  </td>
-                  <td className="py-2 text-right">
-                    {mayUpdate && !self && (
-                      <div className="flex flex-col items-end gap-1">
-                        <div className="flex gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void change(account, { is_active: !account.is_active })
-                            }
-                            title={
-                              account.is_active
-                                ? 'Deactivating keeps their history readable; deleting would orphan it'
-                                : 'Restore access'
-                            }
-                            className="rounded border border-border px-2 py-0.5 text-[11px] transition hover:border-muted-foreground"
-                          >
-                            {account.is_active ? 'Deactivate' : 'Reactivate'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setResetting(resetting === account.id ? null : account.id)
-                            }
-                            className="rounded border border-border px-2 py-0.5 text-[11px] transition hover:border-muted-foreground"
-                          >
-                            Reset password
-                          </button>
-                        </div>
-
-                        {resetting === account.id && (
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="password"
-                              value={resetValue}
-                              onChange={(e) => setResetValue(e.target.value)}
-                              placeholder="new password"
-                              minLength={12}
-                              className="w-40 rounded border border-border bg-background px-2 py-0.5 text-[11px] outline-none focus:border-primary"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => void submitReset(account)}
-                              className="rounded bg-primary px-2 py-0.5 text-[11px] text-primary-foreground"
-                            >
-                              Set
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+                  )}
+                </Td>
+              </Tr>
+            )
+          })}
+        </tbody>
+      </Table>
 
       <p className="text-[10px] leading-relaxed text-muted-foreground">
         Accounts are deactivated rather than deleted. A deleted user id turns
@@ -334,16 +305,5 @@ export default function Users() {
         deletion once an account has any history.
       </p>
     </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      {children}
-    </label>
   )
 }

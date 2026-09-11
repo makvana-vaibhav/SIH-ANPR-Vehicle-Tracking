@@ -21,16 +21,17 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
 import RouteMap from '@/components/RouteMap'
 import { useToast } from '@/components/Toast'
+import { Button, ErrorBanner, EmptyState, Field, Input, SegmentedControl } from '@/components/ui'
 import * as api from '@/lib/api'
 import type { Convoy, RouteGeoJSON, VehicleRoute } from '@/lib/types'
 
 /** Windows an operator actually asks for. */
 const WINDOWS = [
-  { label: '1 h', hours: 1 },
-  { label: '6 h', hours: 6 },
-  { label: '24 h', hours: 24 },
-  { label: '7 d', hours: 168 },
-  { label: '30 d', hours: 720 },
+  { value: '1', label: '1 h', hours: 1 },
+  { value: '6', label: '6 h', hours: 6 },
+  { value: '24', label: '24 h', hours: 24 },
+  { value: '168', label: '7 d', hours: 168 },
+  { value: '720', label: '30 d', hours: 720 },
 ] as const
 
 /** Plain-English reasons, so a flag never appears as a bare identifier. */
@@ -148,47 +149,33 @@ export default function VehicleSearch() {
 
       {/* ── Search ──────────────────────────────────────────────────── */}
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Plate
-          </span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value.toUpperCase())}
-            placeholder="GJ03AB1234"
-            className="mt-1 w-56 rounded border border-border bg-background px-2 py-1.5 font-mono text-sm uppercase outline-none focus:border-primary"
-          />
-        </label>
+        <div className="w-56">
+          <Field label="Plate">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value.toUpperCase())}
+              placeholder="GJ03AB1234"
+              className="font-mono uppercase"
+            />
+          </Field>
+        </div>
 
         <div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             Window
           </span>
-          <div className="mt-1 flex rounded border border-border">
-            {WINDOWS.map((w) => (
-              <button
-                key={w.hours}
-                type="button"
-                onClick={() => changeWindow(w.hours)}
-                className={`px-2.5 py-1.5 text-xs transition first:rounded-l last:rounded-r ${
-                  hours === w.hours
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {w.label}
-              </button>
-            ))}
+          <div className="mt-1">
+            <SegmentedControl
+              value={String(hours)}
+              onChange={(v) => changeWindow(Number(v))}
+              options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
+            />
           </div>
         </div>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-        >
+        <Button type="submit" disabled={busy}>
           {busy ? 'Searching…' : 'Search'}
-        </button>
+        </Button>
       </form>
 
       {suggestions.length > 0 && !route && (
@@ -218,11 +205,7 @@ export default function VehicleSearch() {
         </div>
       )}
 
-      {error && (
-        <p className="rounded border border-status-offline/40 bg-status-offline/10 px-4 py-2 text-sm text-status-offline">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {route && (
         <>
@@ -291,19 +274,18 @@ export default function VehicleSearch() {
           </section>
 
           {route.hop_count === 0 ? (
-            <div className="rounded-md border border-dashed border-border p-8 text-center">
-              <p className="text-sm">
-                <span className="font-mono">{route.plate}</span> was not seen in this
-                window.
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Try a longer window, or pick a plate from the list above.
-              </p>
-            </div>
+            <EmptyState
+              title={
+                <>
+                  <span className="font-mono">{route.plate}</span> was not seen in this window.
+                </>
+              }
+              hint="Try a longer window, or pick a plate from the list above."
+            />
           ) : (
             <>
             {route.camera_count === 1 && (
-              <p className="rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
+              <p className="rounded border border-priority-high/40 bg-priority-high/10 px-4 py-2 text-xs text-priority-high">
                 All {route.hop_count} sightings are on one camera, so there is no
                 journey to draw — only a record of the vehicle passing{' '}
                 {route.hops[0]?.camera_code} more than once. A route needs the plate
@@ -389,7 +371,7 @@ export default function VehicleSearch() {
                                   flag === 'implausible_speed' ||
                                   flag === 'impossible_simultaneous'
                                     ? 'text-status-offline'
-                                    : 'text-amber-400'
+                                    : 'text-priority-high'
                                 }`}
                               >
                                 {FLAG_TEXT[flag] ?? flag}
