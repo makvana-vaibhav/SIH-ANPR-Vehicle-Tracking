@@ -336,11 +336,28 @@ colour has a real producer.
 ### P10 — Predictive traffic
 **~4 days · PS §12 · depends on P4 baselines**
 
+> 🟡 **Code complete, gate not run.** `GET /api/v1/predictions/congestion`, the Analytics.tsx
+> "Predicted congestion" panel, and `test_predictions.py` all exist — see
+> [BUILD_STATE.md](BUILD_STATE.md)'s P10 section. Same no-Docker, no-live-Postgres caveat as every
+> other phase this session, with one difference: the forecasting method's core arithmetic touches no
+> database, so it was copied into a standalone script and actually **executed** against synthetic
+> data (exact slope recovery on a linear series, ~0 backtest MAE on a linear series, correct MAE
+> increase when a deviation is planted in the held-out portion) — real evidence the method is
+> implemented correctly, not just read carefully. There is no absolute road-capacity figure anywhere
+> in this system, so "congestion" is defined as a relative measure against each camera's own history
+> — see that schema module's docstring for the full argument.
+
 - Short-horizon congestion forecast (15 / 30 min) per junction and corridor, from inflow trend, speed
-  trend and upstream state.
-- Show the **contributing factors** beside the number, per the explainability rule.
+  trend and upstream state. **Done** — an OLS trend line through the last 30 minutes of a
+  self-baselined volume index; `upstream_inflow`/`speed_trend` factors reuse the same
+  `_segment_legs` real observed-journey adjacency P4 already built, camera grouping only.
+- Show the **contributing factors** beside the number, per the explainability rule. **Done** —
+  `ContributingFactor {factor, detail}`, same shape as P5's `anomaly.Reason`.
 - **Backtest against held-out history** and report the forecast's own error. A prediction with no
-  error bar is decoration.
+  error bar is decoration. **Done** — the identical fitting procedure run against an earlier slice of
+  the same lookback window, checked against a later slice that has already happened; `mae_pct`
+  travels with every response. Not yet meaningful against *real* traffic, since that needs the live
+  fleet this session did not have.
 
 ### P11 — Vehicle re-identification
 **~4 days**

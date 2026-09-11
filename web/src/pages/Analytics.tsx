@@ -49,6 +49,7 @@ import {
 } from '@/components/ui'
 import * as api from '@/lib/api'
 import type {
+  CongestionResponse,
   FlowResponse,
   HotspotResponse,
   RouteDensityResponse,
@@ -113,6 +114,7 @@ export default function Analytics() {
   const [routes, setRoutes] = useState<RouteDensityResponse | null>(null)
   const [travelTime, setTravelTime] = useState<TravelTimeResponse | null>(null)
   const [hotspots, setHotspots] = useState<HotspotResponse | null>(null)
+  const [congestion, setCongestion] = useState<CongestionResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -138,18 +140,21 @@ export default function Analytics() {
     setLoading(true)
     try {
       const windowSince = since(hours)
-      const [flowBody, speedBody, routesBody, travelBody, hotspotsBody] = await Promise.all([
-        api.getAnalyticsFlow({ since: windowSince, bucket, group_by: 'corridor', corridor }),
-        api.getAnalyticsSpeed({ since: windowSince, corridor }),
-        api.getAnalyticsRoutes({ since: windowSince, limit: 15 }),
-        api.getAnalyticsTravelTime({ since: windowSince }),
-        api.getAnalyticsHotspots({ since: windowSince, limit: 8 }),
-      ])
+      const [flowBody, speedBody, routesBody, travelBody, hotspotsBody, congestionBody] =
+        await Promise.all([
+          api.getAnalyticsFlow({ since: windowSince, bucket, group_by: 'corridor', corridor }),
+          api.getAnalyticsSpeed({ since: windowSince, corridor }),
+          api.getAnalyticsRoutes({ since: windowSince, limit: 15 }),
+          api.getAnalyticsTravelTime({ since: windowSince }),
+          api.getAnalyticsHotspots({ since: windowSince, limit: 8 }),
+          api.getCongestionForecast({ group_by: 'camera', corridor }),
+        ])
       setFlow(flowBody)
       setSpeed(speedBody)
       setRoutes(routesBody)
       setTravelTime(travelBody)
       setHotspots(hotspotsBody)
+      setCongestion(congestionBody)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -552,6 +557,83 @@ export default function Analytics() {
               </li>
             ))}
           </ul>
+        )}
+      </Panel>
+
+      {/* ── Predicted congestion ──────────────────────────────────────── */}
+      <Panel>
+        <PanelHeader title="Predicted congestion" />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Each figure is this camera&apos;s current volume against its own typical
+          volume for this hour of day — 100% is normal, not an absolute road-capacity
+          reading (no capacity data exists to compute one). The +15/+30 min figures are
+          a straight-line trend through the last 30 minutes; the error shown beside each
+          is that same method checked against buckets already inside this window.
+        </p>
+        {loading && !congestion ? (
+          <div className="mt-3">
+            <SkeletonRows rows={3} height="h-20" />
+          </div>
+        ) : !congestion || congestion.series.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState title="No cameras with enough recent volume to forecast." />
+          </div>
+        ) : (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {congestion.series.slice(0, 12).map((c) => (
+              <div key={c.key} className="rounded-md border border-border bg-card px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-semibold">{c.label}</span>
+                  {c.status === 'ok' && c.current_index_pct !== null ? (
+                    <Badge
+                      tone={
+                        c.current_index_pct > 150
+                          ? 'danger'
+                          : c.current_index_pct > 110
+                            ? 'warning'
+                            : 'neutral'
+                      }
+                    >
+                      {Math.round(c.current_index_pct)}% of typical
+                    </Badge>
+                  ) : (
+                    <Badge tone="neutral">{c.status.replace('_', ' ')}</Badge>
+                  )}
+                </div>
+                {c.corridor && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">{c.corridor}</p>
+                )}
+                <div className="mt-2 flex items-baseline gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Now
+                    </p>
+                    <p className="font-mono text-lg">
+                      {c.current_index_pct !== null ? `${Math.round(c.current_index_pct)}%` : '—'}
+                    </p>
+                  </div>
+                  {c.forecasts.map((f) => (
+                    <div key={f.horizon_minutes}>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        +{f.horizon_minutes} min
+                      </p>
+                      <p className="font-mono text-sm text-muted-foreground">
+                        {f.index_pct !== null ? `${Math.round(f.index_pct)}%` : '—'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {c.factors.length > 0 && (
+                  <p className="mt-2 text-[11px] text-muted-foreground">{c.factors[0].detail}</p>
+                )}
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  {c.backtest.status === 'ok' && c.backtest.mae_pct !== null
+                    ? `Forecast error, backtested: ±${c.backtest.mae_pct} pts (${c.backtest.samples} held-out buckets)`
+                    : 'Not enough history yet to backtest this forecast.'}
+                </p>
+              </div>
+            ))}
+          </div>
         )}
       </Panel>
     </div>

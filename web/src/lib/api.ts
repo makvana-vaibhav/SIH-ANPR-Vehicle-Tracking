@@ -15,6 +15,7 @@ import type {
   CameraGeoJSON,
   CameraHealthHistory,
   CameraPage,
+  CongestionResponse,
   Department,
   DetectionPage,
   ManagedUser,
@@ -621,6 +622,12 @@ export const getAnalyticsHotspots = (
 
 export const getAnalyticsHeatmap = (query: AnalyticsWindowQuery = {}) =>
   request<HeatmapResponse>(`/api/v1/analytics/heatmap?${analyticsParams(query)}`)
+
+// ── Predictive traffic (P10) ─────────────────────────────────────────────
+
+export const getCongestionForecast = (
+  query: { at?: string; group_by?: 'camera' | 'corridor'; corridor?: string } = {},
+) => request<CongestionResponse>(`/api/v1/predictions/congestion?${analyticsParams(query)}`)
 
 // ── Formatting ────────────────────────────────────────────────────────
 

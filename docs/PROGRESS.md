@@ -3,9 +3,9 @@
 **Read this first.** One page: what works, what doesn't, what to do next.
 
 *Updated 11 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
-**P4, P5 and P8 code complete, P9 half built (type/camera/time; colour needs a
-vision pipeline this session didn't have), gates not yet run — P7 blocked on
-data — see below***
+**P4, P5, P8 and P10 code complete, P9 half built (type/camera/time; colour
+needs a vision pipeline this session didn't have), gates not yet run — P7
+blocked on data — see below***
 
 | Document | What it holds |
 |---|---|
@@ -43,12 +43,12 @@ Docker on Apple Silicon there is none, and no setting creates one.
 ```
 DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops
          └─ plus: worker CPU budget + pipeline pool (unplanned, 10 Sep)
-NEXT     P4 analytics + P5 anomaly + P8 search + P9 attributes(half) — code complete, gates not yet run
-         ← run `make demo` and check all four
+NEXT     P4 analytics + P5 anomaly + P8 search + P9 attributes(half) + P10 predict
+         — code complete, gates not yet run ← run `make demo` and check all five
 BLOCKED  P7 accuracy — needs real footage and a person to label it, not more code
          P9's colour half — needs numpy/opencv + real footage, same as P7
 THEN     P6 harden                                                             (V1, ~2 weeks)
-LATER    P10 predict ──▶ P11 re-ID ──▶ P12 docs
+LATER    P11 re-ID ──▶ P12 docs
 ```
 
 ---
@@ -70,6 +70,13 @@ Search beyond plates (PS §14, not one of the 8 numbered steps but named as a
 differentiator): 🟡 **half built (P9)** — type/camera/time filtering on
 `GET /api/v1/detections` plus a UI toggle; vehicle-colour extraction itself
 was not attempted (no numpy/opencv, no real footage this session).
+
+Predictive traffic (PS §12, differentiator #2): 🟡 **code complete (P10),
+gate not yet run** — `GET /api/v1/predictions/congestion` (relative-volume
+index, 15/30-min forecast, contributing factors, backtested error) and an
+Analytics.tsx panel exist; the forecasting arithmetic was directly executed
+against synthetic data and verified correct (see BUILD_STATE.md's P10
+section), but the endpoint itself has not run against a live fleet.
 
 ---
 
@@ -110,6 +117,11 @@ was not attempted (no numpy/opencv, no real footage this session).
    `GET /api/v1/detections` and a `By attributes` UI toggle exist now (P9), same never-run caveat as
    P4/P5/P8. Vehicle-colour extraction was not attempted — no numpy/opencv and no real footage this
    session, same blocker as P7. → **P9, gate + colour producer**
+8. **Predictive traffic — verification.** `GET /api/v1/predictions/congestion` and an Analytics.tsx
+   panel exist now (P10): a relative-volume index against each camera's own history, a 15/30-min
+   forecast, contributing factors and a self-backtested error. The forecasting arithmetic itself was
+   directly executed against synthetic data this session (not just linted) and is verified correct;
+   the endpoint has not run against a live fleet. → **P10, gate**
 
 ---
 
@@ -214,6 +226,36 @@ extract a colour from and check the result against — the same blocker P7 has
 for accuracy. The type/camera/time filtering is genuinely useful on its own
 and is what "attribute search" means until a colour producer exists; do not
 read the gate as fully met by it.
+
+---
+
+## ▶ Also next: run the P10 gate
+
+Full definition and gate: [ROADMAP.md](ROADMAP.md#p10--predictive-traffic).
+Full build detail: [BUILD_STATE.md](BUILD_STATE.md), P10 section.
+
+`GET /api/v1/predictions/congestion`, the Analytics.tsx "Predicted
+congestion" panel, and `test_predictions.py` all exist now. Same never-run
+caveat as P4/P5/P8/P9 for the endpoint itself — needs a live fleet and
+`make test`.
+
+**One thing is different from every other never-run phase this session:**
+the forecasting method's core arithmetic (`_fit_line`, `_backtest` in
+`app/routers/predictions.py`) does not touch the database, so it was
+copied into a standalone script and actually run against synthetic data —
+not just linted. A perfectly linear synthetic sequence recovers its exact
+slope, a flat sequence yields slope 0, backtest MAE lands at 0.00 on
+perfectly linear data and rises correctly when a deviation is planted in
+the held-out portion, and forecast deltas at +15/+30 match `slope ×
+horizon` exactly. That is real evidence the method is implemented
+correctly — narrower than "the gate passed", but stronger than "it was
+read carefully and looks right", which is all P4/P5/P8/P9 could offer.
+
+**What still needs a live fleet:** whether real detection volume produces
+a sensible baseline and a forecast worth showing a judge, and whether
+`speed_trend`/`upstream_inflow` ever actually appear — both depend on
+plausible legs existing, which P4's own findings say the replayed demo
+fleet mostly does not produce (see P7).
 
 ---
 

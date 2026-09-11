@@ -730,3 +730,51 @@ export interface HeatmapResponse {
   window: AnalyticsWindow
   max_vehicles: number
 }
+
+// ── Predictive traffic (P10) ─────────────────────────────────────────────
+// Mirrors app/schemas/predictions.py exactly. `current_index_pct` is a
+// relative measure — this camera's current volume vs. its own typical
+// volume at this hour, 100 == normal — never an absolute road-capacity
+// occupancy figure. See that module's docstring for why.
+
+export interface ForecastPoint {
+  horizon_minutes: 15 | 30
+  index_pct: number | null
+}
+
+export interface ContributingFactor {
+  factor: string
+  detail: string
+}
+
+export interface BacktestResult {
+  status: DataStatus
+  /** Held-out buckets the forecast was checked against. */
+  samples: number
+  /** Mean absolute error, in index percentage points. */
+  mae_pct: number | null
+}
+
+export interface CongestionSeries {
+  /** Camera code, or corridor name when grouped by corridor. */
+  key: string
+  label: string
+  corridor: string | null
+  status: DataStatus
+  current_index_pct: number | null
+  current_bucket_vehicles: number | null
+  trend_samples: number
+  baseline_days: number
+  trend_per_minute_pct: number | null
+  forecasts: ForecastPoint[]
+  factors: ContributingFactor[]
+  backtest: BacktestResult
+}
+
+export interface CongestionResponse {
+  window: AnalyticsWindow
+  group_by: 'camera' | 'corridor'
+  baseline_window_days: number
+  horizons_minutes: Array<15 | 30>
+  series: CongestionSeries[]
+}

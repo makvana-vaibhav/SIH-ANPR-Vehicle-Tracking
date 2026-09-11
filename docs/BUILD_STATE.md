@@ -1823,6 +1823,106 @@ build.
 
 ---
 
+## P10 — Predictive traffic  🟡 code complete, gate not run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p10--predictive-traffic).
+
+Same no-Docker, no-live-Postgres caveat as every prior phase this session.
+One thing genuinely different here: because the forecasting logic is pure
+Python arithmetic (no SQLAlchemy needed to run it), it could actually be
+*executed* — not just linted — against hand-built synthetic data. See
+"What was verified" below.
+
+### What "congestion" means here, and why
+
+There is no lane count, no free-flow-speed rating, no signal timing
+anywhere in this system — nothing to compute an absolute road-capacity
+occupancy from. So this phase does not claim one. `current_index_pct` is a
+relative measure: this camera's current volume ÷ its own typical volume at
+this hour of day, from its own history, ×100. 100 means "normal for this
+hour", 150 means "50% busier than normal for this hour". Same spirit as
+`TravelTime.delta_pct` (P4), applied to volume instead of duration, and
+documented as such everywhere it appears so nobody reads it as an occupancy
+percentage. `app/schemas/predictions.py`'s module docstring makes this
+argument in full.
+
+### What was built
+
+- **`GET /api/v1/predictions/congestion`** (`routers/predictions.py`), by
+  camera or corridor. For each key: the current relative-volume index; a
+  15/30-minute forecast; the contributing factors behind it; and a
+  backtest of the forecasting method's own error. RBAC:
+  `Permission.ANALYTICS_READ`, same as `/analytics/*` — a forecast
+  identifies no one, so `api_client` is the only role denied, matching
+  the existing analytics matrix.
+- **The forecast** is an ordinary-least-squares line through the last 6
+  five-minute index values (30 minutes), extrapolated to now+15 and
+  now+30. Nothing more sophisticated than that sentence — no external
+  traffic model, nothing this session could not verify by hand. `_fit_line`
+  is nine lines of arithmetic.
+- **The backtest is the same fitting procedure, run against buckets
+  already inside the requested window.** Split the 90-minute lookback into
+  an earlier 30-minute training slice and a later 30-minute test slice,
+  fit on the training slice, "forecast" forward into the test slice (which
+  has already happened), and measure the mean absolute error against what
+  was actually observed there. `BacktestResult.mae_pct` travels with every
+  live forecast for that reason — ROADMAP.md's P10 gate says explicitly
+  that a prediction with no error bar is decoration, and this is what
+  keeps that true on every response rather than as a claim about an
+  offline run nobody can re-check.
+- **Contributing factors** (the explainability rule, applied here):
+  `inflow_trend` (always, when a trend fit succeeds — rising/falling/steady
+  with the slope); `upstream_inflow` and `speed_trend` (camera grouping
+  only, when there is enough leg data) — both computed from the *same*
+  `_segment_legs` real observed-journey adjacency that P4's route-density
+  and speed endpoints already use, not a modelled road graph.
+  `speed_trend` will frequently be absent on the replayed demo fleet, for
+  the identical reason `analytics.speed` usually reports
+  `insufficient_data`: a replayed clip makes most legs read as physically
+  implausible. Documented, expected, not a bug in this module.
+- **`web/src/pages/Analytics.tsx`** gained a "Predicted congestion" panel:
+  one card per camera with now/+15/+30, the leading factor, and the
+  backtested error, worded the same way the schema documents it (a
+  relative measure, not an absolute occupancy reading).
+- **`test_predictions.py`** — new, same historical-window isolation as the
+  rest of this session's test files, engineered so every historical hour
+  has `avg_bucket_flow == 1.0` and every live sequence is exactly linear.
+  That makes the forecast, slope and near-zero backtest MAE *exact*
+  assertions rather than "a number came back" — see the module docstring.
+  Covers: a rising trend's forecast and backtest; corridor grouping
+  aggregating correctly; too few live buckets reporting
+  `insufficient_data` while `current_index_pct` still shows; zero baseline
+  reporting `insufficient_history`; the RBAC matrix.
+
+### What was verified, concretely
+
+No live Postgres to run the endpoint end to end, but the pure-arithmetic
+core (`_fit_line`, `_backtest`) does not touch the database at all, so it
+was copied into a standalone script and actually executed against
+synthetic data: a perfectly linear rising sequence recovers its exact
+slope and intercept, backtest MAE lands at 0.00 on a perfectly linear
+series and rises correctly when a deliberate deviation is planted in the
+held-out portion, a flat series yields slope 0, and forecast deltas at
++15/+30 match `slope × horizon` exactly. That is a real correctness check
+of the module's central claim — not a substitute for running the actual
+endpoint against real rows, which still needs a live fleet.
+
+### Not attempted
+
+Predictive traffic depends on P4 baselines (ROADMAP.md says so
+explicitly), and P4 itself is `insufficient_data`-heavy on the replayed
+demo fleet for the speed/travel-time side. `inflow_trend` (built on
+`detections` volume) works regardless; `speed_trend` (built on
+`vehicle_tracks` legs) inherits P4's honest limitation and will usually be
+absent until real footage exists — see P7.
+
+**Gate:** a 15/30-minute forecast per junction/corridor, with contributing
+factors and a reported backtest error. **Not run** end to end (no live
+fleet), but the forecasting method itself is verified correct by direct
+execution — see above.
+
+---
+
 ## Worker CPU and the thread budget  ✅ (unplanned — 10 Sep 2026)
 
 Not a roadmap phase. Raised as "cameras are not loading properly, and if they
