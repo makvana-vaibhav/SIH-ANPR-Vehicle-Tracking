@@ -113,6 +113,10 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
   prefix only.
 - **Accuracy is unmeasured on real footage.** Synthetic only: 62.5–87.5% end-to-end, 100%
   exact-match on plates attempted. The bottleneck is recall, not OCR. Demo footage carries UK plates.
+  P7 investigated 11 Sep 2026: blocked on real footage and human labelling, neither producible in a
+  coding session. One correction worth knowing — `ai-lab/FINDINGS.md` used to list "fix track
+  fragmentation" as unstarted; `ailab/track/merge.py` already does it and is wired into both
+  pipelines, it has just never been re-measured. See ROADMAP.md's P7 section.
 - **Sizing docs are ~4× optimistic.** `docs/INFRASTRUCTURE.md` §2 treats a 4-thread worker as one
   core. `scripts/capacity_model.py` supersedes it.
 - **`mypy` does not pass** (17 errors) and `make lint` does not run it.

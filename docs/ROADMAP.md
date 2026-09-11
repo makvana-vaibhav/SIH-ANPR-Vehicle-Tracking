@@ -231,6 +231,13 @@ Also:
 ### P7 — Earn the >90% accuracy claim ⭐ highest-value V2 item
 **~4–5 days, mostly human labelling**
 
+> 🔴 **Blocked on data and human time, not code.** Investigated 11 Sep 2026 (no Docker, no
+> Node/npm, and critically — no real footage; `data/videos/` is empty, `ai-lab/datasets/` does not
+> exist yet). Two things below turned out to already be done and are corrected accordingly; the
+> rest genuinely needs a person with real footage and an ai-lab runtime, which this session had
+> neither of. See the status note under "track fragmentation" below before re-reading this section
+> as a todo list.
+
 The PS states **>90% plate recognition accuracy under real-world conditions**. We currently have no
 real-world number at all. Synthetic-only measurements: **62.5–87.5% end-to-end** across two runs,
 **100% exact-match on plates attempted**, CER 0.000. `ai-lab/FINDINGS.md` is explicit that these are
@@ -240,16 +247,31 @@ The bottleneck is **recall, not OCR**. When the pipeline commits to a read it is
 to read 3 of 8 plates. Chasing a better recogniser is the wrong move.
 
 - Source **real Indian footage** with legible plates, day and night. (`anpr_demo.mp4` is UK — a
-  per-camera `plate-region:GB` tag works around it, and no shipped config may accept GB.)
+  per-camera `plate-region:GB` tag works around it, and no shipped config may accept GB.) **Not
+  done** — needs a person to actually source and license real footage; nothing to investigate or
+  write here.
 - `make mine` → label `ai-lab/datasets/mined/to_label/labels_to_fill.csv` by hand. The loop already
-  exists and pre-fills the pipeline's guess.
-- `make evaluate GT=…` → exact-match, CER, precision/recall, calibration table.
+  exists and pre-fills the pipeline's guess. **Not done** — needs the footage above first, then a
+  person watching video and typing plates. Not something a coding session can do on its behalf.
+- `make evaluate GT=…` → exact-match, CER, precision/recall, calibration table. **Not done** — needs
+  labelled footage and a runnable ai-lab (torch/onnxruntime/opencv), neither present this session.
 - Attack recall: **re-export the detector at 1280** instead of the fixed 640 (known to lose distant
-  and night vehicles), and fix **track fragmentation** — one car came back as three tracks, which is
-  the entire reason precision is 0.70 rather than ~1.0.
+  and night vehicles) — **still not done**. The shipped `yolov8n.onnx` (`ai-lab/scripts/fetch_models.sh`)
+  is a pre-exported, checksum-pinned file with a fixed 640 input; re-exporting at 1280 means running
+  Ultralytics' own export tooling against a torch checkpoint, which needs PyTorch and compute this
+  session did not have. Bumping `DetectorConfig.imgsz` in `ailab/config.py` to 1280 *without*
+  re-exporting the model would silently feed a 1280px tensor into a 640-shaped graph — not attempted.
+  — and fix **track fragmentation**: **already done**, just not documented as such until now.
+  `ailab/track/merge.py` merges tracker fragments that resolve the same plate (with the edit-distance
+  latitude the `GJ12HH8771`/`GJ12H8771` case needed) and are compatible in time, wired into both
+  `pipeline.py` and `stream/runner.py`, with its own test suite (`tests/test_merge.py`). What is
+  **not** done: re-running the evaluation to confirm `fragmentation_stats()`'s `tracks_per_vehicle`
+  actually moved toward 1.0 — see `FINDINGS.md`'s corrected §3 for the full account.
 - Publish the measured figure **with its conditions**. If it is below 90%, say so and say why.
 
 **Gate:** a measured exact-match figure on labelled real footage, reproducible from a committed run.
+**Unreachable without real footage and a person to label it — that is the actual next step, not more
+code.**
 
 ### P8 — Fuzzy and partial plate search
 **~2 days · closes the long-abandoned old Phase 8**
