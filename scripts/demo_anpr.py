@@ -43,7 +43,7 @@ GREEN, RED, YELLOW, CYAN = "\033[32m", "\033[31m", "\033[33m", "\033[36m"
 #: The camera the ANPR footage is pinned to, via SIM_CAMERA_VIDEOS in compose.
 #: It is the one camera in the fleet carrying recorded video; every other
 #: camera is a live feed from the organisers' grid.
-DEMO_CAMERA = "CAM-DEMO"
+DEMO_CAMERA = "CAM-DEMO-01"
 #: The watchlist entry is made the way an officer makes one: an authenticated
 #: request to the API. Writing straight to the table would skip RBAC, skip the
 #: audit row, and leave the API's in-memory matcher unaware of the new plate

@@ -17,6 +17,17 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
+# Windows, Git Bash: MSYS rewrites any argument that looks like a POSIX path
+# before a native program sees it, so `docker compose exec -w /app/services/api`
+# arrives as `-w C:/Program Files/Git/app/services/api` and the daemon rejects
+# it. Every container path in this file and in scripts/ is affected.
+#
+# Excluded by prefix rather than disabled outright (MSYS_NO_PATHCONV): the
+# blanket switch also stops `/tmp/...` being translated for host tools such as
+# curl.exe, which then write to a C:	mp that does not exist and fail silently.
+# Only the paths that exist inside our containers are listed. No-op elsewhere.
+export MSYS2_ARG_CONV_EXCL := /app;/data;/work;/models;/tmp/ruff
+
 COMPOSE          := docker compose
 COMPOSE_AI       := docker compose --profile ai
 COMPOSE_SCALE    := docker compose -f docker-compose.yml -f docker-compose.scale.yml

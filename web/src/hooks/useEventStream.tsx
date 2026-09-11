@@ -23,6 +23,7 @@ import {
 } from 'react'
 
 import { API_BASE_URL, getAccessToken } from '@/lib/api'
+import { isPositionRefresh } from '@/lib/events'
 import type { LiveAlertEvent, LiveEvent, LiveVehicleEvent } from '@/lib/types'
 
 export type StreamStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
@@ -30,6 +31,8 @@ export type StreamStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
 /** How many recent items each buffer holds. Bounded: this runs for hours. */
 const MAX_DETECTIONS = 200
 const MAX_ALERTS = 50
+/** Per-camera buffer, which carries position refreshes as well as readings. */
+const CAMERA_BUFFER = 120
 
 const BACKOFF_START_MS = 1_000
 const BACKOFF_MAX_MS = 30_000
@@ -131,6 +134,11 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
 
         if (isVehicle(event)) {
           if (!event.plate?.readable || !event.plate.text) return
+          // A position refresh is the same reading again, sent so an overlay
+          // has somewhere current to draw. Subscribers above have already had
+          // it; buffering it here would list the same car several times a
+          // second and count each redraw as a fresh sighting.
+          if (isPositionRefresh(event)) return
           setCounts((c) => ({ ...c, detections: c.detections + 1 }))
           setDetections((current) => [event, ...current].slice(0, MAX_DETECTIONS))
         } else if (isAlert(event)) {
@@ -207,7 +215,11 @@ export function useCameraEvents(cameraCode: string | null): LiveVehicleEvent[] {
       if (!isVehicle(event)) return
       if ((event.source?.camera_id ?? '').toLowerCase() !== wanted) return
       if (!event.plate?.readable || !event.plate.text) return
-      setEvents((current) => [event, ...current].slice(0, 40))
+      // Deeper than the 40 it used to hold. The worker now re-emits a vehicle
+      // several times a second to say where it has got to, so a shallow buffer
+      // is filled by the cars currently in view and evicts the ones read a few
+      // seconds ago before anyone has read them.
+      setEvents((current) => [event, ...current].slice(0, CAMERA_BUFFER))
     })
   }, [cameraCode, subscribe])
 

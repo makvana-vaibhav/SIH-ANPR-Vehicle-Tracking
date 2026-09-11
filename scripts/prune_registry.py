@@ -42,9 +42,16 @@ from app.db.session import SessionLocal, dispose_engine  # noqa: E402
 from app.models.intelligence import Alert, Detection  # noqa: E402
 from app.models.registry import Camera, CameraHealth  # noqa: E402
 
-#: Resolves its source through MediaMTX rather than a stored URL, so a NULL
-#: stream_url on this one is correct rather than decorative.
-KEEP_WITHOUT_URL = ("CAM-DEMO",)
+#: These resolve their source through MediaMTX rather than a stored URL, so a
+#: NULL `stream_url` on them is correct rather than decorative. The simulator
+#: publishes them, `SimulatedVmsAdapter` derives RTSP/WHEP/HLS from the camera
+#: code, and health is probed by asking MediaMTX which paths are actually live.
+#:
+#: Everything the simulator publishes has to be listed here. It is not a
+#: cosmetic exclusion: this script deletes cameras that have no `stream_url`,
+#: so a published camera missing from this tuple is deleted along with its
+#: detections and alerts on the next run.
+KEEP_WITHOUT_URL = ("CAM-DEMO", "CAM-DEMO-01", "CAM-DEMO-02", "CAM-DEMO-03")
 
 
 def _sourceless():

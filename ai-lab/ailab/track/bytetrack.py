@@ -136,14 +136,16 @@ class STrack:
         return self.frame_id
 
     # ── lifecycle ──
-    def activate(self, kalman_filter: KalmanFilter, frame_id: int, track_id: int) -> None:
+    def activate(
+        self, kalman_filter: KalmanFilter, frame_id: int, track_id: int, trusted: bool = False
+    ) -> None:
         self.track_id = track_id
         self.mean, self.covariance = kalman_filter.initiate(self.tlwh_to_xyah(self._tlwh))
         self.tracklet_len = 0
         self.state = TrackState.TRACKED
         # The very first frame of a track is trusted immediately; later ones
         # must survive a second association before being reported.
-        self.is_activated = frame_id == 1
+        self.is_activated = trusted
         self.frame_id = frame_id
         self.start_frame = frame_id
 
@@ -213,9 +215,14 @@ class ByteTracker(Tracker):
         self.frame_id = 0
         self._next_id = 0
         self.kalman_filter = KalmanFilter()
+        self.frame_rate = frame_rate
         # track_buffer is expressed in frames at 30 fps; scale it so a config
         # behaves the same on 25 fps CCTV as on a 30 fps clip.
         self.max_time_lost = max(1, int(frame_rate / 30.0 * config.track_buffer))
+        # Source time of the last update, so the frame clock can advance by
+        # however many source frames actually elapsed. See update().
+        self._last_t_s: float | None = None
+        self._updates = 0
 
     def _new_id(self) -> int:
         self._next_id += 1
@@ -223,11 +230,33 @@ class ByteTracker(Tracker):
 
     def reset(self) -> None:
         self.tracked, self.lost, self.removed = [], [], []
+        self._last_t_s = None
+        self._updates = 0
         self.frame_id = 0
         self._next_id = 0
 
     def update(self, detections: list[Detection], frame_index: int, t_s: float) -> list[Detection]:
-        self.frame_id += 1
+        # Advance the clock by the source frames that went by, not by one.
+        #
+        # `max_time_lost` is a number of *source* frames — a second of lost
+        # track at 30 fps. A live worker that cannot keep up analyses a
+        # fraction of the frames it decodes (measured: one in nine), and if
+        # the clock ticked once per analysed frame that one second became nine
+        # of wall time. Nine seconds is long enough at a junction for the car
+        # that was lost to leave and a different car to stop in the same spot,
+        # which the tracker then matched to the old identity — and the old
+        # plate rode along on the new car. Counting elapsed source frames keeps
+        # the buffer meaning what the config says, whatever the analysis rate.
+        #
+        # A caller that passes a constant `t_s` (the batch tests do) gets the
+        # old one-per-update behaviour, because the elapsed count floors at 1.
+        self._updates += 1
+        if self._last_t_s is None:
+            self.frame_id += 1
+        else:
+            elapsed = int(round((t_s - self._last_t_s) * self.frame_rate))
+            self.frame_id += max(1, elapsed)
+        self._last_t_s = t_s
         cfg = self.config
 
         candidates = [
@@ -330,7 +359,9 @@ class ByteTracker(Tracker):
             det = leftovers[i]
             if det.score < cfg.new_track_thresh:
                 continue
-            det.activate(self.kalman_filter, self.frame_id, self._new_id())
+            det.activate(
+                self.kalman_filter, self.frame_id, self._new_id(), trusted=self._updates == 1
+            )
             activated.append(det)
 
         # ── Retire tracks lost for too long ──
@@ -343,8 +374,13 @@ class ByteTracker(Tracker):
             [t for t in self.tracked if t.state == TrackState.TRACKED], activated
         )
         self.tracked = _join(self.tracked, refound)
-        self.lost = _subtract(_join(_subtract(self.lost, self.tracked), lost), self.removed)
+        # Tracks retired *this* update are subtracted too. Upstream ByteTrack
+        # extends `removed` only after this line, so a track marked removed
+        # stayed matchable for one more update — a one-frame slip when every
+        # frame is analysed, and a whole second when the clock above advances
+        # by the frames that were skipped.
         self.removed.extend(removed)
+        self.lost = _subtract(_join(_subtract(self.lost, self.tracked), lost), self.removed)
         self.tracked, self.lost = _remove_duplicates(self.tracked, self.lost)
 
         return [

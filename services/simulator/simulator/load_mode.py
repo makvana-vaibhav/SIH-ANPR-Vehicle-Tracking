@@ -35,7 +35,7 @@ import os
 import random
 import string
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import redis
@@ -83,10 +83,18 @@ def build_event(camera_code: str, vehicle_id: int, plate_text: str) -> dict[str,
         }
 
     near_miss = plate_text[:6] + f"{random.randrange(10000):04d}"
+    # Bound once: the payload reports it and derives `captured_at` from it, and
+    # two independent draws would make the event disagree with itself.
+    latency_ms = round(random.uniform(180, 620), 1)
     return {
         "schema": "ailab.vehicle.event.v1",
         "event": "vehicle.completed",
         "event_time": now.isoformat(),
+        # The frame the boxes were measured in, which a real worker captures
+        # before the pipeline runs. Kept in step with `ailab.stream.events`.
+        "captured_at": (now - timedelta(milliseconds=latency_ms)).isoformat(),
+        # The generator emits settled readings only, never position refreshes.
+        "position_refresh": False,
         "source": {"camera_id": camera_code, "name": camera_code},
         "frame": {"width": 1920, "height": 1080},
         "vehicle": {
@@ -95,6 +103,10 @@ def build_event(camera_code: str, vehicle_id: int, plate_text: str) -> dict[str,
             "type": random.choice(VEHICLE_TYPES),
             "confidence": round(random.uniform(0.55, 0.95), 3),
             "bbox": {"x1": x1, "y1": y1, "x2": x1 + w, "y2": y1 + h, "w": w, "h": h},
+            # Where the vehicle was in the `captured_at` frame, as opposed to
+            # its best-looking frame above. The generator has one box, so the
+            # two coincide here; on a real worker they do not.
+            "live_bbox": {"x1": x1, "y1": y1, "x2": x1 + w, "y2": y1 + h, "w": w, "h": h},
             "first_seen_s": 120.0,
             "last_seen_s": 138.5,
             "duration_s": 18.5,
@@ -135,7 +147,7 @@ def build_event(camera_code: str, vehicle_id: int, plate_text: str) -> dict[str,
             "plate_crops": [],
             "reads": [read(i, plate_text if i % 4 else near_miss) for i in range(5)],
         },
-        "latency_ms": round(random.uniform(180, 620), 1),
+        "latency_ms": latency_ms,
     }
 
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from simulator.publisher import (
     StreamSpec,
     find_videos,
     prepare_clip,
+    stagger_offset,
 )
 
 configure_logging(service="simulator")
@@ -58,11 +60,15 @@ DEMO_ROUTE_CITIES = ("Ahmedabad",)
 #: the same vehicle at the same instant and the correlator correctly reports one
 #: plate in two places at once. It is not an attempt to simulate a journey — see
 #: StreamSpec.start_offset_s.
-OFFSET_STEP_S = float(os.environ.get("SIM_OFFSET_STEP_S", "1.8"))
+#:
+#: Empty (the default) spreads the cameras sharing a clip evenly across it,
+#: which is the widest spacing the footage allows and therefore the least likely
+#: to leave two cameras at the same phase. Set it to pin the step instead.
+OFFSET_STEP_S = (
+    float(os.environ["SIM_OFFSET_STEP_S"]) if os.environ.get("SIM_OFFSET_STEP_S") else 0.0
+)
 
-#: Offsets wrap inside this window, which must stay under the shortest playable
-#: clip (street_crossing.mp4, 13.2 s) — seeking past the end yields no video.
-OFFSET_WINDOW_S = 12.0
+
 
 publisher = StreamPublisher(RTSP_BASE)
 _supervisor_task: asyncio.Task[None] | None = None
@@ -182,7 +188,15 @@ def pinned_videos() -> dict[str, Path]:
 def build_specs(cameras: list[Camera], videos: list[Path]) -> list[StreamSpec]:
     """Pair cameras with source clips, cycling if there are fewer clips."""
     pinned = pinned_videos()
-    specs: list[StreamSpec] = []
+
+    # Resolve every camera to its clip first, so the stagger can be computed
+    # against the real size of each clip's group. Staggering by overall index
+    # instead is what the previous version did, and because clips are dealt
+    # round-robin it gave cameras sharing a clip offsets differing by a multiple
+    # of the clip count — which collided regularly, and two cameras at the same
+    # phase produced a 7.7 km "hop" two seconds apart, correctly flagged
+    # implausible.
+    resolved: list[tuple[Camera, Path | None]] = []
     for index, camera in enumerate(cameras):
         source = pinned.get(camera.camera_code)
         if source is None:
@@ -192,18 +206,18 @@ def build_specs(cameras: list[Camera], videos: list[Path]) -> list[StreamSpec]:
             # cheap `-c:v copy` path produces decodable video and `-ss` has
             # keyframes to land on. Built once per clip and cached.
             source = prepare_clip(source)
-        # Stagger by position *within the clip group*, not by overall index.
-        #
-        # Clips are handed out round-robin, so cameras i and j share a clip when
-        # i == j (mod len(videos)). Offsetting by overall index therefore gave
-        # cameras that share a clip offsets differing by a multiple of
-        # len(videos) * step — which collided regularly, and two cameras at the
-        # same phase produced a 7.7 km "hop" two seconds apart, correctly
-        # flagged implausible. Dividing by len(videos) first numbers the cameras
-        # within their own group, so they spread across the clip instead.
+        resolved.append((camera, source))
+
+    sharing = Counter(source for _, source in resolved if source is not None)
+    taken: dict[Path, int] = {}
+
+    specs: list[StreamSpec] = []
+    for camera, source in resolved:
         offset = 0.0
-        if source is not None and videos:
-            offset = ((index // len(videos)) * OFFSET_STEP_S) % OFFSET_WINDOW_S
+        if source is not None:
+            slot = taken.get(source, 0)
+            taken[source] = slot + 1
+            offset = stagger_offset(source, slot, sharing[source], OFFSET_STEP_S)
         specs.append(
             StreamSpec(
                 camera_code=camera.camera_code,
