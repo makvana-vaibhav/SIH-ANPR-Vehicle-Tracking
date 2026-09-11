@@ -3,7 +3,7 @@
 **Read this first.** One page: what works, what doesn't, what to do next.
 
 *Updated 11 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
-**P4 and P5 code complete, gates not yet run — see below***
+**P4, P5 and P8 code complete, gates not yet run — P7 blocked on data — see below***
 
 | Document | What it holds |
 |---|---|
@@ -41,9 +41,11 @@ Docker on Apple Silicon there is none, and no setting creates one.
 ```
 DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops
          └─ plus: worker CPU budget + pipeline pool (unplanned, 10 Sep)
-NEXT     P4 analytics + P5 anomaly — code complete, gates not yet run ← run `make demo` and check both
+NEXT     P4 analytics + P5 anomaly + P8 search — code complete, gates not yet run
+         ← run `make demo` and check all three
+BLOCKED  P7 accuracy — needs real footage and a person to label it, not more code
 THEN     P6 harden                                                             (V1, ~2 weeks)
-LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
+LATER    P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
 ```
 
 ---
@@ -56,7 +58,7 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 | 2 | ANPR: plate, confidence, camera, time | ✅ works — 9 fps, p90 266 ms, 0.70–0.94 confidence |
 | 3 | Same vehicle linked across cameras | 🟡 engine ready and linking real sightings; timing not yet plausible (see below) |
 | 4 | Vehicle journey + animated route | ✅ **profile + timeline playback** on the map |
-| 5 | Plate search | 🟡 exact and prefix only, no fuzzy |
+| 5 | Plate search | 🟡 fuzzy search code complete (P8), gate not yet run |
 | 6 | Blacklist alert **with plate crop** | ✅ **alert fires by itself, with the plate crop** |
 | 7 | Trajectory anomaly + explanation | 🟡 **code complete (P5), gate not yet run** — was a physics filter only; now has a real data-driven detector and stored, rendered factors |
 | 8 | City traffic analytics | 🟡 **code complete (P4), gate not yet run** — router, page and heatmap all exist; unverified against a live fleet |
@@ -105,12 +107,15 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
   `speed_kmph`. (`crop_key` is populated as of P3.)
 - **`packages/contracts/` is one empty file.** The event is a hand-rolled dict, duplicated by hand in
   the load generator, with no validation on either side.
-- **`alerts` has no reasons/factors column**, so the "explainability rule" in CLAUDE.md cannot be
-  true yet. P5 adds the migration.
+- ~~`alerts` has no reasons/factors column~~ **Added (P5, migration 0005)**, code complete, gate not
+  yet run — see ROADMAP.md's P5 section.
 - **OpenSearch runs and does nothing** — health-probed only, indexes nothing. It costs demo-laptop
-  memory for no function.
-- **The `pg_trgm` index on `plate_normalised` exists and nothing queries it**, so search is exact and
-  prefix only.
+  memory for no function. P8 investigated this deliberately and left it as-is: its own compose
+  comment and `.env.example` describe it as the *intended primary* fuzzy-search backend with pg_trgm
+  as fallback, so indexing it properly or removing it are both real changes to someone else's
+  decision, not a call this session could safely make blind. See ROADMAP.md's P8 section.
+- ~~The `pg_trgm` index on `plate_normalised` exists and nothing queries it~~ **Queries it now (P8)**
+  — `GET /api/v1/vehicles/search`, code complete, gate not yet run.
 - **Accuracy is unmeasured on real footage.** Synthetic only: 62.5–87.5% end-to-end, 100%
   exact-match on plates attempted. The bottleneck is recall, not OCR. Demo footage carries UK plates.
   P7 investigated 11 Sep 2026: blocked on real footage and human labelling, neither producible in a

@@ -24,6 +24,7 @@ import type {
   GapReport,
   HeatmapResponse,
   HotspotResponse,
+  PlateSearchResponse,
   RouteDensityResponse,
   SpeedResponse,
   StreamGrant,
@@ -477,6 +478,25 @@ export const getRoutablePlates = (minCameras = 2, limit = 25, since?: string) =>
   })
   if (since) params.set('since', since)
   return request<RoutablePlates>(`/api/v1/vehicles/routable?${params}`)
+}
+
+export interface PlateSearchQuery {
+  since?: string
+  until?: string
+  camera_id?: string
+  vehicle_type?: string
+  threshold?: number
+  limit?: number
+}
+
+/** Fuzzy/partial plate search — for the case an exact search finds nothing:
+ *  a misread character, a partial plate, one typed from memory. */
+export const searchPlates = (q: string, query: PlateSearchQuery = {}) => {
+  const params = new URLSearchParams({ q })
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<PlateSearchResponse>(`/api/v1/vehicles/search?${params}`)
 }
 
 // ── User administration ───────────────────────────────────────────────

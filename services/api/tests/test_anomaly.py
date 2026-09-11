@@ -112,11 +112,19 @@ async def _baseline_track(index: int, a: str, b: str, arrived: datetime, elapsed
 
 
 async def _cleanup() -> None:
+    # Three explicit statements rather than a loop over table names: an
+    # f-string building a table name into SQL is a lint-flagged shape
+    # (ruff S608) even when, as here, the values are a hardcoded tuple and
+    # never user input — the fix is to not have the shape at all.
     async with SessionLocal() as session:
-        for table in ("alerts", "vehicle_tracks", "detections"):
-            await session.execute(
-                text(f"DELETE FROM {table} WHERE plate_normalised LIKE :p"), {"p": f"{PLATE_PREFIX}%"}
-            )
+        like = f"{PLATE_PREFIX}%"
+        await session.execute(text("DELETE FROM alerts WHERE plate_normalised LIKE :p"), {"p": like})
+        await session.execute(
+            text("DELETE FROM vehicle_tracks WHERE plate_normalised LIKE :p"), {"p": like}
+        )
+        await session.execute(
+            text("DELETE FROM detections WHERE plate_normalised LIKE :p"), {"p": like}
+        )
         await session.commit()
 
 

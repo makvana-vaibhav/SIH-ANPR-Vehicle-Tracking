@@ -37,7 +37,7 @@ This is the acceptance test for V1. Status as of 9 Sep 2026.
 | 2 | ANPR: plate + confidence + camera + time | ✅ works | — |
 | 3 | Same vehicle linked across cameras | 🟡 engine ready, no cameras to link between | **P1** |
 | 4 | Vehicle journey + animated route | 🟡 no average speed, no playback | **P2** |
-| 5 | Plate search | 🟡 exact + prefix only | P8 (V2) |
+| 5 | Plate search | 🟡 fuzzy search code complete, gate not run | P8 (V2) |
 | 6 | Blacklist alert **with plate crop** | 🟡 alert fires, crop impossible | **P3** |
 | 7 | Trajectory anomaly + explanation | 🟡 **code complete, gate not run** | **P5** |
 | 8 | City traffic analytics | 🟡 **code complete, gate not run** | **P4** |
@@ -276,14 +276,34 @@ code.**
 ### P8 — Fuzzy and partial plate search
 **~2 days · closes the long-abandoned old Phase 8**
 
-- Query the **`pg_trgm` GIN index that already exists on `plate_normalised` and that nothing
-  queries**: `GJ03A81234` → suggests `GJ03AB1234`.
-- Faceted summary ("7 sightings · 3 cameras · 1 blacklist match"); filters on time, camera, type.
-- **Decide OpenSearch's fate.** It runs in the base profile, is only health-probed, and indexes
-  nothing. Either index detections into it properly or remove it — today it costs demo-laptop memory
-  for no function.
+> 🟡 **Code complete, gate not yet run.** `GET /api/v1/vehicles/search`, the response schema, and
+> `test_search.py` all exist — see [BUILD_STATE.md](BUILD_STATE.md)'s P8 section. This machine has
+> no Docker (so no live Postgres) and no Node/npm, but it does have a bare Python 3.14 with `ruff`
+> and the API's own dependencies installed — every file below was linted, which is more than P4-P7
+> got, but still not the same as a request actually answering.
 
-**Gate:** a misread plate returns the correct vehicle ranked first, in under 300 ms.
+- Query the **`pg_trgm` GIN index that already exists on `plate_normalised` and that nothing
+  queries**: `GJ03A81234` → suggests `GJ03AB1234`. **Done** — `_FUZZY_SEARCH_SQL` in
+  `routers/vehicles.py`, using the `%` operator so Postgres actually uses the index rather than a
+  sequential scan, with an explicit `similarity() >= :threshold` bind parameter alongside it.
+- Faceted summary ("7 sightings · 3 cameras · 1 blacklist match"); filters on time, camera, type.
+  **Done** — `PlateSearchResult` carries `sightings`, `cameras`, `first_seen`/`last_seen` and an
+  optional `watchlist` hit; `since`/`until`/`camera_id`/`vehicle_type` are all query params.
+  `VehicleSearch.tsx` now runs this automatically as "Did you mean…" whenever an exact search finds
+  nothing, rather than requiring a separate search mode.
+- **Decide OpenSearch's fate.** **Not decided — deliberately.** `docker-compose.yml`'s own comment
+  ("OpenSearch — fuzzy/partial plate search") and `.env.example` ("When OpenSearch is unreachable,
+  search falls back to Postgres pg_trgm") both describe OpenSearch as the *intended primary* backend
+  with pg_trgm as the resilience fallback — the reverse of how this phase's own framing reads at
+  first glance. Building real OpenSearch indexing needs `opensearch-py` (not installed here), a live
+  OpenSearch instance to write against, and a fuzzy query DSL to get right — none of which this
+  session could test. Removing the service instead would reverse someone else's already-implemented
+  architectural intent on a guess. Neither was attempted. What *is* true now: pg_trgm alone already
+  satisfies this phase's gate, so OpenSearch remains exactly what it was — provisioned, healthy, and
+  indexing nothing — and deciding its fate is unblocked by nothing at this point except a decision.
+
+**Gate:** a misread plate returns the correct vehicle ranked first, in under 300 ms. **Not run** — no
+Postgres available this session to measure it against.
 
 ### P9 — Attribute search (search beyond plates)
 **~3 days · PS §14**

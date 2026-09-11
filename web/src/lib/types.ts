@@ -508,6 +508,35 @@ export interface RoutablePlates {
   plates: { plate: string; cameras: number }[]
 }
 
+// ── Fuzzy plate search (P8) ─────────────────────────────────────────────
+
+export interface WatchlistHit {
+  category: string
+  priority: Priority
+  case_ref: string | null
+}
+
+export interface PlateSearchResult {
+  plate_normalised: string
+  /** pg_trgm trigram similarity to the query, 0-1. 1.0 means an exact match. */
+  similarity: number
+  sightings: number
+  cameras: number
+  first_seen: string
+  last_seen: string
+  /** Present when this plate is on an active watchlist entry. */
+  watchlist: WatchlistHit | null
+}
+
+export interface PlateSearchResponse {
+  query: string
+  /** The minimum trigram similarity a result had to clear. */
+  threshold: number
+  /** True when `query` itself is among the results at similarity 1.0. */
+  exact_match: boolean
+  results: PlateSearchResult[]
+}
+
 // ── User administration and audit ─────────────────────────────────────
 
 export type Role =

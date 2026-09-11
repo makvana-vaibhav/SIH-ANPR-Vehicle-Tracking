@@ -1674,6 +1674,81 @@ alert appears in `Alerts.tsx` with its factors listed. Then `make test` for
 
 ---
 
+## P8 — Fuzzy and partial plate search  🟡 code complete, gate not yet run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p8--fuzzy-and-partial-plate-search).
+
+Same honest status as P4/P5: no Docker, no live Postgres, the gate ("a
+misread plate returns the correct vehicle ranked first, in under 300 ms")
+has not been measured. One difference from those two phases worth
+recording: this machine turned out to have a bare Python 3.14 with the
+API's actual dependencies (FastAPI, SQLAlchemy, Pydantic) and `ruff`
+installed, discovered partway through this phase. Every file below is
+lint-clean, which P4-P7's Python was not checked against at all — still not
+the same guarantee as a passing test run, but a real step up.
+
+### What was built
+
+- **`GET /api/v1/vehicles/search`** (`routers/vehicles.py`) — trigram
+  similarity over `plate_normalised`, using the `ix_detections_plate_trgm`
+  GIN index that has existed since migration 0001 and had never been
+  queried. The `%` operator is what makes Postgres use the index rather than
+  a sequential scan; an explicit `similarity() >= :threshold` bind parameter
+  sits alongside it so a caller can ask for a stricter match without the
+  request depending on the connection's `pg_trgm.similarity_threshold` GUC.
+  Filters on `since`/`until`/`camera_id`/`vehicle_type`; results are ranked
+  by similarity and carry a faceted summary (sightings, distinct cameras,
+  first/last seen) and, when relevant, the matching active watchlist entry
+  — the ranked-list version of "7 sightings · 3 cameras · 1 blacklist
+  match" the phase definition asks for.
+- **`PlateSearchResponse`/`PlateSearchResult`/`WatchlistHit`**
+  (`schemas/intelligence.py`), mirrored into `web/src/lib/types.ts`.
+- **`VehicleSearch.tsx`** now runs this automatically — an exact search that
+  finds nothing (`hop_count === 0`) triggers a fuzzy search over the same
+  window and renders the results as "Did you mean…", each one a button that
+  re-runs the exact search with the corrected plate. No new search mode for
+  an operator to discover; the existing screen just stops dead-ending.
+- **`test_search.py`** — new, same historical-window isolation as
+  `test_analytics.py`/`test_anomaly.py`. Covers: a one-character misread
+  finding the real plate, an exact query being marked `exact_match`, an
+  unrelated plate *not* being force-matched (the threshold floor actually
+  excludes something), facets narrowing correctly under each filter, active
+  vs. retired watchlist entries, RBAC (auditor denied, matching
+  `vehicle_route`/`vehicle_convoy`), and the audit row.
+- **A pre-existing bug found and fixed in passing**: `ruff` caught
+  `routers/health.py` referencing `RedisError` with no import for it —
+  `except (RedisError, OSError)` would itself raise `NameError` the moment
+  any exception reached that line, masking whatever Redis actually failed
+  with. One-line fix, unrelated to P8's scope but too cheap not to take
+  once found.
+
+### OpenSearch — investigated, deliberately left alone
+
+ROADMAP.md's P8 definition says to decide OpenSearch's fate: index it
+properly, or remove it. This session did neither, on purpose.
+`docker-compose.yml`'s own comment on the service reads "OpenSearch —
+fuzzy/partial plate search", and `.env.example` documents "When OpenSearch
+is unreachable, search falls back to Postgres pg_trgm" — both describe
+OpenSearch as the *intended primary* backend with pg_trgm as the resilience
+fallback, which is the reverse of what "decide its fate" might suggest at a
+glance. Indexing it properly needs `opensearch-py` (not installed here), a
+live OpenSearch instance, and a fuzzy query DSL — none of which this session
+could write against or test. Removing it would reverse someone else's
+already-implemented architectural intent on a guess. Since pg_trgm alone
+already satisfies this phase's gate, the honest move was to build that,
+leave OpenSearch exactly as it was (provisioned, healthy, indexing
+nothing), and say plainly that its fate is still an open decision — not a
+decision this session made by omission.
+
+### Next actual step
+
+`make demo`, sign in as any role but `api_client`, search a plate with one
+character wrong, and confirm the real vehicle appears first with a
+believable similarity score and a correct facet count — that is the gate.
+Then `make test` for `test_search.py`.
+
+---
+
 ## Worker CPU and the thread budget  ✅ (unplanned — 10 Sep 2026)
 
 Not a roadmap phase. Raised as "cameras are not loading properly, and if they
@@ -1841,8 +1916,8 @@ Recorded so no session mistakes these for done. Verified against the code, not t
 | **No journey animation** | `RouteMap.tsx` animates only camera movement (`easeTo`/`fitBounds`). No timeline, scrubber, moving marker or `requestAnimationFrame` anywhere in `web/src`. | P2 |
 | ~~No anomaly detector~~ | 🟡 **Code complete (P5)**, gate not yet run. `anomaly.py` now compares each new leg against 30-day transition-frequency and duration baselines from `vehicle_tracks`; `AlertType.ANOMALY` has a real producer. `SPEED` and `CONVOY` still have zero producers — out of scope for P5. | — |
 | ~~`alerts` has no reasons/factors column~~ | 🟡 **Done (P5)** — migration 0005 adds it, `raise_for_anomaly` populates it, `Alerts.tsx` renders it. Not yet verified against a real database. | — |
-| **Search is exact + prefix only** | The `pg_trgm` GIN index on `plate_normalised` **exists and nothing queries it**. A misread plate suggests nothing. | P8 |
-| **OpenSearch runs and does nothing** | Health-probed only; indexes nothing, queries nothing. Costs demo-laptop memory for no function. Wire it or drop it. | P8 |
+| ~~Search is exact + prefix only~~ | 🟡 **Code complete (P8)**, gate not yet run. `GET /api/v1/vehicles/search` now queries the trigram index; `VehicleSearch.tsx` runs it automatically when an exact search finds nothing. | — |
+| **OpenSearch runs and does nothing** | Health-probed only; indexes nothing, queries nothing. Costs demo-laptop memory for no function. P8 investigated and deliberately left this open — see its BUILD_STATE section — rather than index it blind or remove someone else's already-built architectural intent on a guess. | P8 (open) |
 | **Attribute search impossible** | `vehicle_colour` is never computed anywhere. | P9 |
 | **No re-identification** | Intra-camera tracking is motion-only (ByteTrack, no appearance branch); cross-camera linking is plate-string equality. No embedding model anywhere. | P11 |
 

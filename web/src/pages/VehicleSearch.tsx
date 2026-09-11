@@ -21,9 +21,17 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
 import RouteMap from '@/components/RouteMap'
 import { useToast } from '@/components/Toast'
-import { Button, ErrorBanner, EmptyState, Field, Input, SegmentedControl } from '@/components/ui'
+import {
+  Button,
+  ErrorBanner,
+  EmptyState,
+  Field,
+  Input,
+  PriorityBadge,
+  SegmentedControl,
+} from '@/components/ui'
 import * as api from '@/lib/api'
-import type { Convoy, RouteGeoJSON, VehicleRoute } from '@/lib/types'
+import type { Convoy, PlateSearchResult, RouteGeoJSON, VehicleRoute } from '@/lib/types'
 
 /** Windows an operator actually asks for. */
 const WINDOWS = [
@@ -71,6 +79,7 @@ export default function VehicleSearch() {
   const [geojson, setGeojson] = useState<RouteGeoJSON | null>(null)
   const [convoys, setConvoys] = useState<Convoy[]>([])
   const [suggestions, setSuggestions] = useState<{ plate: string; cameras: number }[]>([])
+  const [fuzzyMatches, setFuzzyMatches] = useState<PlateSearchResult[]>([])
   const [activeHop, setActiveHop] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -88,6 +97,28 @@ export default function VehicleSearch() {
     }
     void load()
   }, [hours])
+
+  // An exact search that finds nothing tries a fuzzy one automatically — a
+  // misread character or a partial plate should not dead-end on an empty
+  // screen when the vehicle is sitting one edit away in the same window.
+  useEffect(() => {
+    if (!route || route.hop_count > 0 || !plate) {
+      setFuzzyMatches([])
+      return
+    }
+    let cancelled = false
+    api
+      .searchPlates(plate, { since: since(hours) })
+      .then((body) => {
+        if (!cancelled) setFuzzyMatches(body.results.filter((r) => r.plate_normalised !== plate))
+      })
+      .catch(() => {
+        if (!cancelled) setFuzzyMatches([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [route, plate, hours])
 
   const search = useCallback(async (target: string, windowHours: number) => {
     const normalised = target.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -274,14 +305,57 @@ export default function VehicleSearch() {
           </section>
 
           {route.hop_count === 0 ? (
-            <EmptyState
-              title={
-                <>
-                  <span className="font-mono">{route.plate}</span> was not seen in this window.
-                </>
-              }
-              hint="Try a longer window, or pick a plate from the list above."
-            />
+            <>
+              <EmptyState
+                title={
+                  <>
+                    <span className="font-mono">{route.plate}</span> was not seen in this window.
+                  </>
+                }
+                hint={
+                  fuzzyMatches.length > 0
+                    ? 'No exact match, but these plates are close to what you typed.'
+                    : 'Try a longer window, or pick a plate from the list above.'
+                }
+              />
+              {fuzzyMatches.length > 0 && (
+                <section>
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Did you mean…
+                  </h2>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    Ranked by how closely each plate matches what you typed, not by when it was seen.
+                  </p>
+                  <ul className="mt-1.5 space-y-1.5">
+                    {fuzzyMatches.map((match) => (
+                      <li key={match.plate_normalised}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuery(match.plate_normalised)
+                            void search(match.plate_normalised, hours)
+                          }}
+                          className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-card px-3 py-2 text-left transition hover:border-primary/50"
+                        >
+                          <span className="font-mono text-sm font-semibold">
+                            {match.plate_normalised}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {Math.round(match.similarity * 100)}% match
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {match.sightings} sighting{match.sightings === 1 ? '' : 's'} ·{' '}
+                            {match.cameras} camera{match.cameras === 1 ? '' : 's'}
+                          </span>
+                          {match.watchlist && <PriorityBadge priority={match.watchlist.priority} solid />}
+                          <span className="ml-auto shrink-0 text-[10px] text-primary">Search →</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </>
           ) : (
             <>
             {route.camera_count === 1 && (

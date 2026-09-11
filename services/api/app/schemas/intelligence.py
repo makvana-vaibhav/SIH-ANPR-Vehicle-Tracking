@@ -208,3 +208,43 @@ class DetectionPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# ── Fuzzy plate search (P8) ────────────────────────────────────────────
+class WatchlistHit(BaseModel):
+    """Why a search result is also a blacklist match — see
+    `app/routers/vehicles.py::search_plates`."""
+
+    category: str
+    priority: Priority
+    case_ref: str | None
+
+
+class PlateSearchResult(BaseModel):
+    """One candidate plate: how well it matches the query, and a faceted
+    summary an operator can triage from without opening the full route."""
+
+    plate_normalised: str
+    #: pg_trgm trigram similarity to the query, 0-1. 1.0 means the query was
+    #: found exactly; this is what lets a UI distinguish "the plate you typed"
+    #: from "the plate we think you meant".
+    similarity: float
+    sightings: int
+    cameras: int
+    first_seen: datetime
+    last_seen: datetime
+    #: Present when this plate is on an active watchlist entry — the reason
+    #: a misread plate matching a blacklisted vehicle must still surface.
+    watchlist: WatchlistHit | None = None
+
+
+class PlateSearchResponse(BaseModel):
+    query: str
+    #: The minimum trigram similarity a result had to clear. Echoed back so a
+    #: UI can explain an empty result ("nothing scored above 0.30") rather
+    #: than leave it looking broken.
+    threshold: float
+    #: True when `query` itself, normalised, is among the results at
+    #: similarity 1.0 — the case where nothing needed correcting.
+    exact_match: bool
+    results: list[PlateSearchResult]
