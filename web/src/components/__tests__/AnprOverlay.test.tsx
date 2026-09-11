@@ -30,6 +30,12 @@ class StubResizeObserver {
 
 const START = Date.parse('2026-09-11T10:31:00.000Z')
 
+/** One animation frame at 60 Hz. */
+const FRAME_MS = 16
+
+/** Mirrors AnprOverlay's own unsynced hold. */
+const HOLD_UNSYNCED_MS = 6_000
+
 function event(
   overrides: {
     trackId?: number
@@ -78,10 +84,21 @@ function event(
   }
 }
 
-/** Advance both clocks together and let the animation frame run. */
+/** Advance both clocks together and let the animation frame run.
+ *
+ * Two frames, not one. The overlay sets its visible state from *inside* an
+ * animation frame, so the frame that reacts to a new event schedules the draw
+ * and the next one paints it. Asserting after a single frame races the
+ * renderer: the same assertion passed or failed run to run. The extra frame
+ * costs 16 ms of simulated time, immaterial against the 700-2500 ms hold
+ * windows these tests exercise.
+ */
 async function tick(ms: number) {
   await act(async () => {
     vi.advanceTimersByTime(ms)
+  })
+  await act(async () => {
+    vi.advanceTimersByTime(FRAME_MS)
   })
 }
 
@@ -140,7 +157,12 @@ describe('AnprOverlay', () => {
     await tick(20)
     expect(screen.queryByText('GJ03AB1234')).not.toBeNull()
 
-    await tick(4_000)
+    // Past the unsynced hold, whatever it currently is. This asserted 4 s,
+    // which silently encoded a 2.5 s hold and broke the moment the hold was
+    // restored to the 6 s that makes a box outlast the video's own delay. The
+    // property under test is that a box which stops being refreshed goes away
+    // — not how long that takes.
+    await tick(HOLD_UNSYNCED_MS + 1_000)
 
     expect(screen.queryByText('GJ03AB1234')).toBeNull()
   })

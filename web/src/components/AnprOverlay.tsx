@@ -48,10 +48,26 @@ import type { BBox, LiveVehicleEvent } from '@/lib/types'
  * jitter. Longer than that and a vehicle that has left the frame keeps a
  * rectangle floating where it no longer is.
  */
-const HOLD_SYNCED_MS = 1_200
+// Synced, the box is drawn on the very frame it was measured in, so it needs
+// only to outlast the gap between position refreshes. Longer would leave a
+// rectangle behind a car the picture has already moved past — the whole point
+// of syncing is that it does not have to.
+const HOLD_SYNCED_MS = 1_800
 
-/** Unsynced, the box cannot track the car, so it is held long enough to read. */
-const HOLD_UNSYNCED_MS = 2_500
+/**
+ * Unsynced, the box cannot track the car, so it is held long enough to read.
+ *
+ * Six seconds, which is what this component used before it grew a video clock,
+ * and the reason that version looked right. Inference lands ~270 ms after the
+ * frame, but the *picture* reaches the browser over HLS several seconds later
+ * still — so a box arrives before the car it describes is even on screen. A
+ * six-second hold spans that offset: the box is already up when the vehicle
+ * appears, and fades out after it has passed.
+ *
+ * Shortening it to 2.5 s is what made readings look like they were flashing up
+ * and vanishing against the wrong cars.
+ */
+const HOLD_UNSYNCED_MS = 6_000
 
 /** A retired vehicle is gone. Clear it promptly rather than waiting out the hold. */
 const HOLD_AFTER_COMPLETED_MS = 700
@@ -165,8 +181,13 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
       // the wrong vehicle, so they are dropped instead.
       if (!frame?.width || !frame?.height) continue
 
-      // The timestamped box, falling back to the best-sighting box for events
-      // from a worker that does not publish one.
+      // The **vehicle** box, not the plate box.
+      //
+      // A plate box is ~90x22 px on a 1280px-wide picture — too small to
+      // associate with a car at a glance, and it jitters between frames
+      // because a small box amplifies small coordinate errors. The vehicle box
+      // is what an operator can actually match to a car on screen. The plate
+      // box is still carried in the event for anything that wants to zoom.
       const box = event.vehicle?.live_bbox ?? event.vehicle?.bbox
       if (!box) continue
 

@@ -464,7 +464,7 @@ export default function CameraMap({
   }, [])
 
   useEffect(() => {
-    ;(window as unknown as { __nagarnetraFlyTo?: typeof flyTo }).__nagarnetraFlyTo = flyTo
+    ;(window as unknown as { __contrailFlyTo?: typeof flyTo }).__contrailFlyTo = flyTo
   }, [flyTo])
 
   return <div ref={container} className="h-full w-full" />

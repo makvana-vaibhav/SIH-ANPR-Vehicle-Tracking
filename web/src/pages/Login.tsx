@@ -38,11 +38,8 @@ export default function Login() {
         {/* Identity panel */}
         <div className="border-b border-border bg-gradient-to-br from-secondary/60 to-card p-8 md:border-b-0 md:border-r">
           <h1 className="text-3xl font-semibold tracking-tight text-primary">
-            Nagar<span className="text-foreground">Netra</span>
+            Con<span className="text-foreground">trail</span>
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            નગરનેત્ર — શહેરવ્યાપી વાહન ગુપ્તચર મંચ
-          </p>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
             City-wide vehicle intelligence platform. Connects observations from
             hundreds of city cameras into searchable vehicle journeys, traffic

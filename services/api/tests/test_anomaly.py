@@ -365,8 +365,21 @@ class TestSnapshotWiring:
     """
 
     async def test_a_fresh_two_camera_journey_raises_an_anomaly_alert(
-        self, client: AsyncClient, auth_headers, cameras: list[dict]
+        self,
+        client: AsyncClient,
+        auth_headers,
+        cameras: list[dict],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        # `snapshot` asks `recent_plates` for candidates ordered by **camera
+        # count**, capped at MAX_PLATES_PER_CYCLE. This journey has two
+        # cameras, so once the AI worker is running and real traffic has
+        # produced forty plates seen on three, the test's own plate never makes
+        # the list and the assertion below fails — on a quiet database it
+        # passes. Lifting the cap for this test removes the race without
+        # weakening what is being tested, which is that `snapshot` wires
+        # anomaly detection in at all.
+        monkeypatch.setattr(route_history, "MAX_PLATES_PER_CYCLE", 10_000)
         plate = _plate("WIRING")
         now = datetime.now(UTC)
         a, b = cameras[0], cameras[1]

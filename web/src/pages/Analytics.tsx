@@ -623,8 +623,11 @@ export default function Analytics() {
                     </div>
                   ))}
                 </div>
+                {/* Optional chaining, not just the length guard: this project
+                    compiles with `noUncheckedIndexedAccess`, so an index read
+                    is `T | undefined` however it is guarded. */}
                 {c.factors.length > 0 && (
-                  <p className="mt-2 text-[11px] text-muted-foreground">{c.factors[0].detail}</p>
+                  <p className="mt-2 text-[11px] text-muted-foreground">{c.factors[0]?.detail}</p>
                 )}
                 <p className="mt-1 text-[10px] text-muted-foreground">
                   {c.backtest.status === 'ok' && c.backtest.mae_pct !== null

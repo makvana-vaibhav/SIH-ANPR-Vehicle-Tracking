@@ -283,7 +283,7 @@ def prepare_clip(source: Path) -> Path:
     # The cap is part of the cache identity, so changing MAX_HEIGHT or MAX_FPS
     # invalidates prepared clips instead of silently serving ones built to the
     # old ceiling.
-    target = PREPARED_DIR / f"{source.stem}_{MAX_HEIGHT}p{fps:g}.mp4"
+    target = PREPARED_DIR / f"{source.stem}_{MAX_HEIGHT}p{fps:g}_bl.mp4"
     # Rebuild when missing or older than the source, so replacing a clip in
     # data/videos does not leave a stale prepared copy behind.
     try:
@@ -318,6 +318,25 @@ def prepare_clip(source: Path) -> Path:
                 *(["-r", f"{fps:g}"] if fps < source_fps else []),
                 "-c:v",
                 "libx264",
+                # Constrained Baseline, not libx264's default High profile.
+                #
+                # This is what makes WebRTC work. Chrome negotiates H.264 for
+                # WHEP but its decoder only reliably handles Constrained
+                # Baseline; offered a High-profile stream it completes the
+                # handshake and then renders a **black frame** — the overlay
+                # draws boxes over nothing, and the player falls back to HLS,
+                # which buffers several seconds. That fallback was the video
+                # delay, and it looked like a pipeline problem rather than a
+                # codec one.
+                #
+                # Baseline forbids B-frames and CABAC, so the file is somewhat
+                # larger for the same quality. That is a trade worth making:
+                # sub-second WebRTC is the difference between a live camera and
+                # a recording, and this is replayed demo footage either way.
+                "-profile:v",
+                "baseline",
+                "-level",
+                "3.1",
                 "-preset",
                 "veryfast",
                 "-g",

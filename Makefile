@@ -221,6 +221,15 @@ ai: ## Start with the AI worker profile
 	@$(COMPOSE_AI) up -d --build
 	@$(MAKE) --no-print-directory wait-healthy
 
+.PHONY: ai-multi
+ai-multi: ## Start all three ANPR workers (one per demo camera)
+	@# Cross-camera linking needs a vehicle seen by more than one camera, so the
+	@# journey demo needs all three. They share the machine, so the per-worker
+	@# thread budget drops to match — otherwise each sizes as if it were alone
+	@# and latency climbs until plate boxes no longer land on the right car.
+	@AILAB_INFERENCE_BUDGET=2 $(COMPOSE) --profile ai --profile ai-multi up -d
+	@$(MAKE) --no-print-directory wait-healthy
+
 .PHONY: scale
 scale: ## Start the scale profile (Redpanda, replicas, Grafana)
 	@$(COMPOSE_SCALE) up -d --build

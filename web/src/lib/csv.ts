@@ -56,7 +56,7 @@ export function downloadCsv<T>(
   URL.revokeObjectURL(url)
 }
 
-/** `nagarnetra-audit-2026-09-02.csv` */
+/** `contrail-audit-2026-09-02.csv` */
 export function stampedName(prefix: string): string {
-  return `nagarnetra-${prefix}-${new Date().toISOString().slice(0, 10)}.csv`
+  return `contrail-${prefix}-${new Date().toISOString().slice(0, 10)}.csv`
 }

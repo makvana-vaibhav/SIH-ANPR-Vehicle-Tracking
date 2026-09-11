@@ -26,9 +26,16 @@
  * demonstrated. The demonstration fleet is three cameras on one corridor, all
  * replaying the same recorded footage, and each says so.
  *
- * Analysis does not depend on this screen. The worker reads every camera in
- * the fleet in the background; opening a camera here shows what it found, it
- * does not cause it to look.
+ * Analysis does not depend on this screen. Opening a camera shows what it
+ * found; it does not cause it to look.
+ *
+ * ANPR runs on the cameras a worker is assigned to, which by default is **one**
+ * — every worker decodes its camera's full frame rate, so three of them sharing
+ * a laptop tripled capture-to-event latency (measured 266 ms with one, 507 ms
+ * with three, and 8.5 s when the footage was heavier still). A late reading
+ * describes a car that has already moved on, and no amount of synchronisation
+ * can put its box in the right place. `make ai-multi` starts all three when the
+ * demo needs cross-camera linking.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -67,17 +74,6 @@ function isDemoFeed(camera: Camera): boolean {
   return (camera.tags ?? []).includes('demo')
 }
 
-/**
- * A camera whose video comes from a live source rather than recorded footage.
- *
- * A negation rather than a vendor check, because a camera with no real source
- * is not in this registry at all: everything here either streams live or is
- * tagged as replaying a clip.
- */
-function isLiveFeed(camera: Camera): boolean {
-  return !isDemoFeed(camera)
-}
-
 export default function LiveAnpr() {
   const { status: streamStatus } = useEventStream()
 
@@ -86,7 +82,13 @@ export default function LiveAnpr() {
   const [grant, setGrant] = useState<StreamGrant | null>(null)
   const [history, setHistory] = useState<Detection[]>([])
   const [showBoxes, setShowBoxes] = useState(true)
-  const [syncBoxes, setSyncBoxes] = useState(true)
+  // Off by default: syncing holds the picture SYNC_DELAY_MS behind live, and
+  // that delay is real — it is the single biggest contributor to the video
+  // feeling laggy when you open a camera. Unsynced, the picture is as live as
+  // the transport allows and boxes are held long enough (6 s) to still be up
+  // when the vehicle they describe reaches the screen. Left as a toggle
+  // because frame-accurate placement is genuinely better for a close look.
+  const [syncBoxes, setSyncBoxes] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeCodes, setActiveCodes] = useState<Set<string>>(new Set())
 
@@ -178,11 +180,19 @@ export default function LiveAnpr() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Live ANPR</h1>
+          {/* Says which cameras are *being read*, not just which exist.
+              Every camera streams, but ANPR runs on the ones a worker is
+              assigned to — one by default, so a reading lands within a few
+              hundred milliseconds of the frame it came from and its box sits
+              on the right vehicle. The "reading plates" badge in the list is
+              driven by real recent detections, so the two always agree. */}
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Every camera in the fleet is analysed in the background. Opening one
-            shows what it found — {cameras.length} cameras,{' '}
-            {cameras.filter(isLiveFeed).length} live and{' '}
-            {cameras.filter(isDemoFeed).length} replaying recorded footage.
+            {cameras.length} cameras streaming.{' '}
+            {activeCodes.size > 0
+              ? `${activeCodes.size} being read by ANPR right now`
+              : 'No camera is being read right now'}
+            {' — '}the rest stream without analysis. Opening a camera shows what
+            it found.
           </p>
         </div>
         <ConnectionBadge live={streamStatus === 'live'} label={`event feed ${streamStatus}`} />

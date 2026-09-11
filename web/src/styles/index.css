@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /*
-  NagarNetra command centre — theme tokens.
+  Contrail command centre — theme tokens.
 
   Dark is the default and the only theme: this renders on control-room displays
   that stay on for eight-hour shifts. Values are raw HSL triples so Tailwind can

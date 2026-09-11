@@ -1,7 +1,7 @@
 camera_code,name,department_code,district,city,junction,corridor,lat,lon,heading_deg,camera_type,protocol,stream_url,resolution,fps,anpr_enabled,tags
 CAM-DEMO-01,Paldi — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Paldi,Ashram Road,23.009370,72.562120,28,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
-CAM-DEMO-02,Navrangpura — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Navrangpura,Ashram Road,23.027870,72.570990,345,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
-CAM-DEMO-03,Usmanpura — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Usmanpura,Ashram Road,23.055670,72.572080,229,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
+CAM-DEMO-02,Navrangpura — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Navrangpura,Ashram Road,23.010420,72.562730,21,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
+CAM-DEMO-03,Usmanpura — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Usmanpura,Ashram Road,23.011540,72.563190,21,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
 CAM-NRD-01,Naroda — Naroda Road,GSRTC,Asarva,Ahmedabad,Naroda Road @ Naroda,Naroda Road,23.064760,72.642830,225,anpr,rtsp,,1920x1080,15,True,nrd|arterial|asarva
 CAM-NRD-02,Sahijpur — Naroda Road,GSRTC,Asarva,Ahmedabad,Naroda Road @ Sahijpur,Naroda Road,23.052620,72.628490,235,anpr,rtsp,,1920x1080,15,True,nrd|arterial|asarva
 CAM-NRD-03,Asarwa — Naroda Road,GSRTC,Asarva,Ahmedabad,Naroda Road @ Asarwa,Naroda Road,23.042630,72.613730,233,anpr,rtsp,,1920x1080,25,True,nrd|arterial|asarva

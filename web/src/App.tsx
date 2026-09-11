@@ -33,32 +33,29 @@ import { PERMISSIONS, ROLE_SUMMARY, type Permission } from '@/lib/permissions'
 interface NavItem {
   to: string
   label: string
-  gu: string
   needs: Permission
 }
 
 const NAV: NavItem[] = [
-  { to: '/dashboard', label: 'Dashboard', gu: 'ડેશબોર્ડ', needs: PERMISSIONS.cameraRead },
-  { to: '/map', label: 'GIS Map', gu: 'નકશો', needs: PERMISSIONS.cameraRead },
-  { to: '/analytics', label: 'Analytics', gu: 'વિશ્લેષણ', needs: PERMISSIONS.analyticsRead },
-  { to: '/anpr', label: 'Live ANPR', gu: 'લાઇવ ANPR', needs: PERMISSIONS.streamView },
-  { to: '/alerts', label: 'Alerts', gu: 'ચેતવણી', needs: PERMISSIONS.alertRead },
+  { to: '/dashboard', label: 'Dashboard', needs: PERMISSIONS.cameraRead },
+  { to: '/map', label: 'GIS Map', needs: PERMISSIONS.cameraRead },
+  { to: '/analytics', label: 'Analytics', needs: PERMISSIONS.analyticsRead },
+  { to: '/anpr', label: 'Live ANPR', needs: PERMISSIONS.streamView },
+  { to: '/alerts', label: 'Alerts', needs: PERMISSIONS.alertRead },
   {
     to: '/vehicles',
     label: 'Vehicle Search',
-    gu: 'વાહન શોધ',
     needs: PERMISSIONS.searchExecute,
   },
   {
     to: '/watchlist',
     label: 'Watchlist',
-    gu: 'વોચલિસ્ટ',
     needs: PERMISSIONS.watchlistRead,
   },
-  { to: '/health', label: 'Fleet Health', gu: 'આરોગ્ય', needs: PERMISSIONS.cameraRead },
-  { to: '/cameras', label: 'Cameras', gu: 'કૅમેરા', needs: PERMISSIONS.cameraRead },
-  { to: '/users', label: 'Accounts', gu: 'ખાતાં', needs: PERMISSIONS.userRead },
-  { to: '/audit', label: 'Audit', gu: 'ઓડિટ', needs: PERMISSIONS.auditRead },
+  { to: '/health', label: 'Fleet Health', needs: PERMISSIONS.cameraRead },
+  { to: '/cameras', label: 'Cameras', needs: PERMISSIONS.cameraRead },
+  { to: '/users', label: 'Accounts', needs: PERMISSIONS.userRead },
+  { to: '/audit', label: 'Audit', needs: PERMISSIONS.auditRead },
 ]
 
 /**
@@ -113,10 +110,7 @@ function Shell() {
       <header className="flex shrink-0 items-center gap-4 border-b border-border bg-card px-4 py-2.5">
         <div className="flex shrink-0 items-baseline gap-2">
           <span className="text-lg font-semibold tracking-tight text-primary">
-            NagarNetra<span className="text-foreground">-GJ</span>
-          </span>
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            સેન્ટિનલ
+            Contrail
           </span>
         </div>
 
@@ -138,9 +132,6 @@ function Shell() {
             >
               {item.label}
               {item.to === '/alerts' && <AlertBadge />}
-              <span className="ml-1.5 hidden text-xs opacity-60 min-[1800px]:inline">
-                {item.gu}
-              </span>
             </NavLink>
           ))}
         </nav>
