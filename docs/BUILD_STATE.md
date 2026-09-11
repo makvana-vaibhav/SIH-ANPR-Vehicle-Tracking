@@ -1749,6 +1749,80 @@ Then `make test` for `test_search.py`.
 
 ---
 
+## P9 — Attribute search (search beyond plates)  🟡 half built, gate not run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p9--attribute-search-search-beyond-plates).
+
+Same no-Docker, no-live-Postgres caveat as P4/P5/P8 for the half that was
+built. The other half — vehicle-colour extraction — was **not attempted**,
+on purpose, for a reason distinct from "no Docker": this session also had no
+`numpy`/`opencv` and no real footage to extract a colour from or verify a
+result against. Writing image-processing code with no way to run it against
+a single real frame is exactly the "plausible invented number" CLAUDE.md §5
+forbids — a colour that is never actually sampled from pixels is worse than
+an honest "not available yet" label. So this phase was split, matching the
+P7 triage: build the half that is genuinely verifiable from the code and
+schema alone, say plainly what the other half needs.
+
+### What was built
+
+- **`GET /api/v1/detections`** (`routers/detections.py`) extended with
+  `vehicle_type` and `vehicle_colour` query params. A `VEHICLE_CLASSES =
+  ("car", "motorcycle", "bus", "truck")` constant defaults an
+  attribute-only search (no `plate`/`plate_prefix`) to those classes, so
+  "white SUV near CAM-17" does not surface a tracked `person` or `bicycle`
+  row as a vehicle candidate — those classes are real, intentionally
+  tracked detections (kept for a future person-detection feature), just
+  never a vehicle match. An explicit `vehicle_type=person` still returns
+  exactly that; the default only fills a gap, it never overrides a
+  caller's choice, and a plate search is untouched by any of this.
+  `vehicle_colour` filters on the column honestly — since nothing in the
+  pipeline populates it, it currently matches zero rows, documented as
+  such in the query param's own description rather than hidden.
+- **Audit extended** — an attribute-only search (no plate) now also writes
+  a `search.plate` audit row, since "who was near CAM-17 in a white car at
+  10:30" is the same kind of privacy-sensitive movement query as a plate
+  search and CLAUDE.md §5's audit rule does not carve out an exception for
+  it.
+- **`VehicleSearch.tsx`** gained a `By plate` / `By attributes` toggle. The
+  existing plate-search flow (form, "did you mean", route/hop table,
+  convoy) is unchanged, just conditionally rendered. The new
+  `AttributeSearch` component is a form (vehicle type, camera, a disabled
+  colour field labelled "Not available yet", a 1h/6h/24h window) over the
+  same `GET /api/v1/detections` endpoint, rendered as a results table.
+- **`test_detections.py`** — new; no test file existed for this endpoint
+  before this change despite it already having real filter logic. Same
+  historical-window isolation as `test_analytics.py`/`test_anomaly.py`/
+  `test_search.py`. Covers: the vehicle-class default excluding
+  person/bicycle, an explicit `vehicle_type=person` still working, a plate
+  search *not* being restricted to vehicle classes (a plate search must
+  never silently drop a real match), the always-empty colour filter,
+  camera/time narrowing, the extended audit trigger, and regression
+  coverage for the pre-existing `readable_only`/`plate_prefix`/pagination
+  behaviour that shares `_apply_filters` with the new clauses.
+
+### What was deliberately not attempted
+
+- **Vehicle-colour extraction itself.** Needs `numpy`/`opencv` (not
+  installed here) and real footage to sample pixels from and verify
+  against — a live pipeline, not a coding session. The column, the
+  index-friendly equality filter and the query contract are the part of
+  this phase that does not depend on a vision pipeline; they are built and
+  should already be correct the day a producer exists.
+- **Appearance/time/camera-adjacency ranked candidates.** ROADMAP.md's P9
+  gate describes ranking, not just filtering — that ranking is only
+  meaningful once colour (or another real visual attribute) exists to rank
+  on. Filtering by type/camera/time is real and useful today on its own;
+  calling it "ranked candidates from appearance" would not be honest.
+
+**Gate:** an attribute-only query returns plausible candidates with no
+plate supplied. **Not run**, and cannot fully pass yet even with a live
+stack — the type/camera/time half can be exercised, but "candidates from
+appearance" specifically needs the colour producer this session did not
+build.
+
+---
+
 ## Worker CPU and the thread budget  ✅ (unplanned — 10 Sep 2026)
 
 Not a roadmap phase. Raised as "cameras are not loading properly, and if they

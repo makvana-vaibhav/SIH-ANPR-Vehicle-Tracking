@@ -3,7 +3,9 @@
 **Read this first.** One page: what works, what doesn't, what to do next.
 
 *Updated 11 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
-**P4, P5 and P8 code complete, gates not yet run — P7 blocked on data — see below***
+**P4, P5 and P8 code complete, P9 half built (type/camera/time; colour needs a
+vision pipeline this session didn't have), gates not yet run — P7 blocked on
+data — see below***
 
 | Document | What it holds |
 |---|---|
@@ -41,11 +43,12 @@ Docker on Apple Silicon there is none, and no setting creates one.
 ```
 DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops
          └─ plus: worker CPU budget + pipeline pool (unplanned, 10 Sep)
-NEXT     P4 analytics + P5 anomaly + P8 search — code complete, gates not yet run
-         ← run `make demo` and check all three
+NEXT     P4 analytics + P5 anomaly + P8 search + P9 attributes(half) — code complete, gates not yet run
+         ← run `make demo` and check all four
 BLOCKED  P7 accuracy — needs real footage and a person to label it, not more code
+         P9's colour half — needs numpy/opencv + real footage, same as P7
 THEN     P6 harden                                                             (V1, ~2 weeks)
-LATER    P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
+LATER    P10 predict ──▶ P11 re-ID ──▶ P12 docs
 ```
 
 ---
@@ -62,6 +65,11 @@ LATER    P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 d
 | 6 | Blacklist alert **with plate crop** | ✅ **alert fires by itself, with the plate crop** |
 | 7 | Trajectory anomaly + explanation | 🟡 **code complete (P5), gate not yet run** — was a physics filter only; now has a real data-driven detector and stored, rendered factors |
 | 8 | City traffic analytics | 🟡 **code complete (P4), gate not yet run** — router, page and heatmap all exist; unverified against a live fleet |
+
+Search beyond plates (PS §14, not one of the 8 numbered steps but named as a
+differentiator): 🟡 **half built (P9)** — type/camera/time filtering on
+`GET /api/v1/detections` plus a UI toggle; vehicle-colour extraction itself
+was not attempted (no numpy/opencv, no real footage this session).
 
 ---
 
@@ -98,13 +106,19 @@ LATER    P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 d
    against hand-constructed scenarios; never run against a live fleet — same caveat as analytics
    above. → **P5, gate**
 6. **A real accuracy number.** → **P7**
+7. **Attribute search — verification, and the colour half.** Type/camera/time filtering on
+   `GET /api/v1/detections` and a `By attributes` UI toggle exist now (P9), same never-run caveat as
+   P4/P5/P8. Vehicle-colour extraction was not attempted — no numpy/opencv and no real footage this
+   session, same blocker as P7. → **P9, gate + colour producer**
 
 ---
 
 ## 🔧 Known debt worth knowing before you touch anything
 
 - **Four `detections` columns are permanently NULL** — `vehicle_colour`, `frame_key`, `direction`,
-  `speed_kmph`. (`crop_key` is populated as of P3.)
+  `speed_kmph`. (`crop_key` is populated as of P3.) `vehicle_colour` now has a real, tested filter
+  clause (P9) — it is just never populated, so the filter always matches zero rows. Documented in
+  the query param's own description, not hidden.
 - **`packages/contracts/` is one empty file.** The event is a hand-rolled dict, duplicated by hand in
   the load generator, with no validation on either side.
 - ~~`alerts` has no reasons/factors column~~ **Added (P5, migration 0005)**, code complete, gate not
@@ -181,6 +195,25 @@ over footage at accelerated pace to bootstrap genuine history), was **not**
 built this session — it needs a runnable ai-worker stack to write against at
 all, which this session did not have. Worth doing before judging on this
 feature; not required for the code to be correct.
+
+---
+
+## ▶ Also next: run the P9 gate (half of it)
+
+Full definition and gate: [ROADMAP.md](ROADMAP.md#p9--attribute-search-search-beyond-plates).
+Full build detail: [BUILD_STATE.md](BUILD_STATE.md), P9 section.
+
+`vehicle_type`/`vehicle_colour` filtering on `GET /api/v1/detections`, the
+`By plate`/`By attributes` toggle in `VehicleSearch.tsx`, and `test_detections.py`
+all exist now. Same never-run caveat as P4/P5/P8 — needs a live fleet and
+`make test`.
+
+**The colour half is not code-complete, and cannot be finished by this
+session.** It needs `numpy`/`opencv` (not installed here) and real footage to
+extract a colour from and check the result against — the same blocker P7 has
+for accuracy. The type/camera/time filtering is genuinely useful on its own
+and is what "attribute search" means until a colour producer exists; do not
+read the gate as fully met by it.
 
 ---
 

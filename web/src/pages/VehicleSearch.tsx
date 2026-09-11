@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
+import PlateCrop from '@/components/PlateCrop'
 import RouteMap from '@/components/RouteMap'
 import { useToast } from '@/components/Toast'
 import {
@@ -29,9 +30,15 @@ import {
   Input,
   PriorityBadge,
   SegmentedControl,
+  Select,
+  Table,
+  Td,
+  Th,
+  Thead,
+  Tr,
 } from '@/components/ui'
 import * as api from '@/lib/api'
-import type { Convoy, PlateSearchResult, RouteGeoJSON, VehicleRoute } from '@/lib/types'
+import type { Convoy, Detection, PlateSearchResult, RouteGeoJSON, VehicleRoute } from '@/lib/types'
 
 /** Windows an operator actually asks for. */
 const WINDOWS = [
@@ -71,6 +78,7 @@ function duration(seconds: number): string {
 
 export default function VehicleSearch() {
   const toast = useToast()
+  const [mode, setMode] = useState<'plate' | 'attributes'>('plate')
   const [query, setQuery] = useState('')
   const [plate, setPlate] = useState<string | null>(null)
   const [hours, setHours] = useState<number>(24)
@@ -171,13 +179,29 @@ export default function VehicleSearch() {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Vehicle search</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Every sighting of a plate, and the journey they imply.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Vehicle search</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {mode === 'plate'
+              ? 'Every sighting of a plate, and the journey they imply.'
+              : 'Browse sightings by what a vehicle looks like, when there is no plate to search on.'}
+          </p>
+        </div>
+        <SegmentedControl
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'plate', label: 'By plate' },
+            { value: 'attributes', label: 'By attributes' },
+          ]}
+        />
       </header>
 
+      {mode === 'attributes' && <AttributeSearch />}
+
+      {mode === 'plate' && (
+        <>
       {/* ── Search ──────────────────────────────────────────────────── */}
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
         <div className="w-56">
@@ -538,6 +562,8 @@ export default function VehicleSearch() {
           )}
         </>
       )}
+        </>
+      )}
     </div>
   )
 }
@@ -555,6 +581,162 @@ function Stat({
     <div title={hint}>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="font-mono text-sm">{value}</p>
+    </div>
+  )
+}
+
+/** Windows worth offering for a browse rather than a route — shorter by
+ *  default, since an attribute query with no plate to anchor it can return a
+ *  lot more than one vehicle's worth of rows. */
+const ATTRIBUTE_WINDOWS = [
+  { value: '1', label: '1 h' },
+  { value: '6', label: '6 h' },
+  { value: '24', label: '24 h' },
+] as const
+
+/**
+ * Search beyond plates (P9) — the PS's "white SUV, near CAM-17, 10:30-11:00"
+ * case. Type, camera and time window all work today, filtering the same
+ * `detections` table the plate search reads, over whatever the pipeline has
+ * already produced. Colour does not — nothing in the pipeline extracts a
+ * vehicle's colour yet (see BUILD_STATE.md's P9 section for exactly what is
+ * and is not built) — so that field is shown, disabled, with the reason
+ * stated, rather than silently accepted and always returning nothing.
+ */
+function AttributeSearch() {
+  const toast = useToast()
+  const [vehicleType, setVehicleType] = useState('')
+  const [cameraId, setCameraId] = useState('')
+  const [cameras, setCameras] = useState<{ id: string; camera_code: string }[]>([])
+  const [hours, setHours] = useState(6)
+  const [results, setResults] = useState<Detection[] | null>(null)
+  const [total, setTotal] = useState(0)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    api
+      .getCameras({ limit: '500' })
+      .then((page) => setCameras(page.items))
+      .catch(() => undefined)
+  }, [])
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      const page = await api.getDetections({
+        vehicle_type: vehicleType || undefined,
+        camera_id: cameraId || undefined,
+        since: since(hours),
+        readable_only: false,
+        limit: 30,
+      })
+      setResults(page.items)
+      setTotal(page.total)
+    } catch (err) {
+      toast.error(err)
+      setResults(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
+        <div className="w-36">
+          <Field label="Type">
+            <Select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
+              <option value="">Any vehicle</option>
+              <option value="car">Car</option>
+              <option value="motorcycle">Motorcycle</option>
+              <option value="bus">Bus</option>
+              <option value="truck">Truck</option>
+            </Select>
+          </Field>
+        </div>
+
+        <div className="w-48">
+          <Field label="Camera">
+            <Select value={cameraId} onChange={(e) => setCameraId(e.target.value)}>
+              <option value="">Any camera</option>
+              {cameras.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.camera_code}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        <div className="w-32">
+          <Field
+            label="Colour"
+            hint="Not available yet — nothing in the pipeline reads vehicle colour."
+          >
+            <Input value="" disabled placeholder="Coming later" />
+          </Field>
+        </div>
+
+        <div>
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Window
+          </span>
+          <div className="mt-1">
+            <SegmentedControl
+              value={String(hours)}
+              onChange={(v) => setHours(Number(v))}
+              options={ATTRIBUTE_WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
+            />
+          </div>
+        </div>
+
+        <Button type="submit" disabled={busy}>
+          {busy ? 'Searching…' : 'Search'}
+        </Button>
+      </form>
+
+      {results !== null &&
+        (results.length === 0 ? (
+          <EmptyState
+            title="Nothing matched."
+            hint="Try a different type, camera or window — colour can't be filtered on yet."
+          />
+        ) : (
+          <div>
+            <p className="text-[11px] text-muted-foreground">
+              {results.length} shown of {total} matching
+            </p>
+            <div className="mt-1.5">
+              <Table>
+                <Thead>
+                  <tr>
+                    <Th>When (IST)</Th>
+                    <Th>Camera</Th>
+                    <Th>Type</Th>
+                    <Th>Plate</Th>
+                    <Th />
+                  </tr>
+                </Thead>
+                <tbody>
+                  {results.map((d) => (
+                    <Tr key={d.id}>
+                      <Td className="whitespace-nowrap text-[11px] text-muted-foreground">
+                        {api.formatIST(d.ts)}
+                      </Td>
+                      <Td className="font-mono text-xs">{d.camera_code}</Td>
+                      <Td className="text-xs capitalize">{d.vehicle_type ?? '—'}</Td>
+                      <Td className="font-mono text-xs">{d.plate ?? '—'}</Td>
+                      <Td>
+                        <PlateCrop url={d.crop_url} plate={d.plate} height={22} />
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          </div>
+        ))}
     </div>
   )
 }

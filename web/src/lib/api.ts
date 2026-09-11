@@ -354,8 +354,14 @@ export interface DetectionQuery {
   plate?: string
   plate_prefix?: string
   since?: string
+  until?: string
   readable_only?: boolean
   min_confidence?: number
+  /** car | motorcycle | bus | truck | bicycle | person */
+  vehicle_type?: string
+  /** Always matches zero rows today — nothing in the pipeline populates
+   *  this column yet. See BUILD_STATE.md's P9 section. */
+  vehicle_colour?: string
   limit?: number
   offset?: number
 }

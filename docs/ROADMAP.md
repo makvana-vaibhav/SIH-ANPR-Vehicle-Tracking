@@ -308,16 +308,30 @@ Postgres available this session to measure it against.
 ### P9 — Attribute search (search beyond plates)
 **~3 days · PS §14**
 
+> 🟡 **Half built, gate not run.** Type/camera/time filtering on `GET /api/v1/detections`
+> (`VEHICLE_CLASSES` default so an attribute-only search never surfaces a tracked `person`/`bicycle`
+> as a vehicle candidate), the `By plate`/`By attributes` toggle in `VehicleSearch.tsx`, and
+> `test_detections.py` all exist — see [BUILD_STATE.md](BUILD_STATE.md)'s P9 section. **Vehicle-colour
+> extraction was not attempted** — this session had no `numpy`/`opencv` and no real footage to sample
+> a colour from or check a result against, the same blocker P7 has for accuracy. Writing that code
+> with no way to run it would be exactly the "plausible invented number" CLAUDE.md §5 forbids.
+
 Five `detections` columns are **permanently NULL** because nothing produces them:
 `vehicle_colour`, `crop_key` (P3), `frame_key`, `direction`, `speed_kmph`.
 
-- **Extract vehicle colour** in the pipeline and populate `vehicle_colour`.
+- **Extract vehicle colour** in the pipeline and populate `vehicle_colour`. **Not done** — needs
+  numpy/opencv and real footage; see the callout above.
 - Extend `vehicle_type` beyond the raw COCO class string it stores today (which also means `person`
-  rows currently land in `detections`).
+  rows currently land in `detections`). **Done** — an attribute-only query now defaults to
+  `VEHICLE_CLASSES = ("car", "motorcycle", "bus", "truck")` unless a specific type is requested; a
+  plate search is unaffected, it can still match any tracked class.
 - Query params and UI: *"white SUV, near CAM-17, 10:30–11:00"* → ranked candidates from appearance +
-  time + camera adjacency.
+  time + camera adjacency. **Partly done** — type/camera/time filtering and the UI toggle exist;
+  appearance-based ranking needs the colour producer above and was not built.
 
-**Gate:** an attribute-only query returns plausible candidates with no plate supplied.
+**Gate:** an attribute-only query returns plausible candidates with no plate supplied. **Not run**,
+and the "candidates from appearance" half of it cannot pass even with a live stack until vehicle
+colour has a real producer.
 
 ### P10 — Predictive traffic
 **~4 days · PS §12 · depends on P4 baselines**
