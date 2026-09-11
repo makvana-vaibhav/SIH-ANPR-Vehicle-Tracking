@@ -38,9 +38,10 @@
  * demo needs cross-camera linking.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import AnprOverlay from '@/components/AnprOverlay'
+import PipelineDiagnostics from '@/components/PipelineDiagnostics'
 import LivePlateFeed from '@/components/LivePlateFeed'
 import StreamPlayer from '@/components/StreamPlayer'
 import { Badge, Checkbox, ConnectionBadge, ErrorBanner, StatusDot } from '@/components/ui'
@@ -91,6 +92,13 @@ export default function LiveAnpr() {
   const [syncBoxes, setSyncBoxes] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeCodes, setActiveCodes] = useState<Set<string>>(new Set())
+  // Diagnostics are opt-in: the panel is for proving an optimisation worked,
+  // not something an operator needs on screen during normal use.
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
+  // The player hands its capture clock to the overlay through a render prop;
+  // the diagnostics panel needs the same clock to measure how far behind the
+  // source the picture is, so it is captured here as it goes past.
+  const videoClockRef = useRef<(() => number | null) | null>(null)
 
   const liveEvents = useCameraEvents(selected?.camera_code ?? null)
 
@@ -255,13 +263,16 @@ export default function LiveAnpr() {
                 cameraCode={selected.camera_code}
                 preferHls={isSandbox}
                 syncDelayMs={syncBoxes ? SYNC_DELAY_MS : 0}
-                overlay={(videoClock) => (
-                  <AnprOverlay
-                    events={liveEvents}
-                    enabled={showBoxes}
-                    videoClock={syncBoxes ? videoClock : undefined}
-                  />
-                )}
+                overlay={(videoClock) => {
+                  videoClockRef.current = videoClock
+                  return (
+                    <AnprOverlay
+                      events={liveEvents}
+                      enabled={showBoxes}
+                      videoClock={syncBoxes ? videoClock : undefined}
+                    />
+                  )
+                }}
               />
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div>
@@ -289,8 +300,21 @@ export default function LiveAnpr() {
                       labelClassName="gap-1.5 text-[11px] text-muted-foreground"
                     />
                   </span>
+                  <Checkbox
+                    checked={showDiagnostics}
+                    onChange={(e) => setShowDiagnostics(e.target.checked)}
+                    label="latency"
+                    labelClassName="gap-1.5 text-[11px] text-muted-foreground"
+                  />
                 </div>
               </div>
+              {showDiagnostics && (
+                <PipelineDiagnostics
+                  events={liveEvents}
+                  videoClock={syncBoxes ? videoClockRef.current : null}
+                  transport={grant.whep_url ? 'webrtc/hls' : 'hls'}
+                />
+              )}
               {isDemoFeed(selected) ? (
                 <p className="rounded border border-priority-high/40 bg-priority-high/10 px-2 py-1.5 text-[10px] leading-relaxed text-priority-high">
                   <strong>Recorded footage, not a live camera.</strong> The

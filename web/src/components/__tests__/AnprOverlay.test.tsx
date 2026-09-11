@@ -79,6 +79,9 @@ function event(
       ambiguous: false,
       corrected_from: null,
       format: 'in_current',
+      // Multi-frame agreement. Without it the reading is unconfirmed and the
+      // overlay draws the box but no label — see `isConfirmed`.
+      evidence: { reads_total: 4, agreement: 3 },
     },
     frame: { width: 1920, height: 1080 },
   }
@@ -196,11 +199,33 @@ describe('AnprOverlay', () => {
     expect(screen.queryByText('GJ03AB1234')).toBeNull()
   })
 
-  it('reports the capture-to-event latency rather than wall-clock age', async () => {
-    render(<AnprOverlay events={[event()]} />)
+  it('carries the capture-to-event latency rather than wall-clock age', async () => {
+    // The figure is the worker's own measurement of how long the read took,
+    // not how long ago the browser happened to receive it. It is no longer
+    // printed on the box — per-box timings were the clutter — but it must
+    // still travel with the reading so the diagnostics panel can aggregate it
+    // and so a single box remains inspectable.
+    const { container } = render(<AnprOverlay events={[event()]} />)
     await tick(20)
 
-    expect(screen.getByText('+0.3s')).toBeDefined()
+    const box = container.querySelector('[data-anpr-box="GJ03AB1234"]')
+    expect(box?.getAttribute('data-latency-ms')).toBe('300')
+  })
+
+  it('draws a box but no label while a reading is still unconfirmed', async () => {
+    // A low-confidence reading still appears in the feed beside the video with
+    // its full evidence; it does not get text drawn over live traffic while it
+    // is still moving between candidates.
+    const unsettled = event()
+    unsettled.plate.confidence = 0.42
+
+    const { container } = render(<AnprOverlay events={[unsettled]} />)
+    await tick(20)
+
+    const box = container.querySelector('[data-anpr-box="GJ03AB1234"]')
+    expect(box).not.toBeNull()
+    expect(box?.getAttribute('data-confirmed')).toBe('false')
+    expect(screen.queryByText('GJ03AB1234')).toBeNull()
   })
 
   describe('synced to the video clock', () => {

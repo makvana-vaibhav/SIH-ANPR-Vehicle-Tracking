@@ -45,7 +45,17 @@ PLATE_PREFIX = "ZZANOMALY"
 
 
 def _plate(suffix: str) -> str:
-    return f"{PLATE_PREFIX}{suffix}"
+    """A plate unique to this run.
+
+    The suffix alone is not enough. `route_history.snapshot` only persists a
+    journey that has **advanced** since its last snapshot, so a fixed plate
+    passes the first time and then silently does nothing on every later run
+    inside the six-hour lookback — the journey is already on file, `unchanged`
+    is incremented, and no alert is raised. That made this test pass or fail
+    depending on whether it had been run recently, which is the worst kind of
+    flake: it looks like an intermittent product bug.
+    """
+    return f"{PLATE_PREFIX}{suffix}{uuid.uuid4().hex[:4].upper()}"
 
 
 def _hop(

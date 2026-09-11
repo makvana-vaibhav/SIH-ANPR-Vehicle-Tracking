@@ -78,6 +78,21 @@ const FADE_MS = 500
 /** Drop a box from the store this long after it stopped being drawn. */
 const PRUNE_AFTER_MS = 5_000
 
+/**
+ * Below this, a reading is shown in the feed but not drawn on the video.
+ *
+ * Deliberately *not* gated on `evidence.agreement`. That field is a fraction
+ * (`reads_agreeing / reads_total`), not a count, and measured on the live feed
+ * it is frequently 0.0 even for readings the pipeline is otherwise sure of —
+ * `EY61NBG` arrives at 0.92 confidence over four reads with agreement 0.0. An
+ * earlier version of this gate required `agreement >= 2`, which is
+ * unsatisfiable for a 0..1 value: it silently suppressed **every** label.
+ *
+ * Grammar validity and the ambiguity flag are the signals that actually
+ * separate a plate from a misread, and they are what this uses.
+ */
+const CONFIRM_CONFIDENCE = 0.8
+
 interface Props {
   events: LiveVehicleEvent[]
   /** Hide the boxes without unmounting, so the toggle is instant. */
@@ -102,8 +117,32 @@ interface TrackBox {
   /** Capture-to-event, as the worker measured it. */
   latencyMs: number | null
   completed: boolean
+  /** The vehicle box — what an operator matches to a car on screen. */
   box: BBox
+  /** The plate box, when the pipeline localised one. Null is normal. */
+  plateBox: BBox | null
+  /** Whether the reading has stabilised enough to put text on the video. */
+  confirmed: boolean
   frame: { width: number; height: number }
+}
+
+/**
+ * Has this reading settled enough to label the video with it?
+ *
+ * Consensus already votes per character across every frame a vehicle was read
+ * in; this is the display gate on top of it. An unconfirmed reading still
+ * appears in the feed beside the video with all its evidence — it simply does
+ * not get text drawn over live traffic, because a plate that is still moving
+ * between candidates is worse than no label at all.
+ */
+function isConfirmed(event: LiveVehicleEvent): boolean {
+  const plate = event.plate
+  if (!plate?.text) return false
+  // Grammar and ambiguity are the pipeline's own verdicts on whether the
+  // string is a plate at all, and they are decisive: `AP05JEO1` and
+  // `KH0522431` both arrive with respectable confidence and are not plates.
+  if (!plate.grammar_valid || plate.ambiguous) return false
+  return (plate.confidence ?? 0) >= CONFIRM_CONFIDENCE
 }
 
 /**
@@ -209,6 +248,8 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
       tracks.set(key, {
         key,
         plate: event.plate.text,
+        plateBox: event.plate.bbox ?? null,
+        confirmed: isConfirmed(event),
         confidence: event.plate.confidence ?? 0,
         ambiguous: Boolean(event.plate.ambiguous),
         correctedFrom: event.plate.corrected_from ?? null,
@@ -307,51 +348,93 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
         const rect = contentRect(size, item.frame)
         const scaleX = rect.width / item.frame.width
         const scaleY = rect.height / item.frame.height
-        const left = rect.left + item.box.x1 * scaleX
-        const top = rect.top + item.box.y1 * scaleY
-        const width = (item.box.x2 - item.box.x1) * scaleX
-        const height = (item.box.y2 - item.box.y1) * scaleY
 
-        // A repaired or ambiguous reading is shown in the priority-warning
-        // colour, so an operator can see at a glance which readings the
-        // system is less sure of. `hsl(var(--...))` reaches the same tokens
-        // Tailwind classes use elsewhere — this box is drawn with inline
-        // styles because its position comes from the video's own geometry.
+        const place = (box: BBox) => ({
+          left: rect.left + box.x1 * scaleX,
+          top: rect.top + box.y1 * scaleY,
+          width: (box.x2 - box.x1) * scaleX,
+          height: (box.y2 - box.y1) * scaleY,
+        })
+
+        const vehicle = place(item.box)
+        if (vehicle.width < 4 || vehicle.height < 4) return null
+        const plate = item.plateBox ? place(item.plateBox) : null
+
+        // Amber for a reading the system is less sure of, green otherwise.
         const uncertain = item.ambiguous || item.correctedFrom !== null
         const colour = uncertain ? 'hsl(var(--priority-high))' : 'hsl(var(--status-online))'
 
-        if (width < 4 || height < 4) return null
+        // The label goes above the plate when there is one, else above the
+        // vehicle — and never *over* the plate, which is the one part of the
+        // picture a viewer may want to read for themselves.
+        const anchor = plate ?? vehicle
+        const labelBelow = anchor.top < 22
 
         return (
           <div
             key={item.key}
-            className="absolute"
-            style={{ left, top, width, height, opacity: item.opacity }}
+            // A stable handle for tests and for anyone inspecting the DOM.
+            // Boxes are found by this rather than by their label, because
+            // whether a reading is labelled is a display policy that changes;
+            // whether a box exists for a track is the behaviour under test.
+            data-anpr-box={item.plate}
+            data-confirmed={item.confirmed ? 'true' : 'false'}
+            // The pipeline's own capture-to-event figure, carried but not
+            // painted. It used to be printed on every box, which is exactly
+            // the clutter that made the picture unreadable — the aggregate
+            // belongs in the diagnostics panel. Kept here so the number stays
+            // inspectable per reading rather than being thrown away.
+            data-latency-ms={item.latencyMs ?? undefined}
+            style={{ opacity: item.opacity }}
           >
+            {/* Layer 1 — the vehicle. Deliberately faint: with twenty cars in
+                frame, twenty bold rectangles are the clutter, not the data. */}
             <div
-              className="h-full w-full rounded-sm border-2"
-              style={{ borderColor: colour }}
+              className="absolute rounded-sm border"
+              style={{
+                left: vehicle.left,
+                top: vehicle.top,
+                width: vehicle.width,
+                height: vehicle.height,
+                borderColor: colour,
+                opacity: 0.35,
+              }}
             />
-            <div
-              className="absolute -top-6 left-0 flex items-center gap-1.5 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[11px] font-bold text-black shadow"
-              style={{ backgroundColor: colour }}
-            >
-              <span>{item.plate}</span>
-              <span className="font-sans font-normal opacity-80">
-                {item.confidence.toFixed(2)}
-              </span>
-              {/* The pipeline's own capture-to-event figure. This is the number
-                  that says how far behind the picture a reading really is, and
-                  it stays on screen whether or not the box could be synced. */}
-              {item.latencyMs !== null && (
-                <span className="font-sans font-normal opacity-60">
-                  +{(item.latencyMs / 1000).toFixed(1)}s
+
+            {/* Layer 2 — the plate itself, drawn firmly because it is the
+                thing that was actually read. */}
+            {plate && plate.width >= 3 && (
+              <div
+                className="absolute rounded-[2px] border-2"
+                style={{
+                  left: plate.left,
+                  top: plate.top,
+                  width: plate.width,
+                  height: plate.height,
+                  borderColor: colour,
+                }}
+              />
+            )}
+
+            {/* The reading, only once it has settled. An unconfirmed plate is
+                still in the feed beside the video with its full evidence; it
+                just does not get text drawn over live traffic while it is
+                still moving between candidates. */}
+            {item.confirmed && (
+              <div
+                className="absolute flex items-center gap-1 whitespace-nowrap rounded px-1 py-px font-mono text-[10px] font-bold leading-tight text-black shadow"
+                style={{
+                  left: anchor.left,
+                  top: labelBelow
+                    ? anchor.top + anchor.height + 2
+                    : anchor.top - 15,
+                  backgroundColor: colour,
+                }}
+              >
+                <span>{item.plate}</span>
+                <span className="font-sans font-normal opacity-75">
+                  {Math.round(item.confidence * 100)}%
                 </span>
-              )}
-            </div>
-            {item.correctedFrom && (
-              <div className="absolute -bottom-5 left-0 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-priority-high">
-                was {item.correctedFrom}
               </div>
             )}
           </div>
