@@ -93,6 +93,9 @@ const PRUNE_AFTER_MS = 5_000
  */
 const CONFIRM_CONFIDENCE = 0.8
 
+/** Above this shared area, two boxes are treated as the same vehicle. */
+const SAME_VEHICLE_OVERLAP = 0.55
+
 interface Props {
   events: LiveVehicleEvent[]
   /** Hide the boxes without unmounting, so the toggle is instant. */
@@ -168,6 +171,48 @@ function contentRect(
     width,
     height,
   }
+}
+
+
+/** Fraction of the smaller box that the two boxes share. */
+function overlapFraction(a: BBox, b: BBox): number {
+  const left = Math.max(a.x1, b.x1)
+  const right = Math.min(a.x2, b.x2)
+  const top = Math.max(a.y1, b.y1)
+  const bottom = Math.min(a.y2, b.y2)
+  if (right <= left || bottom <= top) return 0
+  const intersection = (right - left) * (bottom - top)
+  const areaA = Math.max(1, (a.x2 - a.x1) * (a.y2 - a.y1))
+  const areaB = Math.max(1, (b.x2 - b.x1) * (b.y2 - b.y1))
+  return intersection / Math.min(areaA, areaB)
+}
+
+/**
+ * One box per vehicle, not one per reading.
+ *
+ * The tracker can hold the same car as more than one track, and each track
+ * carries its own OCR result — measured on live footage, `AV06HVE` and
+ * `AV08HVE` arrive together, both past grammar and both above the confidence
+ * gate, because `0`/`8` is the classic confusion. Drawn straight, that is two
+ * labelled rectangles on one car disagreeing with each other in front of the
+ * viewer.
+ *
+ * Boxes covering mostly the same pixels are therefore the same vehicle, and
+ * only the most confident reading is drawn. The others are not discarded from
+ * the system — every one is in the feed beside the video with its evidence,
+ * which is where a disagreement should be visible.
+ */
+function dedupeByVehicle<T extends { box: BBox; confidence: number }>(
+  items: T[],
+): T[] {
+  const kept: T[] = []
+  for (const item of [...items].sort((a, b) => b.confidence - a.confidence)) {
+    if (kept.some((k) => overlapFraction(k.box, item.box) >= SAME_VEHICLE_OVERLAP)) {
+      continue
+    }
+    kept.push(item)
+  }
+  return kept
 }
 
 function parseTime(value: string | null | undefined): number | null {
@@ -344,7 +389,7 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
 
   return (
     <div ref={hostRef} className="pointer-events-none absolute inset-0">
-      {visible.map((item) => {
+      {dedupeByVehicle(visible.filter((v) => v.confirmed)).map((item) => {
         const rect = contentRect(size, item.frame)
         const scaleX = rect.width / item.frame.width
         const scaleY = rect.height / item.frame.height
@@ -355,6 +400,21 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
           width: (box.x2 - box.x1) * scaleX,
           height: (box.y2 - box.y1) * scaleY,
         })
+
+        // Draw only readings the pipeline stands behind.
+        //
+        // Measured on one camera over 120 events: 13 "distinct" plates for
+        // roughly half that many cars — `AP05JEO` alongside `AP053EOT`,
+        // `XH05ZTK` alongside `XH05ZTX`. Each misread variant is a separate
+        // track and so was drawn as a separate box, which is why a single car
+        // carried a stack of eight overlapping rectangles and why the plates
+        // on screen looked wrong: they *were* wrong, and shown anyway.
+        //
+        // Every reading still reaches the feed beside the video with its
+        // evidence, invalid-format and ambiguous flags included. The video
+        // shows the ones that survived grammar, ambiguity and confidence — one
+        // box per car that was genuinely read.
+        if (!item.confirmed) return null
 
         const vehicle = place(item.box)
         if (vehicle.width < 4 || vehicle.height < 4) return null
@@ -397,7 +457,7 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
                 width: vehicle.width,
                 height: vehicle.height,
                 borderColor: colour,
-                opacity: 0.35,
+                opacity: 0.5,
               }}
             />
 
@@ -422,12 +482,12 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
                 still moving between candidates. */}
             {item.confirmed && (
               <div
-                className="absolute flex items-center gap-1 whitespace-nowrap rounded px-1 py-px font-mono text-[10px] font-bold leading-tight text-black shadow"
+                className="absolute flex items-center gap-1.5 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[13px] font-bold leading-tight text-black shadow-lg"
                 style={{
                   left: anchor.left,
                   top: labelBelow
-                    ? anchor.top + anchor.height + 2
-                    : anchor.top - 15,
+                    ? anchor.top + anchor.height + 3
+                    : anchor.top - 20,
                   backgroundColor: colour,
                 }}
               >

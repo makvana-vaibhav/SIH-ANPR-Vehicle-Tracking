@@ -140,9 +140,14 @@ describe('AnprOverlay', () => {
   })
 
   it('draws separate boxes for separate tracks', async () => {
+    // Different `x1`, because two vehicles occupy different pixels. The
+    // fixture's default put both tracks at the same coordinates, which is
+    // exactly the case `dedupeByVehicle` exists to collapse: one car held as
+    // two tracks, each with its own OCR result, drawn as two labels
+    // disagreeing with each other on top of one vehicle.
     const events = [
-      event({ trackId: 7, plate: 'GJ03AB1234' }),
-      event({ trackId: 9, plate: 'GJ01CD5678' }),
+      event({ trackId: 7, plate: 'GJ03AB1234', x1: 100 }),
+      event({ trackId: 9, plate: 'GJ01CD5678', x1: 900 }),
     ]
     render(<AnprOverlay events={events} />)
     await tick(20)
@@ -212,19 +217,22 @@ describe('AnprOverlay', () => {
     expect(box?.getAttribute('data-latency-ms')).toBe('300')
   })
 
-  it('draws a box but no label while a reading is still unconfirmed', async () => {
-    // A low-confidence reading still appears in the feed beside the video with
-    // its full evidence; it does not get text drawn over live traffic while it
-    // is still moving between candidates.
+  it('draws nothing at all while a reading is still unconfirmed', async () => {
+    // Measured on one camera over 120 events: 13 "distinct" plates for about
+    // half that many cars — `AP05JEO` alongside `AP053EOT`. Each misread
+    // variant is its own track, so drawing every one stacked eight
+    // rectangles on a single car and put demonstrably wrong plates on screen.
+    //
+    // The reading is not lost: it goes to the feed beside the video with its
+    // invalid-format and ambiguous flags intact. The video shows only what
+    // survived grammar, ambiguity and confidence.
     const unsettled = event()
     unsettled.plate.confidence = 0.42
 
     const { container } = render(<AnprOverlay events={[unsettled]} />)
     await tick(20)
 
-    const box = container.querySelector('[data-anpr-box="GJ03AB1234"]')
-    expect(box).not.toBeNull()
-    expect(box?.getAttribute('data-confirmed')).toBe('false')
+    expect(container.querySelector('[data-anpr-box]')).toBeNull()
     expect(screen.queryByText('GJ03AB1234')).toBeNull()
   })
 
