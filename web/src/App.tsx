@@ -3,6 +3,7 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { ToastProvider } from '@/components/Toast'
+import { Button, Spinner } from '@/components/ui'
 import Alerts from '@/pages/Alerts'
 import AuditLog from '@/pages/AuditLog'
 import ChangePassword from '@/pages/ChangePassword'
@@ -80,7 +81,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <Spinner />
       </div>
     )
   }
@@ -159,13 +160,9 @@ function Shell() {
             {user?.must_change_password ? '⚠ Set your password' : 'Password'}
           </NavLink>
 
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition hover:border-primary/50 hover:text-foreground"
-          >
+          <Button variant="outline" onClick={() => void signOut()}>
             Sign out
-          </button>
+          </Button>
         </div>
       </header>
 

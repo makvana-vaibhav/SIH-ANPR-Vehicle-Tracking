@@ -17,24 +17,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import PlateCrop from '@/components/PlateCrop'
 import { SkeletonRows } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
+import { Button, Checkbox, ConnectionBadge, EmptyState, PriorityBadge } from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
 import { PERMISSIONS } from '@/lib/permissions'
 import type { Alert, AlertStatus, Camera, Priority } from '@/lib/types'
 
-const PRIORITY_STYLE: Record<Priority, string> = {
+const PRIORITY_ROW: Record<Priority, string> = {
   critical: 'border-status-offline bg-status-offline/10',
-  high: 'border-amber-500 bg-amber-500/10',
+  high: 'border-priority-high bg-priority-high/10',
   medium: 'border-primary bg-primary/10',
   low: 'border-border bg-card',
-}
-
-const PRIORITY_BADGE: Record<Priority, string> = {
-  critical: 'bg-status-offline text-white',
-  high: 'bg-amber-500 text-black',
-  medium: 'bg-primary text-primary-foreground',
-  low: 'bg-muted text-muted-foreground',
 }
 
 /** Which transitions an operator is offered, given where the alert is now. */
@@ -212,31 +206,13 @@ export default function Alerts() {
             <kbd className="rounded bg-muted px-1">c</kbd>lose ·{' '}
             <kbd className="rounded bg-muted px-1">f</kbd>alse
           </span>
-          <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={openOnly}
-              onChange={(e) => setOpenOnly(e.target.checked)}
-              className="accent-primary"
-            />
-            open only
-          </label>
-          <span
-            className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] ${
-              feedStatus === 'live'
-                ? 'bg-status-online/15 text-status-online'
-                : 'bg-amber-500/15 text-amber-400'
-            }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                feedStatus === 'live'
-                  ? 'animate-pulse-alert bg-status-online'
-                  : 'bg-amber-400'
-              }`}
-            />
-            {feedStatus}
-          </span>
+          <Checkbox
+            checked={openOnly}
+            onChange={(e) => setOpenOnly(e.target.checked)}
+            label="open only"
+            labelClassName="gap-1.5 text-[11px] text-muted-foreground"
+          />
+          <ConnectionBadge live={feedStatus === 'live'} label={feedStatus} />
         </div>
       </header>
 
@@ -254,13 +230,10 @@ export default function Alerts() {
       {loading ? (
         <SkeletonRows rows={5} height="h-20" />
       ) : alerts.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border p-8 text-center">
-          <p className="text-sm text-muted-foreground">No alerts.</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Put a plate on the watchlist, and a sighting on any camera will
-            raise one here.
-          </p>
-        </div>
+        <EmptyState
+          title="No alerts."
+          hint="Put a plate on the watchlist, and a sighting on any camera will raise one here."
+        />
       ) : (
         <ul className="space-y-2">
           {alerts.map((alert, index) => {
@@ -271,18 +244,14 @@ export default function Alerts() {
               <li
                 key={alert.id}
                 onMouseEnter={() => setCursor(index)}
-                className={`rounded-md border-l-4 border-y border-r border-y-border border-r-border px-4 py-3 ${PRIORITY_STYLE[alert.priority]} ${
+                className={`rounded-md border-l-4 border-y border-r border-y-border border-r-border px-4 py-3 ${PRIORITY_ROW[alert.priority]} ${
                   focused ? 'ring-1 ring-primary' : ''
                 }`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`rounded px-1.5 py-px text-[10px] font-bold uppercase tracking-wider ${PRIORITY_BADGE[alert.priority]}`}
-                      >
-                        {alert.priority}
-                      </span>
+                      <PriorityBadge priority={alert.priority} solid />
                       <span className="font-mono text-lg font-bold tracking-wide">
                         {alert.plate_normalised ?? '—'}
                       </span>
@@ -346,20 +315,16 @@ export default function Alerts() {
                     {steps
                       .filter((step) => can(TRANSITION_PERMISSION[step.to]))
                       .map((step) => (
-                      <button
-                        key={step.to}
-                        type="button"
-                        disabled={working === alert.id}
-                        onClick={() => void act(alert, step.to)}
-                        className={`rounded px-2 py-1 text-[11px] font-medium transition disabled:opacity-50 ${
-                          step.to === 'false_positive'
-                            ? 'border border-border text-muted-foreground hover:text-foreground'
-                            : 'bg-primary text-primary-foreground hover:opacity-90'
-                        }`}
-                      >
-                        {step.label}
-                      </button>
-                    ))}
+                        <Button
+                          key={step.to}
+                          size="sm"
+                          variant={step.to === 'false_positive' ? 'outline' : 'primary'}
+                          disabled={working === alert.id}
+                          onClick={() => void act(alert, step.to)}
+                        >
+                          {step.label}
+                        </Button>
+                      ))}
                     {steps.filter((step) => can(TRANSITION_PERMISSION[step.to]))
                       .length === 0 && (
                       <span className="text-[11px] text-muted-foreground">

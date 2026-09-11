@@ -36,6 +36,7 @@ import { useEffect, useMemo, useState } from 'react'
 import AnprOverlay from '@/components/AnprOverlay'
 import LivePlateFeed from '@/components/LivePlateFeed'
 import StreamPlayer from '@/components/StreamPlayer'
+import { Badge, Checkbox, ConnectionBadge, ErrorBanner, StatusDot } from '@/components/ui'
 import { useCameraEvents, useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
 import { isPositionRefresh } from '@/lib/events'
@@ -184,29 +185,10 @@ export default function LiveAnpr() {
             {cameras.filter(isDemoFeed).length} replaying recorded footage.
           </p>
         </div>
-        <span
-          className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium ${
-            streamStatus === 'live'
-              ? 'bg-status-online/15 text-status-online'
-              : 'bg-amber-500/15 text-amber-400'
-          }`}
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              streamStatus === 'live'
-                ? 'animate-pulse-alert bg-status-online'
-                : 'bg-amber-400'
-            }`}
-          />
-          event feed {streamStatus}
-        </span>
+        <ConnectionBadge live={streamStatus === 'live'} label={`event feed ${streamStatus}`} />
       </header>
 
-      {error && (
-        <p className="rounded border border-status-offline/40 bg-status-offline/10 px-4 py-2 text-sm text-status-offline">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_300px]">
         {/* ── Camera picker ─────────────────────────────────────────── */}
@@ -231,15 +213,7 @@ export default function LiveAnpr() {
                   <span className="font-mono text-[11px] font-semibold">
                     {camera.camera_code}
                   </span>
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                      camera.status === 'online'
-                        ? 'bg-status-online'
-                        : camera.status === 'offline'
-                          ? 'bg-status-offline'
-                          : 'bg-muted-foreground'
-                    }`}
-                  />
+                  <StatusDot status={camera.status} />
                 </div>
                 <p className="truncate text-[10px] text-muted-foreground">
                   {camera.name}
@@ -248,18 +222,12 @@ export default function LiveAnpr() {
                   {/* Provenance, always. A viewer should never have to wonder
                       whether a feed is a government camera or a clip. */}
                   {isDemoFeed(camera) ? (
-                    <span className="rounded bg-amber-500/15 px-1 text-[9px] text-amber-400">
-                      recorded demo
-                    </span>
+                    <Badge tone="warning">recorded demo</Badge>
                   ) : (
-                    <span className="rounded bg-primary/15 px-1 text-[9px] text-primary">
-                      live feed
-                    </span>
+                    <Badge tone="primary">live feed</Badge>
                   )}
                   {activeCodes.has(camera.camera_code) && (
-                    <span className="rounded bg-status-online/15 px-1 text-[9px] text-status-online">
-                      reading plates
-                    </span>
+                    <Badge tone="success">reading plates</Badge>
                   )}
                 </div>
               </button>
@@ -295,31 +263,26 @@ export default function LiveAnpr() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={showBoxes}
-                      onChange={(e) => setShowBoxes(e.target.checked)}
-                      className="accent-primary"
-                    />
-                    plate boxes
-                  </label>
-                  <label
-                    className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground"
+                  <Checkbox
+                    checked={showBoxes}
+                    onChange={(e) => setShowBoxes(e.target.checked)}
+                    label="plate boxes"
+                    labelClassName="gap-1.5 text-[11px] text-muted-foreground"
+                  />
+                  <span
                     title={`Holds the picture ${(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live so each box lands on the frame it was measured in. Off gives the lowest latency the network allows, with boxes that trail the picture.`}
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={syncBoxes}
                       onChange={(e) => setSyncBoxes(e.target.checked)}
-                      className="accent-primary"
+                      label="sync to video"
+                      labelClassName="gap-1.5 text-[11px] text-muted-foreground"
                     />
-                    sync to video
-                  </label>
+                  </span>
                 </div>
               </div>
               {isDemoFeed(selected) ? (
-                <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] leading-relaxed text-amber-300">
+                <p className="rounded border border-priority-high/40 bg-priority-high/10 px-2 py-1.5 text-[10px] leading-relaxed text-priority-high">
                   <strong>Recorded footage, not a live camera.</strong> The
                   three cameras on this corridor replay the same file, so the
                   pipeline can be demonstrated end to end on traffic close

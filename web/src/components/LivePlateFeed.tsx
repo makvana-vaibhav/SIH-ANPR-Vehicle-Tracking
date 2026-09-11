@@ -22,7 +22,7 @@ interface Props {
 
 function confidenceColour(value: number): string {
   if (value >= 0.85) return 'text-status-online'
-  if (value >= 0.6) return 'text-amber-400'
+  if (value >= 0.6) return 'text-priority-high'
   return 'text-status-offline'
 }
 
@@ -126,12 +126,12 @@ export default function LivePlateFeed({
                 </span>
               )}
               {plate.ambiguous && (
-                <span className="rounded bg-amber-500/15 px-1 py-px text-amber-400">
+                <span className="rounded bg-priority-high/15 px-1 py-px text-priority-high">
                   ambiguous
                 </span>
               )}
               {plate.corrected_from && (
-                <span className="rounded bg-amber-500/15 px-1 py-px font-mono text-amber-400">
+                <span className="rounded bg-priority-high/15 px-1 py-px font-mono text-priority-high">
                   was {plate.corrected_from}
                 </span>
               )}

@@ -291,10 +291,13 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
         const width = (item.box.x2 - item.box.x1) * scaleX
         const height = (item.box.y2 - item.box.y1) * scaleY
 
-        // A repaired or ambiguous reading is shown in amber, so an operator can
-        // see at a glance which readings the system is less sure of.
+        // A repaired or ambiguous reading is shown in the priority-warning
+        // colour, so an operator can see at a glance which readings the
+        // system is less sure of. `hsl(var(--...))` reaches the same tokens
+        // Tailwind classes use elsewhere — this box is drawn with inline
+        // styles because its position comes from the video's own geometry.
         const uncertain = item.ambiguous || item.correctedFrom !== null
-        const colour = uncertain ? 'rgb(234 179 8)' : 'rgb(34 197 94)'
+        const colour = uncertain ? 'hsl(var(--priority-high))' : 'hsl(var(--status-online))'
 
         if (width < 4 || height < 4) return null
 
@@ -326,7 +329,7 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
               )}
             </div>
             {item.correctedFrom && (
-              <div className="absolute -bottom-5 left-0 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-300">
+              <div className="absolute -bottom-5 left-0 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-priority-high">
                 was {item.correctedFrom}
               </div>
             )}
