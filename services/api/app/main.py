@@ -25,6 +25,7 @@ from app.db.session import dispose_engine
 from app.middleware.audit import AuditMiddleware
 from app.routers import (
     alerts,
+    analytics,
     audit,
     auth,
     cameras,
@@ -225,6 +226,7 @@ app.include_router(audit.router)
 app.include_router(vehicles.router)
 app.include_router(watchlist.router)
 app.include_router(alerts.router)
+app.include_router(analytics.router)
 
 
 @app.get("/", tags=["meta"], summary="Service banner")

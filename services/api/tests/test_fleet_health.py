@@ -61,16 +61,29 @@ class TestFleetHealthEndpoint:
 
         assert len(body["by_department"]) >= 1
         assert sum(r["total"] for r in body["by_department"]) >= ONBOARDED_FLEET
-        # Two, not three. The seed used to register four more VMS instances —
-        # Milestone, Genetec, CP Plus, Hikvision — every one with
-        # `adapter_type: simulated` and not a single camera behind it. They
-        # made this assertion pass while representing no integration at all.
+
+        # What matters is that every vendor row represents real cameras — not
+        # how many rows there are.
         #
-        # The multi-vendor claim is asserted where it is true: the adapter
-        # registry below reports the interface's real implementations, which
-        # are code and are unit-tested. What is federated today is the
-        # organisers' grid and one demonstration source.
-        assert len({r["vendor"] for r in body["by_vendor"]}) >= 2
+        # The seed once registered four extra VMS instances — Milestone,
+        # Genetec, CP Plus, Hikvision — each `adapter_type: simulated` with not
+        # one camera behind it. A "at least N vendors" assertion passed happily
+        # on those while the breakdown represented no integration at all, which
+        # is the failure worth guarding against. Counting rows cannot catch it;
+        # requiring every row to have cameras can.
+        #
+        # This also stopped being a count the fleet could satisfy: the hosted
+        # grid federates **zero** cameras today (it is a removal candidate —
+        # CLAUDE.md §10), so the honest number of vendors actually carrying
+        # traffic is one. The multi-vendor claim is asserted where it is true:
+        # the adapter registry below reports the interface's real
+        # implementations, which are code and are unit-tested.
+        vendors = body["by_vendor"]
+        assert vendors, "fleet health must break the estate down by vendor"
+        assert all(row["total"] > 0 for row in vendors), (
+            f"a vendor row with no cameras represents no integration: {vendors}"
+        )
+        assert sum(row["total"] for row in vendors) >= ONBOARDED_FLEET
 
     async def test_the_adapter_interface_covers_more_than_is_connected(
         self, client: AsyncClient, auth_headers

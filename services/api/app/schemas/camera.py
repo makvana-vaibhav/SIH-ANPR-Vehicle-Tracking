@@ -40,6 +40,8 @@ class CameraBase(BaseModel):
     district: str | None = Field(default=None, max_length=64, examples=["Rajkot"])
     city: str | None = Field(default=None, max_length=64, examples=["Rajkot"])
     junction: str | None = Field(default=None, max_length=128)
+    #: The arterial this camera watches. Analytics groups on it.
+    corridor: str | None = Field(default=None, max_length=64, examples=["Ashram Road"])
     address: str | None = None
 
     heading_deg: int | None = Field(
@@ -140,6 +142,7 @@ class CameraUpdate(BaseModel):
     district: str | None = None
     city: str | None = None
     junction: str | None = None
+    corridor: str | None = None
     address: str | None = None
     lat: Latitude | None = None
     lon: Longitude | None = None
@@ -181,6 +184,7 @@ class CameraOut(BaseModel):
     district: str | None = None
     city: str | None = None
     junction: str | None = None
+    corridor: str | None = None
     address: str | None = None
     lat: float
     lon: float

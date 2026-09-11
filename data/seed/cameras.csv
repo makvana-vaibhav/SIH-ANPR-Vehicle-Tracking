@@ -1,4 +1,13 @@
-camera_code,name,department_code,district,city,junction,lat,lon,heading_deg,camera_type,protocol,stream_url,resolution,fps,anpr_enabled,tags
-CAM-DEMO-01,Paldi — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Paldi,23.009370,72.562120,28,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
-CAM-DEMO-02,Navrangpura — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Navrangpura,23.027870,72.570990,345,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
-CAM-DEMO-03,Usmanpura — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Usmanpura,23.055670,72.572080,229,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
+camera_code,name,department_code,district,city,junction,corridor,lat,lon,heading_deg,camera_type,protocol,stream_url,resolution,fps,anpr_enabled,tags
+CAM-DEMO-01,Paldi — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Paldi,Ashram Road,23.009370,72.562120,28,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
+CAM-DEMO-02,Navrangpura — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Navrangpura,Ashram Road,23.027870,72.570990,345,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
+CAM-DEMO-03,Usmanpura — Ashram Road,MUNICIPAL,Sabarmati,Ahmedabad,Ashram Road @ Usmanpura,Ashram Road,23.055670,72.572080,229,anpr,rtsp,,1920x1080,15,True,demo|recorded-footage|not-a-real-camera|plate-region:GB|ash|arterial|sabarmati
+CAM-NRD-01,Naroda — Naroda Road,GSRTC,Asarva,Ahmedabad,Naroda Road @ Naroda,Naroda Road,23.064760,72.642830,225,anpr,rtsp,,1920x1080,15,True,nrd|arterial|asarva
+CAM-NRD-02,Sahijpur — Naroda Road,GSRTC,Asarva,Ahmedabad,Naroda Road @ Sahijpur,Naroda Road,23.052620,72.628490,235,anpr,rtsp,,1920x1080,15,True,nrd|arterial|asarva
+CAM-NRD-03,Asarwa — Naroda Road,GSRTC,Asarva,Ahmedabad,Naroda Road @ Asarwa,Naroda Road,23.042630,72.613730,233,anpr,rtsp,,1920x1080,25,True,nrd|arterial|asarva
+CAM-SGH-01,Gota — SG Highway,POLICE,Ghatlodiya,Ahmedabad,SG Highway @ Gota,SG Highway,23.103150,72.532940,13,anpr,rtsp,,1920x1080,25,True,sgh|arterial|ghatlodiya
+CAM-SGH-02,Godrej Garden City — SG Highway,POLICE,Ghatlodiya,Ahmedabad,SG Highway @ Godrej Garden City,SG Highway,23.121750,72.538530,195,anpr,rtsp,,1920x1080,20,True,sgh|arterial|ghatlodiya
+CAM-SGH-03,Ambavadi / kubernagar — SG Highway,POLICE,Asarva,Ahmedabad,SG Highway @ Ambavadi / kubernagar,SG Highway,23.088840,72.630020,178,anpr,rtsp,,1920x1080,25,True,sgh|arterial|asarva
+CAM-SPR-01,Hanspura — Sardar Patel Ring Road,POLICE,Daskroi,Ahmedabad,Sardar Patel Ring Road @ Hanspura,Sardar Patel Ring Road,23.085180,72.687450,178,anpr,rtsp,,1920x1080,15,True,spr|arterial|daskroi
+CAM-SPR-02,Nava Naroda — Sardar Patel Ring Road,POLICE,Daskroi,Ahmedabad,Sardar Patel Ring Road @ Nava Naroda,Sardar Patel Ring Road,23.053730,72.685440,205,anpr,rtsp,,1920x1080,20,True,spr|arterial|daskroi
+CAM-SPR-03,Vastral — Sardar Patel Ring Road,POLICE,Vatva,Ahmedabad,Sardar Patel Ring Road @ Vastral,Sardar Patel Ring Road,23.020300,72.671790,191,anpr,rtsp,,1920x1080,15,True,spr|arterial|vatva
