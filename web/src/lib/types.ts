@@ -315,14 +315,38 @@ export interface AlertPage {
  */
 export interface LiveVehicleEvent {
   event: 'vehicle.observed' | 'vehicle.completed'
+  /** When the worker emitted this. Later than `captured_at` by the pipeline. */
   event_time: string
+  /**
+   * When the frame these boxes were measured in was captured.
+   *
+   * This, not `event_time`, is the timestamp an overlay has to draw against:
+   * the difference between the two is `latency_ms`, and a box placed at the
+   * emit time lands wherever the vehicle has got to since. Null on events from
+   * a worker that predates the field.
+   */
+  captured_at?: string | null
+  /** Capture-to-event, in milliseconds. */
+  latency_ms?: number
+  /**
+   * True when this repeats a reading already reported, to update only where
+   * the vehicle now is. For drawing, never for counting — see
+   * `lib/events.ts`.
+   */
+  position_refresh?: boolean
   source: { camera_id: string; name?: string }
   vehicle: {
     vehicle_id: number
     track_ids: number[]
     type: string
     confidence: number
+    /** The best sighting — largest and most confident. What the crop came from. */
     bbox: BBox | null
+    /**
+     * Where the vehicle was in the `captured_at` frame. The only box with a
+     * timestamp, and so the only one worth drawing over live video.
+     */
+    live_bbox?: BBox | null
     first_seen_s: number
     last_seen_s: number
   }

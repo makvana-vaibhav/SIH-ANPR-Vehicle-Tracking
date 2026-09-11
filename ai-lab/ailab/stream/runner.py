@@ -97,6 +97,12 @@ class _LiveTrack:
     last_emitted_plate: str = ""
     last_emitted_confidence: float = 0.0
     emitted_observed: int = 0
+    #: Wall clock of the last event emitted for this track, from
+    #: `time.perf_counter`. Paces position refreshes.
+    last_emit_s: float = 0.0
+    #: How many of this track's events carried no new reading, only a new
+    #: position. Bounded so a vehicle parked in view cannot emit forever.
+    position_refreshes: int = 0
 
 
 class StreamRunner:
@@ -163,9 +169,6 @@ class StreamRunner:
             redact(url), self.source.camera_id, reader.fps,
         )
 
-        # Retire a track this many frames after it was last seen. Expressed in
-        # frames so it scales with the source rate rather than assuming 30fps.
-        retire_after = max(5, int(reader.fps * cfg.stream.retire_after_s))
         self._fps = reader.fps
         self.pipeline._tracker = self.pipeline._tracker or None
         from ailab.registry import create
@@ -196,7 +199,7 @@ class StreamRunner:
                         break
                     continue
 
-                self._process(captured, frame_index, retire_after)
+                self._process(captured, frame_index)
                 frame_index += 1
                 self.stats.frames_processed += 1
 
@@ -221,7 +224,7 @@ class StreamRunner:
         return report
 
     # ─────────────────────────────────────────────────────────────────
-    def _process(self, captured: Any, frame_index: int, retire_after: int) -> None:
+    def _process(self, captured: Any, frame_index: int) -> None:
         if self._frame_size is None and captured.image is not None:
             height, width = captured.image.shape[:2]
             self._frame_size = (int(width), int(height))
@@ -272,7 +275,7 @@ class StreamRunner:
                     self.stats.plates_read += 1
 
         self._emit_observed(tracks_view, captured)
-        self._retire_stale(frame_index, retire_after, captured)
+        self._retire_stale(captured)
 
     def _on_discontinuity(self) -> None:
         """Rebuild all long-lived state after a scene cut."""
@@ -324,11 +327,29 @@ class StreamRunner:
     def _emit_observed(self, tracks_view: dict[int, Track], captured: Any) -> None:
         """Provisional events, so the platform can act before the vehicle leaves.
 
-        Only emitted when the reading has actually changed — a new plate, or a
-        materially better confidence. Re-sending an unchanged result every frame
-        would flood the platform with events carrying no new information.
+        Two things make a provisional event worth sending, and they are capped
+        separately because they cost different things:
+
+        **A new reading** — a different plate, or a materially better
+        confidence. This is information the platform did not have, and it is
+        what an alert fires on. Bounded by `max_observed_per_track`.
+
+        **A new position** — the same reading, from a later frame. This carries
+        no new intelligence and is never persisted, but without it an overlay
+        drawn on live video has nothing to redraw: the box stays pinned where
+        the vehicle was when its plate first resolved and sits there while the
+        vehicle drives out of shot. Paced by `observed_refresh_s` and bounded by
+        `max_position_refresh_per_track`, so following a vehicle costs a couple
+        of small messages a second rather than one per frame.
+
+        Re-sending an unchanged reading *every frame* would flood the platform
+        with events carrying nothing new, which is why the pacing exists rather
+        than simply emitting whenever a track is alive.
         """
-        threshold = self.config.stream.observed_confidence_delta
+        stream = self.config.stream
+        threshold = stream.observed_confidence_delta
+        now_s = time.perf_counter()
+
         for track_id, track in tracks_view.items():
             live = self._live.get(track_id)
             if live is None or track.result is None or not track.result.text:
@@ -336,14 +357,28 @@ class StreamRunner:
 
             changed = track.result.text != live.last_emitted_plate
             improved = track.result.confidence - live.last_emitted_confidence >= threshold
-            if not (changed or improved):
-                continue
-            if live.emitted_observed >= self.config.stream.max_observed_per_track:
-                continue
+            new_reading = (changed or improved) and (
+                live.emitted_observed < stream.max_observed_per_track
+            )
 
-            live.last_emitted_plate = track.result.text
-            live.last_emitted_confidence = track.result.confidence
-            live.emitted_observed += 1
+            if new_reading:
+                live.last_emitted_plate = track.result.text
+                live.last_emitted_confidence = track.result.confidence
+                live.emitted_observed += 1
+                refresh_only = False
+            else:
+                # Nothing new to say about the plate. Say where the vehicle is
+                # instead, if it is time to and this track has not had its fill.
+                if stream.observed_refresh_s <= 0.0:
+                    continue
+                if live.position_refreshes >= stream.max_position_refresh_per_track:
+                    continue
+                if now_s - live.last_emit_s < stream.observed_refresh_s:
+                    continue
+                live.position_refreshes += 1
+                refresh_only = True
+
+            live.last_emit_s = now_s
             self.stats.events_observed += 1
             self.sink.emit(
                 vehicle_event(
@@ -353,25 +388,59 @@ class StreamRunner:
                     latency_ms=captured.age_ms,
                     run_id=self.source.camera_id,
                     frame_size=self._frame_size,
+                    live_bbox=self._latest_bbox(track),
+                    captured_at=captured.wall_time,
+                    position_refresh=refresh_only,
                 )
             )
             self.stats.latencies_ms.append(captured.age_ms)
 
-    def _retire_stale(self, frame_index: int, retire_after: int, captured: Any) -> None:
+    @staticmethod
+    def _latest_bbox(track: Track) -> Any:
+        """Where the track is *now*, not where it looked best.
+
+        `Vehicle.bbox` is the best observation — largest and most confident,
+        which is the right frame to cut a crop from and the wrong one to draw
+        over live video, because for a vehicle crossing the frame it is a
+        position the vehicle left seconds ago.
+        """
+        return track.observations[-1].bbox if track.observations else None
+
+    def _retire_stale(self, captured: Any) -> None:
+        """Complete the vehicles that have been out of view for long enough.
+
+        Measured in source seconds, not in analysed frames. This used to count
+        frames — `reader.fps × retire_after_s` of them — but the count ticked
+        once per *analysed* frame, and a worker that keeps up with a camera by
+        dropping most of it analyses a fraction of the frames it decodes. At
+        the measured one-in-nine, the 1.5 s the config asks for became ~13 s:
+        every `vehicle.completed` — the event that is persisted, that raises
+        the alert, that ends the box on screen — arrived thirteen seconds after
+        the vehicle had gone.
+        """
+        now_s = captured.source_t_s
+        limit_s = self.config.stream.retire_after_s
         stale = [
             track_id
             for track_id, live in self._live.items()
-            if frame_index - live.last_frame_seen > retire_after
+            if now_s - live.track.last_seen_s > limit_s
         ]
         for track_id in stale:
-            self._complete(self._live.pop(track_id), captured.age_ms)
+            self._complete(
+                self._live.pop(track_id), captured.age_ms, captured.wall_time
+            )
 
     def _retire_all(self) -> None:
         for live in list(self._live.values()):
-            self._complete(live, latency_ms=None)
+            self._complete(live, latency_ms=None, captured_at=None)
         self._live.clear()
 
-    def _complete(self, live: _LiveTrack, latency_ms: float | None) -> None:
+    def _complete(
+        self,
+        live: _LiveTrack,
+        latency_ms: float | None,
+        captured_at: datetime | None,
+    ) -> None:
         track = live.track
         track.result = consensus(track.plate_reads, self.config.consensus)
         self.stats.tracks_retired += 1
@@ -384,6 +453,11 @@ class StreamRunner:
                 latency_ms=latency_ms,
                 run_id=self.source.camera_id,
                 frame_size=self._frame_size,
+                # The last place the vehicle was seen before it was retired.
+                # An overlay uses this to clear the box at the right moment
+                # rather than leaving it floating where the car no longer is.
+                live_bbox=self._latest_bbox(track),
+                captured_at=captured_at,
             )
         )
         # Release the evidence: a long-running worker cannot keep every crop

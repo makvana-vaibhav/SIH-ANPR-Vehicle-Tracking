@@ -3,19 +3,32 @@
  *
  * Two sources of truth sit side by side deliberately. The video with its
  * overlay shows *where* a vehicle was when it was read; the feed beside it
- * shows *what* was read, with the evidence. The overlay can trail the picture
- * by a few seconds (see AnprOverlay) — the feed never lies about the reading
- * itself, so the two together are honest in a way either alone would not be.
+ * shows *what* was read, with the evidence. The feed never lies about the
+ * reading itself, so the two together are honest in a way either alone would
+ * not be.
  *
- * The camera list is the ANPR fleet: the organisers' federated grid, plus one
- * clearly marked demonstration feed carrying recorded footage. Which is which
- * is labelled rather than hidden — a judge is entitled to know whether they
- * are looking at a government camera or a replayed clip, and a platform that
- * blurred the two would be misrepresenting the capability being demonstrated.
+ * ## Synced boxes
+ *
+ * By default the picture is held a couple of seconds behind live, and each
+ * plate box is drawn against the video’s own capture clock rather than against
+ * now. That is what puts the rectangle on the vehicle instead of behind it: the
+ * delay is exactly the head start the worker needs to read a plate and get the
+ * event here before the frame it came from is shown.
+ *
+ * Turning it off gives the lowest-latency picture the network allows, with
+ * boxes that trail it. Both modes label a reading with its true age, so they
+ * never disagree about the facts — only about where a rectangle can be put.
+ *
+ * The camera list is the ANPR fleet. Every camera in it is labelled with where
+ * its video comes from rather than left to be guessed at — a judge is entitled
+ * to know whether they are looking at a live camera or a replayed clip, and a
+ * platform that blurred the two would be misrepresenting the capability being
+ * demonstrated. The demonstration fleet is three cameras on one corridor, all
+ * replaying the same recorded footage, and each says so.
  *
  * Analysis does not depend on this screen. The worker reads every camera in
- * the fleet in the background, rotating them through its inference slots;
- * opening a camera here shows what it found, it does not cause it to look.
+ * the fleet in the background; opening a camera here shows what it found, it
+ * does not cause it to look.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -25,30 +38,42 @@ import LivePlateFeed from '@/components/LivePlateFeed'
 import StreamPlayer from '@/components/StreamPlayer'
 import { useCameraEvents, useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
+import { isPositionRefresh } from '@/lib/events'
 import type { Camera, Detection, StreamGrant } from '@/lib/types'
 
 /** Cameras with recorded ANPR activity float to the top of the picker. */
 const RECENT_WINDOW_HOURS = 6
 
 /**
+ * How far behind live to hold the picture when boxes are synced.
+ *
+ * It has to cover capture-to-event on the worker plus the hop through Redis,
+ * the API and the socket — otherwise a read arrives after its frame has already
+ * been shown and the box never appears. It also has to stay inside what the
+ * gateway keeps available: MediaMTX holds seven one-second segments, so beyond
+ * about six seconds there is nothing left to play.
+ */
+const SYNC_DELAY_MS = 2_500
+
+/**
  * A camera carrying recorded footage rather than a live feed.
  *
- * Read from the registry's own tags, not guessed from the name: the tag is set
- * by `scripts/shape_fleet.py` and is the single place that decides what counts
- * as demonstration footage.
+ * Read from the registry's own tags, not guessed from the name: the `demo` tag
+ * comes from `data/seed/cameras.csv` and is the single place that decides what
+ * counts as demonstration footage.
  */
 function isDemoFeed(camera: Camera): boolean {
   return (camera.tags ?? []).includes('demo')
 }
 
 /**
- * A camera whose video comes from somebody else's gateway.
+ * A camera whose video comes from a live source rather than recorded footage.
  *
- * The ANPR fleet is exactly the federated grid plus the demonstration feed —
- * `shape_fleet.py` enforces that, and it is why this is a negation rather than
- * a vendor check. A camera with no real source is not in this list at all.
+ * A negation rather than a vendor check, because a camera with no real source
+ * is not in this registry at all: everything here either streams live or is
+ * tagged as replaying a clip.
  */
-function isFederated(camera: Camera): boolean {
+function isLiveFeed(camera: Camera): boolean {
   return !isDemoFeed(camera)
 }
 
@@ -60,10 +85,20 @@ export default function LiveAnpr() {
   const [grant, setGrant] = useState<StreamGrant | null>(null)
   const [history, setHistory] = useState<Detection[]>([])
   const [showBoxes, setShowBoxes] = useState(true)
+  const [syncBoxes, setSyncBoxes] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeCodes, setActiveCodes] = useState<Set<string>>(new Set())
 
   const liveEvents = useCameraEvents(selected?.camera_code ?? null)
+
+  // The overlay wants every event, because position refreshes are what let it
+  // follow a vehicle. The feed wants only the readings: a refresh repeats a
+  // plate already listed, so leaving them in would crowd out the cars read a
+  // few seconds ago with the same car reported again.
+  const readings = useMemo(
+    () => liveEvents.filter((event) => !isPositionRefresh(event)),
+    [liveEvents],
+  )
 
   // ── The fleet, and which cameras have actually produced plates ──────────
   useEffect(() => {
@@ -145,7 +180,8 @@ export default function LiveAnpr() {
           <p className="mt-0.5 text-xs text-muted-foreground">
             Every camera in the fleet is analysed in the background. Opening one
             shows what it found — {cameras.length} cameras,{' '}
-            {cameras.filter(isFederated).length} from the organisers' grid.
+            {cameras.filter(isLiveFeed).length} live and{' '}
+            {cameras.filter(isDemoFeed).length} replaying recorded footage.
           </p>
         </div>
         <span
@@ -217,7 +253,7 @@ export default function LiveAnpr() {
                     </span>
                   ) : (
                     <span className="rounded bg-primary/15 px-1 text-[9px] text-primary">
-                      grid feed
+                      live feed
                     </span>
                   )}
                   {activeCodes.has(camera.camera_code) && (
@@ -240,7 +276,14 @@ export default function LiveAnpr() {
                 hlsUrl={grant.hls_url}
                 cameraCode={selected.camera_code}
                 preferHls={isSandbox}
-                overlay={<AnprOverlay events={liveEvents} enabled={showBoxes} />}
+                syncDelayMs={syncBoxes ? SYNC_DELAY_MS : 0}
+                overlay={(videoClock) => (
+                  <AnprOverlay
+                    events={liveEvents}
+                    enabled={showBoxes}
+                    videoClock={syncBoxes ? videoClock : undefined}
+                  />
+                )}
               />
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div>
@@ -251,39 +294,70 @@ export default function LiveAnpr() {
                       .join(' · ')}
                   </p>
                 </div>
-                <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={showBoxes}
-                    onChange={(e) => setShowBoxes(e.target.checked)}
-                    className="accent-primary"
-                  />
-                  plate boxes
-                </label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={showBoxes}
+                      onChange={(e) => setShowBoxes(e.target.checked)}
+                      className="accent-primary"
+                    />
+                    plate boxes
+                  </label>
+                  <label
+                    className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground"
+                    title={`Holds the picture ${(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live so each box lands on the frame it was measured in. Off gives the lowest latency the network allows, with boxes that trail the picture.`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={syncBoxes}
+                      onChange={(e) => setSyncBoxes(e.target.checked)}
+                      className="accent-primary"
+                    />
+                    sync to video
+                  </label>
+                </div>
               </div>
               {isDemoFeed(selected) ? (
                 <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] leading-relaxed text-amber-300">
-                  <strong>Recorded footage, not a live camera.</strong> This is
-                  the one feed in the fleet that replays a file, so the
+                  <strong>Recorded footage, not a live camera.</strong> The
+                  three cameras on this corridor replay the same file, so the
                   pipeline can be demonstrated end to end on traffic close
-                  enough for plates to be legible. Every other camera here is a
-                  live feed from the organisers' grid.
+                  enough for plates to be legible — and so a vehicle genuinely
+                  passes more than one camera, which is what cross-camera
+                  linking needs in order to have anything to link. Each camera
+                  is seeked to a different point in the clip; they are not
+                  showing the same instant.
                 </p>
               ) : (
                 <p className="rounded border border-border px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                  <strong className="text-foreground">Live federated feed</strong>{' '}
-                  from the organisers' grid, pulled on demand. These cameras are
-                  night-time junction overviews: vehicles are detected and
-                  tracked, but plates are typically 40–60&nbsp;px in glare and
-                  frequently unreadable. Nothing is invented when a plate cannot
-                  be read — the feed simply stays empty.
+                  <strong className="text-foreground">Live feed</strong>, pulled
+                  on demand. Plate legibility depends entirely on what the
+                  camera can see: vehicles are detected and tracked regardless,
+                  but a plate at 40–60&nbsp;px in glare is frequently
+                  unreadable. Nothing is invented when a plate cannot be read —
+                  the feed simply stays empty.
                 </p>
               )}
               <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Boxes mark where a vehicle was when it was read, and carry their
-                own age. Inference runs on the worker, so a read lands a second
-                or two after the frame it came from — the feed on the right is
-                the authoritative record of what was read.
+                {syncBoxes ? (
+                  <>
+                    <strong className="text-foreground">Synced.</strong> The
+                    picture is held{' '}
+                    {(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live so each box
+                    can be drawn on the frame it was measured in. Every box
+                    carries the pipeline&rsquo;s own capture-to-event figure.
+                  </>
+                ) : (
+                  <>
+                    <strong className="text-foreground">Unsynced.</strong>{' '}
+                    Lowest-latency picture, and boxes that trail it: inference
+                    runs on the worker, so a read lands after the frame it came
+                    from. Each box carries how far behind it is.
+                  </>
+                )}{' '}
+                The feed on the right is the authoritative record of what was
+                read.
               </p>
             </>
           ) : (
@@ -303,7 +377,7 @@ export default function LiveAnpr() {
             </h2>
             <div className="mt-1.5">
               <LivePlateFeed
-                events={liveEvents}
+                events={readings}
                 emptyMessage={
                   selected
                     ? `Nothing read on ${selected.camera_code} yet. Plates appear here the moment the worker reads one.`

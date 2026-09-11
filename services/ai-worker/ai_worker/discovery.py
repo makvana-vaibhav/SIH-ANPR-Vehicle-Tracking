@@ -107,7 +107,11 @@ async def discover(
 
     return [
         CameraStream(
-            camera_code=code, rtsp_url=f"rtsp://{rtsp_host}:{rtsp_port}/{code}"
+            # MediaMTX paths are the camera code lower-cased — that is what the
+            # simulator publishes and what `SimulatedVmsAdapter` derives. The
+            # code itself keeps its case, because it is the registry key.
+            camera_code=code,
+            rtsp_url=f"rtsp://{rtsp_host}:{rtsp_port}/{code.lower()}",
         )
         for code in codes
     ]
@@ -268,8 +272,18 @@ async def discover_registry(
     count: int,
     timeout: float = 5.0,
     rtsp_probe: dict[str, bool] | None = None,
+    only: frozenset[str] = frozenset(),
 ) -> list[CameraStream]:
     """Every ANPR camera this worker owns, from the registry roster.
+
+    `only`, when non-empty, is an explicit allow-list of camera codes and
+    replaces the hash shard as the ownership test. It narrows the roster; it
+    does not bypass it. Bypassing it — building a stream from a bare code —
+    was what the old AI_WORKER_CAMERAS override did, and it broke two things
+    at once: the RTSP path was the code verbatim where MediaMTX publishes it
+    lower-cased (a 404 on every camera), and the camera's plate regions were
+    lost, so a camera tagged `plate-region:GB` had every plate it read
+    rejected as grammar-invalid. The roster knows both; use it.
 
     Unlike MediaMTX discovery, this includes federated cameras whose video
     lives on somebody else's gateway, and it keeps including them while that
@@ -310,9 +324,15 @@ async def discover_registry(
     streams: list[CameraStream] = []
     unusable: list[str] = []
 
+    wanted = {c.upper() for c in only}
     for entry in cameras:
         code = str(entry.get("camera_code") or "")
-        if not code or not owns(code, index, count):
+        if not code:
+            continue
+        if wanted:
+            if code.upper() not in wanted:
+                continue
+        elif not owns(code, index, count):
             continue
 
         rtsp = str(entry.get("rtsp_url") or "")

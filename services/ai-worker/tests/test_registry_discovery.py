@@ -160,6 +160,46 @@ class TestSharding:
         assert len(streams) == 50
 
 
+class TestExplicitAssignment:
+    """AI_WORKER_CAMERAS as an allow-list over the roster.
+
+    One worker process per camera is how the demo fleet gets around the GIL,
+    and each process has to be told which camera is its. The list used to
+    bypass the roster entirely and build a stream from the bare code, which
+    lost the plate regions and mis-cased the RTSP path. Now it narrows.
+    """
+
+    async def test_only_the_listed_cameras_are_returned(self, roster) -> None:
+        roster([entry(f"CAM-DEMO-0{i}") for i in (1, 2, 3)], rtsp_ok=True)
+        streams = await discover_registry("redis://x", 0, 1, only=frozenset({"CAM-DEMO-02"}))
+        assert [s.camera_code for s in streams] == ["CAM-DEMO-02"]
+
+    async def test_the_list_replaces_the_shard_test(self, roster) -> None:
+        """A process that names its camera owns it whatever the hash says."""
+        roster([entry(f"CAM-DEMO-0{i}") for i in (1, 2, 3)], rtsp_ok=True)
+        # index 5 of 7 owns nothing by hash; the list still yields the camera.
+        streams = await discover_registry("redis://x", 5, 7, only=frozenset({"CAM-DEMO-03"}))
+        assert [s.camera_code for s in streams] == ["CAM-DEMO-03"]
+
+    async def test_a_listed_camera_keeps_its_regions_and_url(self, roster) -> None:
+        """The whole point of narrowing rather than bypassing."""
+        roster([entry("CAM-DEMO-01", plate_regions=["IN", "GB"])], rtsp_ok=True)
+        streams = await discover_registry("redis://x", 0, 1, only=frozenset({"CAM-DEMO-01"}))
+        assert streams[0].plate_regions == ("IN", "GB")
+        assert streams[0].rtsp_url == entry("CAM-DEMO-01")["rtsp_url"]
+
+    async def test_the_list_is_case_insensitive(self, roster) -> None:
+        roster([entry("CAM-DEMO-01")], rtsp_ok=True)
+        streams = await discover_registry("redis://x", 0, 1, only=frozenset({"cam-demo-01"}))
+        assert [s.camera_code for s in streams] == ["CAM-DEMO-01"]
+
+    async def test_an_empty_list_means_shard_as_before(self, roster) -> None:
+        roster([entry(f"CAM-{i:03d}") for i in range(20)], rtsp_ok=True)
+        by_shard = await discover_registry("redis://x", 0, 2)
+        unlisted = await discover_registry("redis://x", 0, 2, only=frozenset())
+        assert [s.camera_code for s in by_shard] == [s.camera_code for s in unlisted]
+
+
 class TestPlateRegions:
     async def test_regions_travel_with_the_camera(self, roster) -> None:
         roster([entry("CAM-DEMO", plate_regions=["IN", "GB"])], rtsp_ok=True)

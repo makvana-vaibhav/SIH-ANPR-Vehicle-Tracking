@@ -92,6 +92,32 @@ def test_track_expires_after_a_long_absence() -> None:
     assert not tracked or tracked[0].track_id != 1
 
 
+def test_lost_track_expires_in_source_time_when_frames_are_skipped() -> None:
+    """The buffer is a number of *source* frames, however many were analysed.
+
+    A live worker that keeps up by dropping frames may analyse one in nine.
+    track_buffer=5 at 25 fps is ~4 source frames; here each update is 25 source
+    frames apart, so two updates without the vehicle are a full second of
+    absence and the identity must not survive them.
+    """
+    tracker = ByteTracker(TrackerConfig(track_buffer=5), frame_rate=25.0)
+    tracker.update([detection(100, 200, frame=0)], 0, t_s=0.0)
+    tracker.update([detection(100, 200, frame=25)], 25, t_s=1.0)
+    tracker.update([], 50, t_s=2.0)
+    tracker.update([], 75, t_s=3.0)
+
+    tracked = tracker.update([detection(100, 200, frame=100)], 100, t_s=4.0)
+    assert not tracked or tracked[0].track_id != 1
+
+
+def test_a_constant_clock_still_ticks_once_per_update() -> None:
+    """Batch callers that pass t_s=0 keep the one-tick-per-update behaviour."""
+    tracker = ByteTracker(TrackerConfig(track_buffer=30), frame_rate=25.0)
+    for frame in range(3):
+        tracker.update([detection(100, 200, frame=frame)], frame, 0)
+    assert tracker.frame_id == 3
+
+
 def test_empty_input_is_safe() -> None:
     tracker = ByteTracker(TrackerConfig(), frame_rate=25.0)
     assert tracker.update([], 0, 0.0) == []

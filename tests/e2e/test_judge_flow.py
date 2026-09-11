@@ -27,7 +27,9 @@ import pytest
 API = os.environ.get("NAGARNETRA_API", "http://localhost:8000")
 
 #: The camera the AI worker never rotates away from, so it is always reading.
-PINNED_CAMERA = os.environ.get("AI_WORKER_PINNED", "CAM-DEMO")
+# AI_WORKER_PINNED is a comma-separated list; the first entry is enough for
+# a test that only needs one camera guaranteed to be under analysis.
+PINNED_CAMERA = os.environ.get("AI_WORKER_PINNED", "CAM-DEMO-01").split(",")[0].strip()
 ADMIN_PW = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "NagarNetra@2026")
 
 pytestmark = pytest.mark.asyncio

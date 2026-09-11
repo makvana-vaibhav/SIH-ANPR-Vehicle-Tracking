@@ -515,7 +515,12 @@ export default function Cameras() {
                             // A boolean, never the URL: it carries credentials
                             // for every federated camera on the grid.
                             <span title="Stream configured">configured</span>
-                          ) : camera.camera_code === 'CAM-DEMO' ? (
+                          ) : (camera.tags ?? []).includes('demo') ? (
+                            // Read from the registry's own tags rather than
+                            // matched against one hardcoded camera code: the
+                            // demonstration fleet is three cameras now, and a
+                            // code match silently mislabelled the other two as
+                            // having no stream at all.
                             <span>recorded clip</span>
                           ) : (
                             <span className="text-amber-400">no stream</span>

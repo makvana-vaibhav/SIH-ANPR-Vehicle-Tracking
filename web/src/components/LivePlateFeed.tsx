@@ -10,6 +10,7 @@
  */
 
 import PlateCrop from '@/components/PlateCrop'
+import { liveTrackKey } from '@/lib/events'
 import type { LiveVehicleEvent } from '@/lib/types'
 
 interface Props {
@@ -32,10 +33,14 @@ export default function LivePlateFeed({
 }: Props) {
   // `vehicle.observed` repeats for a vehicle still in view. Collapse to the
   // latest reading per vehicle, so the list is one row per car rather than one
-  // per frame the car appeared in.
+  // per event the car produced.
+  //
+  // Keyed on the track, not on `vehicle_id`: the worker mints a fresh
+  // `vehicle_id` per event, so the old key collapsed nothing at all and the
+  // feed listed the same car once for every time it was re-read.
   const latest = new Map<string, LiveVehicleEvent>()
   for (const event of events) {
-    const key = `${event.source?.camera_id ?? ''}:${event.vehicle?.vehicle_id}`
+    const key = liveTrackKey(event)
     if (!latest.has(key)) latest.set(key, event)
   }
   const rows = [...latest.values()]
