@@ -185,6 +185,10 @@ class Alert(Base):
     acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
+    #: Why this alert fired, as a JSON array of `{"factor", "detail"}` objects
+    #: — the explainability rule in CLAUDE.md §5. Null for alert types that
+    #: predate migration 0005; `anomaly.py` is the first producer.
+    reasons: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
 
     __table_args__ = (
         # The alerts screen: open alerts, highest priority first, newest first.

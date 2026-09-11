@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import PlateCrop from '@/components/PlateCrop'
 import { SkeletonRows } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
-import { Button, Checkbox, ConnectionBadge, EmptyState, PriorityBadge } from '@/components/ui'
+import { Badge, Button, Checkbox, ConnectionBadge, EmptyState, PriorityBadge } from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
@@ -304,10 +304,32 @@ export default function Alerts() {
                       </div>
                     </dl>
 
-                    {alert.notes && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {alert.notes}
-                      </p>
+                    {/* The explainability rule: an alert that carries a
+                        reason is shown as its named factors, not the raw
+                        `notes` string those factors were joined into —
+                        `Risk: 87%` alone is a bug; the factors are the
+                        feature. Alert types with no producer here yet
+                        (watchlist near-match) still fall back to notes. */}
+                    {alert.reasons && alert.reasons.length > 0 ? (
+                      <ul className="mt-1.5 space-y-1">
+                        {alert.reasons.map((reason, i) => (
+                          <li
+                            key={`${reason.factor}-${i}`}
+                            className="flex flex-wrap items-start gap-1.5 text-[11px] text-muted-foreground"
+                          >
+                            <Badge tone={reason.factor === 'impossible_hop' ? 'danger' : 'neutral'}>
+                              {reason.factor.replace(/_/g, ' ')}
+                            </Badge>
+                            <span className="flex-1">{reason.detail}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      alert.notes && (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          {alert.notes}
+                        </p>
+                      )
                     )}
                   </div>
 

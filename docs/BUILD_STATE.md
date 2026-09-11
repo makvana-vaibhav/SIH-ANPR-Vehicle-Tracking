@@ -1588,6 +1588,92 @@ actually showed.
 
 ---
 
+## P5 — Trajectory anomaly detection + explainable alerts  🟡 code complete, gate not yet run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p5--trajectory-anomaly-detection--explainable-alerts).
+
+Same honest status as P4 above, for the same reason: this session had no
+Docker and no Node/npm, so migration 0005 has never actually run against a
+database, and nobody has watched a real journey raise a real alert in the
+UI. Everything below was built by reading the actual source — `correlator.py`'s
+hop scoring, `route_history.py`'s snapshot cadence, `alerts.py`'s existing
+dedup pattern — not by running it.
+
+### What was built
+
+- **Migration 0005** — `reasons` JSONB column on `alerts`, nullable. This is
+  what makes CLAUDE.md's explainability rule ("every alert must carry its
+  reasons") true for the first time; it has had nothing to enforce it since
+  the rule was written.
+- **`app/services/anomaly.py`** — new. The six existing flags in
+  `correlator.score_legs` are a physics filter (could a vehicle have covered
+  this distance in this time); this is the data-driven half ROADMAP.md asks
+  for: has *any* vehicle made this camera-to-camera transition before, and
+  does this one's timing match the others'. Two learned factors
+  (`rare_transition`: fewer than 3 distinct vehicles have made this
+  transition in 30 days; `slow_transition`/`fast_transition`: current
+  duration vs the median of 5+ prior plausible legs), plus the physics
+  filter's own `implausible_speed` promoted to a named `impossible_hop`
+  factor — matching the four named in the phase definition (unexpected
+  sequence, travel time vs baseline, unusual speed, impossible hop). Every
+  query starts from the same `DISTINCT ON (plate_normalised) ORDER BY
+  created_at DESC` dedup `analytics.py` documents, for the identical reason:
+  without it a 200-times-re-persisted journey would look like 200 vehicles
+  having made the same trip.
+- **Only the newest hops are scored, and scored before the advance is
+  persisted.** `route_history.snapshot` already knows exactly which hops are
+  new since the last snapshot; scoring only those is what keeps a
+  slow-moving journey from raising the same finding on every ~1-minute
+  snapshot cycle. Scoring *before* `persist_route` matters more than it looks
+  — the baseline query has no way to exclude "the advance about to be
+  written", so scoring after persisting would let a journey's own newest leg
+  inflate the very history it is being measured against. Caught by
+  `TestSnapshotWiring` while writing the tests, not by inspection.
+- **`alerts.raise_for_anomaly`** — mirrors `raise_for_match`: same dedup
+  (shares the existing in-memory `deduper` rather than a second structure
+  that could drift from it), same lifecycle. Priority is `high` when
+  `impossible_hop` is among the reasons, `medium` otherwise — a single
+  impossible leg is a stronger signal than several merely-rare transitions.
+  Raised through the existing Redis fanout (`monitor.py` now publishes
+  `route_history.snapshot`'s `raised_alerts`), so it reaches `Alerts.tsx`
+  with no new transport, exactly as the phase definition asks.
+- **`Alerts.tsx`** renders `reasons` as a named factor list (a `Badge` per
+  factor plus the sentence) instead of the raw `notes` string those factors
+  are also joined into — falls back to `notes` for alert types with no
+  producer here yet (the watchlist near-match note).
+- **`test_anomaly.py`** — new. Three layers: pure scoring against hand-built
+  `Route`/`Hop` objects and real `vehicle_tracks` rows (rare vs. established
+  transitions, the duration ratio, the `impossible_hop` short-circuit, "only
+  new hops are scored", and a language-discipline check that no reason ever
+  says "suspect" or "criminal"); `raise_for_anomaly`'s priority and dedup;
+  and one full `route_history.snapshot` → real `Alert` row → `GET
+  /api/v1/alerts` wiring test, which is what caught the before/after-persist
+  ordering bug above.
+
+### What is not done
+
+- **The gate itself** — not run.
+- **`scripts/replay_history.py`**, the risk mitigation ROADMAP.md names
+  ("a two-week-old system has almost no history to baseline against"). Not
+  built this session — it means running the *real* pipeline over footage at
+  accelerated pace, which touches ai-worker/ai-lab and needs a runnable
+  stack to verify at all, and this session had neither. Concretely: expect
+  `rare_transition` to fire on nearly every journey until the fleet
+  accumulates real history, because with fewer than 3 vehicles having made
+  any given transition yet, *every* transition currently reads as rare. That
+  is the honest, documented state of a young system, not a bug — but it does
+  mean the demo will show a lot of anomaly alerts until either real time
+  passes or this script exists.
+
+### Next actual step
+
+`alembic upgrade head` (0005), then `make demo`, put a vehicle through a
+two-camera journey the fleet has not seen before, and confirm an ANOMALY
+alert appears in `Alerts.tsx` with its factors listed. Then `make test` for
+`test_anomaly.py` against the live fleet.
+
+---
+
 ## Worker CPU and the thread budget  ✅ (unplanned — 10 Sep 2026)
 
 Not a roadmap phase. Raised as "cameras are not loading properly, and if they
@@ -1753,8 +1839,8 @@ Recorded so no session mistakes these for done. Verified against the code, not t
 | **No route-level average speed** | The only speed figure in the system is per-leg `implied_kmph`. `Route` has no speed property. | P2 |
 | **`first_seen` / `last_seen` never rendered** | Present in the API payload and in the TS type; displayed on no screen. | P2 |
 | **No journey animation** | `RouteMap.tsx` animates only camera movement (`easeTo`/`fitBounds`). No timeline, scrubber, moving marker or `requestAnimationFrame` anywhere in `web/src`. | P2 |
-| **No anomaly detector** | The six per-leg flags are a cloned-plate/OCR **physics filter**; nothing compares a journey to a norm. `AlertType.ANOMALY`, `SPEED` and `CONVOY` have **zero producers** — the only two alert producers are watchlist match and camera-down. | P5 |
-| **`alerts` has no reasons/factors column** | So CLAUDE.md's "explainability rule (enforced, tested)" cannot be true. There is no column and no test. P5 adds the migration. | P5 |
+| ~~No anomaly detector~~ | 🟡 **Code complete (P5)**, gate not yet run. `anomaly.py` now compares each new leg against 30-day transition-frequency and duration baselines from `vehicle_tracks`; `AlertType.ANOMALY` has a real producer. `SPEED` and `CONVOY` still have zero producers — out of scope for P5. | — |
+| ~~`alerts` has no reasons/factors column~~ | 🟡 **Done (P5)** — migration 0005 adds it, `raise_for_anomaly` populates it, `Alerts.tsx` renders it. Not yet verified against a real database. | — |
 | **Search is exact + prefix only** | The `pg_trgm` GIN index on `plate_normalised` **exists and nothing queries it**. A misread plate suggests nothing. | P8 |
 | **OpenSearch runs and does nothing** | Health-probed only; indexes nothing, queries nothing. Costs demo-laptop memory for no function. Wire it or drop it. | P8 |
 | **Attribute search impossible** | `vehicle_colour` is never computed anywhere. | P9 |

@@ -279,6 +279,13 @@ export interface WatchlistEntry {
   created_at: string
 }
 
+/** One factor behind an alert. `factor` is a machine-stable slug the UI can
+ *  branch or group on; `detail` is the sentence an operator reads. */
+export interface AlertReason {
+  factor: string
+  detail: string
+}
+
 export interface Alert {
   id: string
   created_at: string
@@ -300,6 +307,10 @@ export interface Alert {
    * hides the image rather than showing a broken one.
    */
   crop_url: string | null
+  /** Why this fired — the explainability rule in CLAUDE.md §5. Null for a
+   *  watchlist hit or camera-down alert (the match/notes already say why);
+   *  populated for `anomaly`. */
+  reasons: AlertReason[] | null
 }
 
 export interface AlertPage {
@@ -392,6 +403,7 @@ export interface LiveAlertEvent {
   detection_id: string | null
   created_at: string
   notes: string | null
+  reasons: AlertReason[] | null
   watchlist?: {
     id: string
     plate: string

@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.db.session import SessionLocal, dispose_engine
-from app.services import health_monitor, route_history
+from app.services import alert_fanout, health_monitor, route_history
 
 configure_logging(service="ingest")
 log = get_logger("ingest.monitor")
@@ -73,8 +73,14 @@ async def run() -> int:
             try:
                 async with SessionLocal() as session:
                     routes = await route_history.snapshot(session)
+                raised_alerts = routes.pop("raised_alerts", [])
                 if routes.get("persisted"):
                     log.info("monitor.routes_snapshotted", sweep=sweeps, **routes)
+                # Announced after the snapshot's own commit, same reason as
+                # the ingest path: an operator must never see a trajectory
+                # anomaly that a rolled-back transaction means does not exist.
+                for payload in raised_alerts:
+                    await alert_fanout.publish(payload)
             except Exception as exc:
                 # Same supervisor boundary as the sweep: losing a snapshot cycle
                 # costs some journey history, which is recoverable. Killing the

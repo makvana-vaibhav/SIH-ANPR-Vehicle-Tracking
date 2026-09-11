@@ -3,7 +3,7 @@
 **Read this first.** One page: what works, what doesn't, what to do next.
 
 *Updated 11 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
-**P4 code complete, gate not yet run — see below***
+**P4 and P5 code complete, gates not yet run — see below***
 
 | Document | What it holds |
 |---|---|
@@ -41,8 +41,8 @@ Docker on Apple Silicon there is none, and no setting creates one.
 ```
 DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops
          └─ plus: worker CPU budget + pipeline pool (unplanned, 10 Sep)
-NEXT     P4 analytics — code complete, gate not yet run ← run `make demo` and check it
-THEN     P5 anomaly ──▶ P6 harden                                              (V1, ~2 weeks)
+NEXT     P4 analytics + P5 anomaly — code complete, gates not yet run ← run `make demo` and check both
+THEN     P6 harden                                                             (V1, ~2 weeks)
 LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
 ```
 
@@ -58,7 +58,7 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 | 4 | Vehicle journey + animated route | ✅ **profile + timeline playback** on the map |
 | 5 | Plate search | 🟡 exact and prefix only, no fuzzy |
 | 6 | Blacklist alert **with plate crop** | ✅ **alert fires by itself, with the plate crop** |
-| 7 | Trajectory anomaly + explanation | 🟡 a physics filter, not a detector |
+| 7 | Trajectory anomaly + explanation | 🟡 **code complete (P5), gate not yet run** — was a physics filter only; now has a real data-driven detector and stored, rendered factors |
 | 8 | City traffic analytics | 🟡 **code complete (P4), gate not yet run** — router, page and heatmap all exist; unverified against a live fleet |
 
 ---
@@ -90,8 +90,11 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
    through carefully but never run: this session had no Docker and no Node/npm, so nobody has opened
    `/analytics` in a browser or run `make test` against a live fleet. See BUILD_STATE.md's P4 section
    for exactly what was built and what "next step" means concretely. → **P4, gate**
-4. **Anomaly detection.** The six existing flags are a cloned-plate/OCR physics filter. Nothing
-   compares a journey to a norm. `AlertType.ANOMALY` has zero producers. → **P5**
+4. **Anomaly detection — verification.** `anomaly.py` now compares each new leg against 30-day
+   transition-frequency and duration baselines and raises a real, explained `AlertType.ANOMALY`
+   alert (migration 0005 adds the `reasons` column that makes this possible). Built and tested
+   against hand-constructed scenarios; never run against a live fleet — same caveat as analytics
+   above. → **P5, gate**
 6. **A real accuracy number.** → **P7**
 
 ---
@@ -146,6 +149,29 @@ plausible invented number. On this demo fleet, expect the speed endpoint to
 report `insufficient_data` for most or all corridors — a replayed clip makes
 every implied speed hundreds of km/h, so the correlator excludes it, correctly.
 That is documented, expected behaviour, not a bug to chase.
+
+---
+
+## ▶ Also next: run the P5 gate
+
+Full definition and gate: [ROADMAP.md](ROADMAP.md#p5--trajectory-anomaly-detection--explainable-alerts).
+Full build detail: [BUILD_STATE.md](BUILD_STATE.md), P5 section.
+
+Migration 0005 (`alerts.reasons`), `app/services/anomaly.py` (transition-frequency
+and duration baselines learned from `vehicle_tracks`), `alerts.raise_for_anomaly`,
+the fanout wiring in `monitor.py`, and `Alerts.tsx` rendering the factor list all
+exist now, with `test_anomaly.py` behind them. Same caveat as P4: built and
+reasoned through against the actual code, never run — needs `alembic upgrade
+head` and a live fleet to confirm.
+
+**Expect noise at first.** With fewer than 3 vehicles having made any given
+transition yet, nearly every journey will read as a rare transition until the
+fleet accumulates real history — the risk ROADMAP.md names explicitly. The
+mitigation it also names, `scripts/replay_history.py` (run the real pipeline
+over footage at accelerated pace to bootstrap genuine history), was **not**
+built this session — it needs a runnable ai-worker stack to write against at
+all, which this session did not have. Worth doing before judging on this
+feature; not required for the code to be correct.
 
 ---
 

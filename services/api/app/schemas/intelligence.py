@@ -74,6 +74,18 @@ class WatchlistOut(BaseModel):
     created_at: datetime
 
 
+class AlertReason(BaseModel):
+    """One factor behind an alert. See `app/services/anomaly.py`.
+
+    `factor` is a short machine-stable slug (`rare_transition`,
+    `slow_transition`, `impossible_hop`) a UI can branch or group on;
+    `detail` is the sentence an operator actually reads.
+    """
+
+    factor: str
+    detail: str
+
+
 class AlertOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -95,6 +107,10 @@ class AlertOut(BaseModel):
     #: blacklist hit needs to see the vehicle rather than trust a string.
     #: Resolved from the detection, because `alerts` stores no crop of its own.
     crop_url: str | None = None
+    #: The explainability rule in CLAUDE.md §5: every alert should carry its
+    #: reasons. Null for a watchlist hit or a camera-down alert — the match
+    #: itself, and the notes field, already say why. Populated for `anomaly`.
+    reasons: list[AlertReason] | None = None
 
 
 class AlertTransition(BaseModel):

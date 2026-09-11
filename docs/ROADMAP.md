@@ -39,7 +39,7 @@ This is the acceptance test for V1. Status as of 9 Sep 2026.
 | 4 | Vehicle journey + animated route | 🟡 no average speed, no playback | **P2** |
 | 5 | Plate search | 🟡 exact + prefix only | P8 (V2) |
 | 6 | Blacklist alert **with plate crop** | 🟡 alert fires, crop impossible | **P3** |
-| 7 | Trajectory anomaly + explanation | 🟡 physics filter only, no detector | **P5** |
+| 7 | Trajectory anomaly + explanation | 🟡 **code complete, gate not run** | **P5** |
 | 8 | City traffic analytics | 🟡 **code complete, gate not run** | **P4** |
 
 ---
@@ -157,7 +157,12 @@ speed, a populated route-density table and a heatmap — every figure traceable 
 ### P5 — Trajectory anomaly detection + explainable alerts
 **Track A · ~3 days · PS §9, §13**
 
-What exists today is a **physics filter, not an anomaly detector**: six per-leg flags
+> 🟡 **Code complete, gate not yet run.** Migration 0005, `anomaly.py`, `raise_for_anomaly`, the
+> fanout wiring, and `Alerts.tsx`'s factor list all exist — see [BUILD_STATE.md](BUILD_STATE.md)'s
+> P5 section. Not built: `scripts/replay_history.py` (the risk mitigation below). The session that
+> built this had no Docker and no Node/npm, so nothing has run against a live database yet.
+
+What existed before this phase was a **physics filter, not an anomaly detector**: six per-leg flags
 (`revisit`, `co_located`, `impossible_simultaneous`, `implausible_speed`, `unobserved_gap`,
 `heading_conflict`) that catch cloned plates and OCR misreads. Nothing compares a journey against a
 norm. `AlertType.ANOMALY` has **zero producers** — the only two alert producers in the repo are
