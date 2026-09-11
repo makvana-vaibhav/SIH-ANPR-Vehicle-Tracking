@@ -778,3 +778,42 @@ export interface CongestionResponse {
   horizons_minutes: Array<15 | 30>
   series: CongestionSeries[]
 }
+
+// ── Vehicle re-identification (P11) ──────────────────────────────────────
+// Mirrors app/schemas/reid.py. `similarity` is null on every candidate in a
+// real database today — nothing in ai-lab computes an appearance embedding
+// yet. `embedding_available` says whether ranking used real appearance
+// similarity at all; when it's false every candidate below was matched by
+// being physically reachable in time, not by appearance — see that
+// schema's docstring before rendering these as "re-identified."
+
+export interface ReidMatchFactor {
+  factor: string
+  detail: string
+}
+
+export interface ReidCandidate {
+  detection_id: string
+  detection_ts: string
+  camera_code: string
+  camera_name: string
+  corridor: string | null
+  vehicle_type: string | null
+  plate: string | null
+  distance_km: number
+  elapsed_s: number
+  implied_kmph: number
+  similarity: number | null
+  plausibility_score: number
+  matched_on: ReidMatchFactor[]
+}
+
+export interface ReidMatchResponse {
+  found: boolean
+  query_detection_id: string
+  query_ts: string | null
+  query_camera_code: string | null
+  embedding_available: boolean
+  candidates: ReidCandidate[]
+  note: string
+}

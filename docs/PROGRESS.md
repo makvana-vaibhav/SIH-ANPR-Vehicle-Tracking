@@ -3,9 +3,9 @@
 **Read this first.** One page: what works, what doesn't, what to do next.
 
 *Updated 11 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
-**P4, P5, P8 and P10 code complete, P9 half built (type/camera/time; colour
-needs a vision pipeline this session didn't have), gates not yet run — P7
-blocked on data — see below***
+**P4, P5, P8 and P10 code complete, P9 and P11 half built (both need a
+vision pipeline this session didn't have for their other half), gates not
+yet run — P7 blocked on data — see below***
 
 | Document | What it holds |
 |---|---|
@@ -44,11 +44,12 @@ Docker on Apple Silicon there is none, and no setting creates one.
 DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops
          └─ plus: worker CPU budget + pipeline pool (unplanned, 10 Sep)
 NEXT     P4 analytics + P5 anomaly + P8 search + P9 attributes(half) + P10 predict
-         — code complete, gates not yet run ← run `make demo` and check all five
+         + P11 re-ID(half) — code complete, gates not yet run
+         ← run `make demo` and check all six
 BLOCKED  P7 accuracy — needs real footage and a person to label it, not more code
-         P9's colour half — needs numpy/opencv + real footage, same as P7
+         P9's colour half + P11's embedding half — need numpy/opencv + real footage
 THEN     P6 harden                                                             (V1, ~2 weeks)
-LATER    P11 re-ID ──▶ P12 docs
+LATER    P12 docs
 ```
 
 ---
@@ -77,6 +78,16 @@ index, 15/30-min forecast, contributing factors, backtested error) and an
 Analytics.tsx panel exist; the forecasting arithmetic was directly executed
 against synthetic data and verified correct (see BUILD_STATE.md's P10
 section), but the endpoint itself has not run against a live fleet.
+
+Vehicle re-identification (differentiator #4's "even when the plate is
+unreadable" half): 🟡 **half built (P11)** — `GET /api/v1/reid/candidates`
+ranks other cameras' detections near an unreadable-plate sighting by
+spatiotemporal plausibility (real physics, reused from the correlator) and,
+once one exists, appearance similarity. No ReID model exists anywhere in
+`ai-lab` today, so `embedding_available` is `false` on every real response
+and every candidate is plausibility-only — a real, useful, but explicitly
+weaker signal than appearance re-identification, labelled as such
+everywhere it's shown, never presented as a match.
 
 ---
 
@@ -122,6 +133,12 @@ section), but the endpoint itself has not run against a live fleet.
    forecast, contributing factors and a self-backtested error. The forecasting arithmetic itself was
    directly executed against synthetic data this session (not just linted) and is verified correct;
    the endpoint has not run against a live fleet. → **P10, gate**
+9. **Re-identification — verification, and the embedding half.** `GET /api/v1/reid/candidates` and
+   a "Find similar" action in `VehicleSearch.tsx` exist now (P11): candidate cross-camera matches
+   for an unreadable-plate detection, ranked by real spatiotemporal plausibility and, once a
+   producer exists, appearance similarity. The embedding itself was not attempted — no ReID model
+   anywhere in `ai-lab`, no numpy/opencv this session, same blocker as P7/P9. →
+   **P11, gate + embedding producer**
 
 ---
 
@@ -256,6 +273,35 @@ a sensible baseline and a forecast worth showing a judge, and whether
 `speed_trend`/`upstream_inflow` ever actually appear — both depend on
 plausible legs existing, which P4's own findings say the replayed demo
 fleet mostly does not produce (see P7).
+
+---
+
+## ▶ Also next: run the P11 gate (half of it)
+
+Full definition and gate: [ROADMAP.md](ROADMAP.md#p11--vehicle-re-identification).
+Full build detail: [BUILD_STATE.md](BUILD_STATE.md), P11 section.
+
+Migration `0006` (`detections.appearance_embedding`), `app/services/reid.py`
+(cosine similarity + a plausibility fallback reusing the correlator's own
+physics), `GET /api/v1/reid/candidates`, a "Find similar" action in
+`VehicleSearch.tsx`, and `test_reid.py` all exist now. Same never-run
+caveat as every other phase this session for the endpoint itself.
+
+**The embedding half is not code-complete, and cannot be finished by this
+session.** No ReID model is fetched anywhere in `ai-lab`, and there is no
+numpy/opencv here to run one even if it existed — the same blocker P7 and
+P9's colour half share. `ai-lab` already crops the full vehicle body per
+track (`pipeline.py:_save_vehicle_crops`), so the pipeline is one model
+away from feeding this; nothing about that crop path needed to change.
+
+**What is real today without an embedding:** the spatiotemporal-plausibility
+ranking. It reuses `correlator.py`'s own physics (haversine distance, the
+150 km/h implausible-hop ceiling) rather than inventing new thresholds, so
+"candidates near this unreadable-plate sighting, ranked by how physically
+reachable they are" is a genuine, demonstrable capability today — just not
+appearance re-identification. `embedding_available: false` on every real
+response says so explicitly; do not read the gate as met by this half
+alone.
 
 ---
 

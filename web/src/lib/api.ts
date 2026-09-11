@@ -26,6 +26,7 @@ import type {
   HeatmapResponse,
   HotspotResponse,
   PlateSearchResponse,
+  ReidMatchResponse,
   RouteDensityResponse,
   SpeedResponse,
   StreamGrant,
@@ -628,6 +629,11 @@ export const getAnalyticsHeatmap = (query: AnalyticsWindowQuery = {}) =>
 export const getCongestionForecast = (
   query: { at?: string; group_by?: 'camera' | 'corridor'; corridor?: string } = {},
 ) => request<CongestionResponse>(`/api/v1/predictions/congestion?${analyticsParams(query)}`)
+
+// ── Vehicle re-identification (P11) ──────────────────────────────────────
+
+export const getReidCandidates = (query: { detection_id: string; detection_ts: string }) =>
+  request<ReidMatchResponse>(`/api/v1/reid/candidates?${analyticsParams(query)}`)
 
 // ── Formatting ────────────────────────────────────────────────────────
 

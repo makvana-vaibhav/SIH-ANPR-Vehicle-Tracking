@@ -362,9 +362,23 @@ colour has a real producer.
 ### P11 — Vehicle re-identification
 **~4 days**
 
+> 🟡 **Half built, gate not run.** Migration `0006` (`detections.appearance_embedding`),
+> `app/services/reid.py` (cosine similarity, plus a plausibility-only fallback that reuses
+> `correlator.py`'s own haversine/150-km/h-ceiling physics directly rather than inventing new
+> thresholds), `GET /api/v1/reid/candidates`, and a "Find similar" action in `VehicleSearch.tsx`
+> all exist — see [BUILD_STATE.md](BUILD_STATE.md)'s P11 section. **The embedding itself was not
+> attempted** — no ReID model is fetched anywhere in `ai-lab/scripts/fetch_models.sh`, and this
+> session has no numpy/opencv to run one even if it existed, the same blocker P7 and P9's colour
+> half share. Results are ranked suggestions for an operator, never auto-merged into a journey —
+> an unverified appearance signal has no business silently rewriting `vehicle_tracks`.
+
 Appearance embeddings, so a vehicle links across cameras even when the plate is unreadable — this
 raises effective trajectory recall directly. Nothing exists today: intra-camera tracking is
 motion-only (ByteTrack, no appearance branch), and cross-camera linking is plate-string equality.
+**Partly done** — the candidate-matching and ranking machinery is built and reuses real
+correlator physics for its plausibility-only mode; the appearance embedding that would let it
+match on more than physics alone does not exist and needs a ReID model this session could not
+fetch, load, or verify.
 
 ### P12 — Truth pass on docs and contracts
 **~2 days · parallelisable throughout**

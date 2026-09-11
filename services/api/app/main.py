@@ -35,6 +35,7 @@ from app.routers import (
     grid_media,
     health,
     predictions,
+    reid,
     streams,
     users,
     vehicles,
@@ -229,6 +230,7 @@ app.include_router(watchlist.router)
 app.include_router(alerts.router)
 app.include_router(analytics.router)
 app.include_router(predictions.router)
+app.include_router(reid.router)
 
 
 @app.get("/", tags=["meta"], summary="Service banner")

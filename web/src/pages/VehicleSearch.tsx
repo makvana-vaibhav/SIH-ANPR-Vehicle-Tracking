@@ -17,12 +17,13 @@
  * plate, and hiding it would remove the most useful thing on the page.
  */
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Fragment, useCallback, useEffect, useState, type FormEvent } from 'react'
 
 import PlateCrop from '@/components/PlateCrop'
 import RouteMap from '@/components/RouteMap'
 import { useToast } from '@/components/Toast'
 import {
+  Badge,
   Button,
   ErrorBanner,
   EmptyState,
@@ -38,7 +39,14 @@ import {
   Tr,
 } from '@/components/ui'
 import * as api from '@/lib/api'
-import type { Convoy, Detection, PlateSearchResult, RouteGeoJSON, VehicleRoute } from '@/lib/types'
+import type {
+  Convoy,
+  Detection,
+  PlateSearchResult,
+  ReidMatchResponse,
+  RouteGeoJSON,
+  VehicleRoute,
+} from '@/lib/types'
 
 /** Windows an operator actually asks for. */
 const WINDOWS = [
@@ -613,6 +621,10 @@ function AttributeSearch() {
   const [total, setTotal] = useState(0)
   const [busy, setBusy] = useState(false)
 
+  const [reidOpenId, setReidOpenId] = useState<string | null>(null)
+  const [reidResult, setReidResult] = useState<ReidMatchResponse | null>(null)
+  const [reidBusy, setReidBusy] = useState(false)
+
   useEffect(() => {
     api
       .getCameras({ limit: '500' })
@@ -638,6 +650,29 @@ function AttributeSearch() {
       setResults(null)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function toggleReid(detection: Detection) {
+    if (reidOpenId === detection.id) {
+      setReidOpenId(null)
+      setReidResult(null)
+      return
+    }
+    setReidOpenId(detection.id)
+    setReidResult(null)
+    setReidBusy(true)
+    try {
+      const result = await api.getReidCandidates({
+        detection_id: detection.id,
+        detection_ts: detection.ts,
+      })
+      setReidResult(result)
+    } catch (err) {
+      toast.error(err)
+      setReidOpenId(null)
+    } finally {
+      setReidBusy(false)
     }
   }
 
@@ -716,21 +751,87 @@ function AttributeSearch() {
                     <Th>Type</Th>
                     <Th>Plate</Th>
                     <Th />
+                    <Th />
                   </tr>
                 </Thead>
                 <tbody>
                   {results.map((d) => (
-                    <Tr key={d.id}>
-                      <Td className="whitespace-nowrap text-[11px] text-muted-foreground">
-                        {api.formatIST(d.ts)}
-                      </Td>
-                      <Td className="font-mono text-xs">{d.camera_code}</Td>
-                      <Td className="text-xs capitalize">{d.vehicle_type ?? '—'}</Td>
-                      <Td className="font-mono text-xs">{d.plate ?? '—'}</Td>
-                      <Td>
-                        <PlateCrop url={d.crop_url} plate={d.plate} height={22} />
-                      </Td>
-                    </Tr>
+                    <Fragment key={d.id}>
+                      <Tr>
+                        <Td className="whitespace-nowrap text-[11px] text-muted-foreground">
+                          {api.formatIST(d.ts)}
+                        </Td>
+                        <Td className="font-mono text-xs">{d.camera_code}</Td>
+                        <Td className="text-xs capitalize">{d.vehicle_type ?? '—'}</Td>
+                        <Td className="font-mono text-xs">{d.plate ?? '—'}</Td>
+                        <Td>
+                          <PlateCrop url={d.crop_url} plate={d.plate} height={22} />
+                        </Td>
+                        <Td>
+                          {!d.plate && (
+                            <button
+                              type="button"
+                              onClick={() => void toggleReid(d)}
+                              className="text-[11px] font-medium text-primary hover:underline"
+                            >
+                              {reidOpenId === d.id ? 'Hide similar' : 'Find similar'}
+                            </button>
+                          )}
+                        </Td>
+                      </Tr>
+                      {reidOpenId === d.id && (
+                        <tr key={`${d.id}-reid`}>
+                          <td colSpan={6} className="bg-muted/40 px-3 py-2.5">
+                            {reidBusy ? (
+                              <p className="text-[11px] text-muted-foreground">Searching…</p>
+                            ) : !reidResult || reidResult.candidates.length === 0 ? (
+                              <p className="text-[11px] text-muted-foreground">
+                                No plausible candidate at another camera in the surrounding
+                                30 minutes.
+                              </p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <Badge tone={reidResult.embedding_available ? 'primary' : 'neutral'}>
+                                    {reidResult.embedding_available
+                                      ? 'appearance-matched'
+                                      : 'plausibility only'}
+                                  </Badge>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {reidResult.note}
+                                  </p>
+                                </div>
+                                <ul className="space-y-1">
+                                  {reidResult.candidates.map((c) => (
+                                    <li
+                                      key={c.detection_id}
+                                      className="flex flex-wrap items-center gap-2 rounded border border-border bg-card px-2 py-1"
+                                    >
+                                      <span className="font-mono text-xs font-semibold">
+                                        {c.camera_code}
+                                      </span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {api.formatIST(c.detection_ts)}
+                                      </span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {c.distance_km} km · {Math.round(c.elapsed_s)}s ·{' '}
+                                        {c.implied_kmph} km/h
+                                      </span>
+                                      {c.similarity !== null && (
+                                        <Badge tone="primary">sim {c.similarity.toFixed(2)}</Badge>
+                                      )}
+                                      {c.plate && (
+                                        <span className="font-mono text-xs">{c.plate}</span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </Table>

@@ -1923,6 +1923,95 @@ execution — see above.
 
 ---
 
+## P11 — Vehicle re-identification  🟡 half built, gate not run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p11--vehicle-re-identification).
+
+Same split as P9's vehicle-colour half: build what does not depend on a
+vision model, be explicit about what does. Confirmed by direct exploration
+before writing anything — `grep -rn "embedding|vector|reid"` across
+`services/api` and `ai-lab` found nothing; this phase starts from zero, as
+the migration ledger says.
+
+### What "re-identification" means here, and why it is a suggestion, not a merge
+
+Cross-camera linking today is plate-string equality
+(`correlator.sightings_for`), full stop. An appearance embedding is meant to
+close the gap for an unreadable plate — but this session has no way to
+verify *any* embedding's quality (no ReID model, no numpy/opencv, no real
+footage), so silently folding an appearance-based guess into a
+`vehicle_tracks` journey would be exactly the fabricated confidence
+CLAUDE.md's coding conventions forbid. The honest shape instead: rank
+candidate detections at other cameras and let an operator decide — the same
+posture P8's fuzzy search takes with "did you mean," not an auto-correct.
+
+### What was built
+
+- **Migration `0006`** — `detections.appearance_embedding`, nullable JSONB
+  float array. Not `pgvector`: that extension is not installed anywhere in
+  this stack (`infra/postgres/init/01-extensions.sql` provisions
+  postgis/timescaledb/pg_trgm/pgcrypto/btree_gist only), adding one with no
+  live database to verify it against is exactly the kind of blind
+  architectural change to be careful about, and it is not needed — a match
+  is only ever scored against a small, already time/distance-narrowed
+  candidate set, never a full-table nearest-neighbour search. See the
+  migration's own docstring for the full argument.
+- **`app/services/reid.py`** — `cosine_similarity` (plain Python, no numpy:
+  the vectors and candidate sets involved are always small); candidate
+  narrowing by a 30-minute time window at a *different* camera than the
+  query, further narrowed by `correlator.MAX_PLAUSIBLE_KMPH` reused
+  directly (not redefined) via `correlator.haversine_m`; ranking that
+  degrades gracefully — embedding-based candidates (cosine similarity, once
+  both sides have one) sort ahead of plausibility-only ones (a plain,
+  documented `1 - implied_kmph/150` ratio, not a probability), rather than
+  an invented weighted blend of the two.
+- **`GET /api/v1/reid/candidates`** (`routers/reid.py`) — `SEARCH_EXECUTE`
+  RBAC (same matrix entry as P8's fuzzy search: `auditor`/`api_client`
+  denied), audited via `audit.record_plate_search` for the same reason P9
+  extended that audit to attribute-only searches — this is the same kind of
+  privacy-sensitive movement query. `embedding_available` on the response
+  says plainly whether any candidate was actually appearance-matched, so a
+  caller cannot mistake a plausibility-only list for a real ReID match.
+- **`VehicleSearch.tsx`** — the `AttributeSearch` results table (P9) gained
+  a "Find similar" action on rows with no plate, expanding into a ranked
+  candidate list with a `plausibility only` / `appearance-matched` badge.
+  Chosen over a new page for the same reason P9's UI additions were folded
+  into existing screens: this session was told not to add pages.
+- **`test_reid.py`** — new. Every distance-dependent scenario (a plausible
+  hop, an implausibly-fast one, a same-camera exclusion) computes its
+  timestamps from the *real* great-circle distance between two seeded
+  cameras (`correlator.haversine_m`) rather than a guessed offset, and
+  skips itself if the chosen pair does not fit the scenario — true
+  regardless of which two cameras `make seed` happens to produce. Verified
+  the cosine-similarity arithmetic directly by execution (identical
+  vectors → 1.0, orthogonal → 0.0, opposite → -1.0, scale-invariance,
+  mismatched lengths → 0.0 rather than a crash) before trusting it in the
+  test file, the same "execute the pure math, don't just read it" technique
+  P10 used.
+
+### What was deliberately not attempted
+
+- **The embedding itself.** No ReID model is fetched anywhere in
+  `ai-lab/scripts/fetch_models.sh` (three ONNX models exist: two vehicle
+  detectors, one plate detector — no appearance/embedding model), and this
+  session has no numpy/opencv to run one even if it existed. `ai-lab`
+  already crops the full vehicle body per track
+  (`pipeline.py:_save_vehicle_crops`, `evidence.vehicle_crop` in the
+  consensus event) — the pipeline is one model away from feeding this, and
+  nothing about that crop path needed to change.
+- **`MIN_SIMILARITY` is an unverified placeholder (0.6).** There are no
+  real embeddings to calibrate it against. Recalibrate the day a real
+  model exists — do not treat the current value as meaningful.
+
+**Gate:** not specified numerically in ROADMAP.md beyond "links across
+cameras even when the plate is unreadable" — read as: a ranked, explained
+candidate list for an unreadable-plate detection. The plausibility-only
+half of that is real and testable today; the day an embedding producer
+exists, `embedding_available` starts flipping to `true` with no further
+change to this code. **Not run** end to end — no live fleet this session.
+
+---
+
 ## Worker CPU and the thread budget  ✅ (unplanned — 10 Sep 2026)
 
 Not a roadmap phase. Raised as "cameras are not loading properly, and if they

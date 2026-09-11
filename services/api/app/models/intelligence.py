@@ -80,6 +80,16 @@ class Detection(Base):
     direction: Mapped[str | None] = mapped_column(String(16))
     speed_kmph: Mapped[float | None] = mapped_column(Float)
 
+    # A ReID-model appearance vector, for linking a vehicle across cameras
+    # when its plate is unreadable (P11). Always NULL today — nothing in
+    # ai-lab computes one yet, no ReID model is fetched or wired into the
+    # pipeline. Stored as a plain JSONB float array rather than a `pgvector`
+    # column; see migration 0006 for why. The matching logic in
+    # `app/services/reid.py` degrades to a plausibility-only ranking when
+    # this is absent, which is the state it will be in until a producer
+    # exists.
+    appearance_embedding: Mapped[list[float] | None] = mapped_column(JSONB)
+
     # False when the read does not satisfy Indian plate grammar. Such reads are
     # flagged and kept, never silently dropped — a partially-read plate is
     # still evidence, and hiding it would misrepresent what the system saw.
