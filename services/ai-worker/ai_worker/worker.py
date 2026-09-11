@@ -150,8 +150,24 @@ class AiWorker:
 
     async def _discover(self) -> list[CameraStream]:
         """Every camera this worker owns — not just the ones it can run now."""
-        if self.settings.ai_worker_cameras.strip():
-            # An explicit list overrides discovery, whatever the source.
+        explicit = frozenset(
+            c.strip() for c in self.settings.ai_worker_cameras.split(",") if c.strip()
+        )
+
+        if self.settings.ai_worker_source == "registry":
+            # An explicit list narrows the roster rather than replacing it, so
+            # the camera keeps its resolved URL and its plate regions. See
+            # discover_registry for what went wrong when it replaced it.
+            return await discover_registry(
+                self.settings.redis_url,
+                self.settings.ai_worker_index,
+                self.settings.ai_worker_count,
+                rtsp_probe=self._rtsp_probe,
+                only=explicit,
+            )
+
+        if explicit:
+            # No roster to narrow: the codes are all there is.
             return await discover(
                 self.settings.mediamtx_api_url,
                 self.settings.mediamtx_host,
@@ -160,14 +176,6 @@ class AiWorker:
                 self.settings.ai_worker_count,
                 self.settings.ai_worker_cameras,
                 limit=10_000,
-            )
-
-        if self.settings.ai_worker_source == "registry":
-            return await discover_registry(
-                self.settings.redis_url,
-                self.settings.ai_worker_index,
-                self.settings.ai_worker_count,
-                rtsp_probe=self._rtsp_probe,
             )
 
         if self.settings.ai_worker_source == "sandbox":

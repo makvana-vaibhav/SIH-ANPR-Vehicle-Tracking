@@ -386,6 +386,90 @@ def probe_fps(source: Path) -> float | None:
 
 
 @functools.lru_cache(maxsize=64)
+def probe_duration(source: Path) -> float | None:
+    """Clip length in seconds, or None when it cannot be read.
+
+    The simulator staggers cameras that share a clip by seeking to different
+    points in it, and how far apart it can space them is bounded by how long the
+    clip actually is. That used to be a hardcoded constant, which silently
+    became wrong the moment anyone replaced the footage: offsets past the end
+    yield no video at all, and offsets bunched into the first few seconds put
+    two cameras at the same phase, which reads downstream as one vehicle in two
+    places at once.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=nw=1:nk=1",
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    raw = result.stdout.strip()
+    if result.returncode != 0 or not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return None
+    return seconds if seconds > 0 else None
+
+
+#: Never seek this close to the end of a clip. Landing in its last moment gives
+#: a publisher a fraction of a second of video before it loops, which reads
+#: downstream as a camera that keeps restarting.
+OFFSET_TAIL_S = 1.0
+
+#: Used only when a clip's duration cannot be probed. Deliberately short: it is
+#: better to bunch cameras near the start of a clip than to seek past its end,
+#: because seeking past the end yields no video at all.
+FALLBACK_WINDOW_S = 10.0
+
+
+def stagger_offset(source: Path, slot: int, sharing: int, step: float = 0.0) -> float:
+    """Where in `source` the `slot`-th of `sharing` cameras should start.
+
+    Two cameras showing the same instant of the same clip publish the same
+    vehicle at the same moment, which downstream is indistinguishable from one
+    plate genuinely appearing in two places at once — and is correctly flagged
+    implausible. Spreading them across the clip is what prevents that.
+
+    How far they *can* be spread is a property of the footage, so it is measured
+    rather than assumed. This used to be a hardcoded twelve-second window with a
+    1.8-second step, which was only ever right for the clips in the repository
+    at the time: longer footage was needlessly bunched into its first seconds,
+    and anything shorter than twelve seconds got offsets past its end, which
+    yields no video at all.
+
+    `step` of 0 spreads the group evenly across the clip, which is the widest
+    spacing the footage allows. An explicit step is honoured but still clamped
+    to that, because a step that walks off the end is worse than no stagger.
+    """
+    if sharing <= 1 or slot <= 0:
+        return 0.0
+
+    duration = probe_duration(source)
+    window = (duration - OFFSET_TAIL_S) if duration else FALLBACK_WINDOW_S
+    if window <= 0.0:
+        return 0.0
+
+    even = window / sharing
+    chosen = min(step, even) if step > 0.0 else even
+    return round((slot * chosen) % window, 3)
+
+
+@functools.lru_cache(maxsize=64)
 def probe_height(source: Path) -> int | None:
     """Source frame height, or None when it cannot be read.
 

@@ -293,6 +293,18 @@ class StreamConfig(BaseModel):
     # Bound on provisional events per vehicle, so one long-dwelling vehicle
     # cannot dominate the event stream.
     max_observed_per_track: int = Field(default=4, ge=0)
+    # Re-emit a vehicle whose reading has not changed, purely to refresh where
+    # it now is. Without this a box drawn on live video is pinned to wherever
+    # the vehicle was when its plate first resolved, and stays there while the
+    # vehicle drives out of frame — which looks like a tracking failure and is
+    # in fact the overlay having nothing newer to draw. Position refreshes are
+    # provisional events, so they are broadcast and never persisted: the
+    # `detections` table still gets exactly one row per vehicle, from
+    # `vehicle.completed`. 0 disables them.
+    observed_refresh_s: float = Field(default=0.4, ge=0.0)
+    # Ceiling on those refreshes, so a vehicle parked in view cannot emit
+    # forever. At the default cadence this is ~30 s of following one vehicle.
+    max_position_refresh_per_track: int = Field(default=75, ge=0)
 
 
 class OutputConfig(BaseModel):

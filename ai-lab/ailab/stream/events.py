@@ -103,6 +103,9 @@ def vehicle_event(
     latency_ms: float | None = None,
     run_id: str = "",
     frame_size: tuple[int, int] | None = None,
+    live_bbox: Any = None,
+    captured_at: datetime | None = None,
+    position_refresh: bool = False,
 ) -> dict[str, Any]:
     """One vehicle, shaped for the platform.
 
@@ -110,6 +113,29 @@ def vehicle_event(
     Every bbox in this payload is in source-frame pixels, and a consumer that
     draws them — an overlay on a video element, say — cannot scale them without
     knowing that space. Omitting it makes the coordinates unusable.
+
+    ## Two boxes, because they answer two different questions
+
+    `vehicle.bbox` is the **best** sighting: the largest, most confident look at
+    the vehicle, which is the frame worth keeping as evidence and the one the
+    crop was cut from. It is what the platform stores.
+
+    `vehicle.live_bbox` is the **latest** sighting — where the vehicle was in
+    the frame identified by `captured_at`. That is the only box an overlay can
+    honestly draw, because it is the only one with a timestamp attached. Drawing
+    the best box over live video puts the rectangle wherever the vehicle
+    happened to look biggest, which for a car crossing the frame is a position
+    it occupied seconds earlier and has long since left.
+
+    `captured_at` is the wall clock of that frame, not of this event. The
+    difference between the two is `latency_ms`, and a consumer that wants the
+    box to land on the vehicle needs the capture time rather than the emit time.
+
+    `position_refresh` marks an event that repeats a reading the platform has
+    already been told about, purely to say where the vehicle has got to. It is
+    for drawing, not for reporting: counted as a detection it inflates every
+    figure on an operator's screen, and listed in a plate feed it fills the feed
+    with the same car several times a second.
     """
     best_read = max(vehicle.reads, key=lambda r: r.vote_weight, default=None)
     last_detection = vehicle.plate_detections[-1] if vehicle.plate_detections else None
@@ -118,6 +144,11 @@ def vehicle_event(
         "schema": SCHEMA_VERSION,
         "event": kind,
         "event_time": datetime.now(UTC).isoformat(),
+        # When the frame the boxes were measured in was captured. Distinct from
+        # event_time by the length of the pipeline; see the docstring.
+        "captured_at": captured_at.isoformat() if captured_at is not None else None,
+        # True when this repeats a known reading to update its position only.
+        "position_refresh": position_refresh,
         "source": source.to_dict(),
         "frame": (
             {"width": frame_size[0], "height": frame_size[1]}
@@ -130,6 +161,7 @@ def vehicle_event(
             "type": vehicle.class_name,
             "confidence": round(vehicle.mean_detection_confidence, 4),
             "bbox": vehicle.bbox.to_dict() if vehicle.bbox is not None else None,
+            "live_bbox": live_bbox.to_dict() if live_bbox is not None else None,
             "first_seen_s": round(vehicle.first_seen_s, 3),
             "last_seen_s": round(vehicle.last_seen_s, 3),
             "duration_s": round(vehicle.duration_s, 3),

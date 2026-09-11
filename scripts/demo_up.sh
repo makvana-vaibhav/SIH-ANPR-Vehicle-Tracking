@@ -82,23 +82,30 @@ docker compose up -d >/dev/null 2>&1 || true
 wait_for "$API/health" 180 "API"
 
 # ── 3. The camera fleet ──────────────────────────────────────────────
-# The fleet is seeded, not synced: scripts/seed.py loads the Ahmedabad ANPR
-# fleet from data/seed/cameras.csv, which places every camera on a real vertex
-# of a real named arterial. Step 2 above already did it, so this step verifies
-# rather than repeats.
+# The fleet is seeded, not synced: scripts/seed.py loads the ANPR fleet from
+# data/seed/cameras.csv, which places every camera on a real vertex of a real
+# named arterial. Step 2 above already did it, so this step verifies rather
+# than repeats.
 #
 # Every camera here is published by the simulator, so it can be opened,
 # watched and analysed. That is the distinction from the old 281-camera fleet,
 # 251 of which had no video source at all.
+#
+# The fleet is deliberately small: three cameras along the Ashram Road
+# corridor, all replaying the same clip. Fewer cameras is not a reduced demo —
+# the worker divides one CPU budget across the cameras it is watching, so three
+# cameras get roughly seventeen times the inference budget each that fifty-one
+# did, and capture-to-event latency falls accordingly. That latency is what
+# decides whether a plate box can be drawn on the vehicle or merely behind it.
 step "The camera fleet"
 
 FLEET=$(docker compose exec -T postgres psql -U "${POSTGRES_USER:-nagarnetra}" \
     -d "${POSTGRES_DB:-nagarnetra}" -tAc \
     "select count(*) from cameras" 2>/dev/null | tr -d '[:space:]')
-if [ "${FLEET:-0}" -gt 10 ]; then
-    ok "$FLEET cameras seeded across the city corridors"
+if [ "${FLEET:-0}" -ge 3 ]; then
+    ok "$FLEET cameras seeded along the demonstration corridor"
 else
-    fail "only ${FLEET:-0} cameras — did scripts/generate_ahmedabad_cameras.py run?"
+    fail "only ${FLEET:-0} cameras — did the seed load data/seed/cameras.csv?"
 fi
 
 # The organisers' grid from the previous brief. Opt-in, because its host is not
@@ -132,10 +139,10 @@ STREAMS=0
 for _ in $(seq 1 30); do
     STREAMS=$(curl -s "http://localhost:9100/streams" 2>/dev/null \
         | python3 -c 'import json,sys; print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
-    [ "${STREAMS:-0}" -gt 5 ] && break
+    [ "${STREAMS:-0}" -ge 3 ] && break
     sleep 5
 done
-if [ "${STREAMS:-0}" -gt 5 ]; then
+if [ "${STREAMS:-0}" -ge 3 ]; then
     ok "$STREAMS cameras publishing live video"
 else
     warn "only ${STREAMS:-0} streams publishing — check 'docker compose logs simulator'"
@@ -144,8 +151,9 @@ fi
 # ── 5. Inference ─────────────────────────────────────────────────────
 step "Starting the AI worker"
 if [ -f ai-lab/models/yolov8n.onnx ]; then
-    docker compose --profile ai up -d ai-worker >/dev/null 2>&1
-    ok "ai-worker started"
+    # The whole profile: one worker process per camera (see docker-compose.yml).
+    docker compose --profile ai up -d >/dev/null 2>&1
+    ok "ai workers started (one process per camera)"
 else
     fail "model weights missing — run 'make models' first"
     fail "Without them nothing reads a plate."
@@ -157,17 +165,18 @@ TOKEN=$(token)
 if [ -z "$TOKEN" ]; then fail "cannot sign in as admin"; exit 1; fi
 ok "admin can sign in"
 
-# Threshold is 10, not 100. The old fleet was 281 cameras of which 251 had no
+# Threshold is 3, not 100. The old fleet was 281 cameras of which 251 had no
 # video source; a count in the hundreds proved only that a CSV had loaded. What
-# matters now is that real cameras were onboarded, and there are about 31.
+# matters is that every registered camera can actually be watched, and the
+# demonstration fleet is three of them.
 CAMERAS=$(api "/api/v1/cameras/summary" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("total",0))' 2>/dev/null || echo 0)
-[ "${CAMERAS:-0}" -gt 10 ] && ok "$CAMERAS cameras in the registry" \
-    || fail "only $CAMERAS cameras — the grid sync or the seed failed"
+[ "${CAMERAS:-0}" -ge 3 ] && ok "$CAMERAS cameras in the registry" \
+    || fail "only $CAMERAS cameras — the seed failed"
 
 # Asserted, because every camera should now be analysable. A camera in this
 # registry without ANPR is a camera whose stream could not be resolved.
 ANPR=$(api "/api/v1/cameras/summary" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("anpr_enabled",0))' 2>/dev/null || echo 0)
-[ "${ANPR:-0}" -gt 10 ] && ok "$ANPR cameras in the ANPR fleet" \
+[ "${ANPR:-0}" -ge 3 ] && ok "$ANPR cameras in the ANPR fleet" \
     || fail "only $ANPR cameras have a resolvable stream"
 
 printf '  %s…waiting up to 90s for the first plate read%s\n' "$DIM" "$RESET"

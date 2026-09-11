@@ -4,7 +4,11 @@ Run with ``make seed``. Idempotent: safe to run repeatedly, it upserts rather
 than duplicating, so a judge can re-run it without wiping the database first.
 
 Phase 1 seeds departments and one user per role.
-Phase 2 extends this with the 250-camera fleet and the watchlist.
+Phase 2 extends this with the camera fleet and the watchlist.
+
+The camera fleet is whatever `data/seed/cameras.csv` holds. It ships as the
+three-camera demonstration corridor; `scripts/generate_ahmedabad_cameras.py`
+regenerates it at any size.
 """
 
 from __future__ import annotations
@@ -19,14 +23,19 @@ from pathlib import Path
 # The script runs from /app inside the container; make the API package importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "api"))
 
-from sqlalchemy import func, select  # noqa: E402
+from sqlalchemy import delete, func, select  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db.session import SessionLocal, dispose_engine  # noqa: E402
 from app.models.enums import AdapterType, CameraStatus, Role, VmsVendor  # noqa: E402
-from app.models.intelligence import Watchlist  # noqa: E402
-from app.models.registry import Camera, Department, VmsInstance  # noqa: E402
+from app.models.intelligence import Alert, Detection, Watchlist  # noqa: E402
+from app.models.registry import (  # noqa: E402
+    Camera,
+    CameraHealth,
+    Department,
+    VmsInstance,
+)
 from app.models.security import User  # noqa: E402
 from app.schemas.intelligence import normalise_plate  # noqa: E402
 
@@ -272,106 +281,94 @@ async def seed_vms(department_ids: dict[str, object]) -> None:
     )
 
 
-#: The one camera allowed to carry recorded footage, named so nobody has to
-#: guess. Its code is deliberately unlike the grid's, and its tags say plainly
-#: what it is.
-DEMO_CODE = "CAM-DEMO"
-DEMO_NAME = "ANPR Demonstration Feed (recorded)"
-DEMO_VMS = "NagarNetra ANPR Demonstration"
-#: Ahmedabad city centre. It has to be somewhere to appear on the map at all,
-#: and the name says it is a demonstration, so nothing here claims the footage
-#: was shot at this point.
-DEMO_LAT, DEMO_LON = 23.0225, 72.5714
+#: The standalone demonstration camera, from when exactly one camera in the
+#: registry carried recorded footage. The demonstration fleet in
+#: `data/seed/cameras.csv` replaces it, so this exists only to remove it from
+#: databases seeded before that change.
+LEGACY_DEMO_CODE = "CAM-DEMO"
+LEGACY_DEMO_VMS = "NagarNetra ANPR Demonstration"
 
 
-async def seed_demo_camera() -> None:
-    """The demonstration camera, and nothing else.
+async def retire_legacy_demo_camera() -> None:
+    """Remove the old single `CAM-DEMO` row, if this database still has one.
 
-    This used to load 250 synthetic cameras from `data/seed/cameras.csv` so the
-    GIS map had something to show at scale. That was a mistake and the file is
-    gone: **251 of 281 cameras had no stream URL at all.** They sat permanently
-    at status `unknown`, could never be watched, could never produce a
-    detection, and made every count on every screen mostly fiction — fleet
-    health was reporting on cameras that could not be unhealthy.
+    The demonstration fleet is now three cameras on the Ashram Road corridor,
+    seeded from `data/seed/cameras.csv` like every other camera, carrying the
+    same `demo` tags this row used to carry alone. Leaving the old row in place
+    would put a fourth camera in a fleet that is supposed to be three, sitting
+    at a position no simulator publishes — which is exactly the kind of
+    unwatchable registry entry commit 4d0346f deleted 251 of.
 
-    The registry now holds only cameras with a real video source. This one, and
-    the organisers' grid via `sync_sandbox.py`. Roughly 31 rather than 281, and
-    every one of them can be opened, watched and analysed.
-
-    The demonstration camera gets **its own VMS** rather than a department's:
-    filing recorded footage under a real department would make it look like
-    that department's live feed, which is exactly the confusion being removed.
+    Children go first and explicitly. `detections.camera_id` is ON DELETE SET
+    NULL, so deleting the camera alone would orphan its sightings rather than
+    remove them, and they would then appear in search attached to no camera at
+    all — worse than either keeping or deleting them.
     """
     async with SessionLocal() as session:
+        camera = (
+            await session.execute(
+                select(Camera).where(Camera.camera_code == LEGACY_DEMO_CODE)
+            )
+        ).scalar_one_or_none()
+
+        if camera is None:
+            print(f"  demo camera: no legacy {LEGACY_DEMO_CODE} to retire")
+            return
+
+        # Alerts reference detections *and* cameras, so they go before both.
+        await session.execute(delete(Alert).where(Alert.camera_id == camera.id))
+        await session.execute(delete(Detection).where(Detection.camera_id == camera.id))
+        await session.execute(
+            delete(CameraHealth).where(CameraHealth.camera_id == camera.id)
+        )
+        await session.execute(delete(Camera).where(Camera.id == camera.id))
+
+        # Its private VMS existed only to keep recorded footage from looking
+        # like a department's live feed. With the camera gone it describes
+        # nothing, and an empty integration on the fleet screen is its own
+        # small piece of fiction.
         vms = (
             await session.execute(
-                select(VmsInstance).where(VmsInstance.name == DEMO_VMS)
+                select(VmsInstance).where(VmsInstance.name == LEGACY_DEMO_VMS)
             )
         ).scalar_one_or_none()
-        if vms is None:
-            vms = VmsInstance(
-                name=DEMO_VMS,
-                vendor=VmsVendor.GENERIC_RTSP.value,
-                adapter_type=AdapterType.SIMULATED.value,
-                base_url="rtsp://mediamtx:8554",
-            )
-            session.add(vms)
-            await session.flush()
+        if vms is not None:
+            orphaned = (
+                await session.execute(
+                    select(func.count()).select_from(Camera).where(Camera.vms_id == vms.id)
+                )
+            ).scalar_one()
+            if orphaned == 0:
+                await session.execute(
+                    delete(VmsInstance).where(VmsInstance.id == vms.id)
+                )
 
-        department = (
-            await session.execute(select(Department).order_by(Department.code).limit(1))
-        ).scalar_one_or_none()
-
-        camera = (
-            await session.execute(select(Camera).where(Camera.camera_code == DEMO_CODE))
-        ).scalar_one_or_none()
-        created = camera is None
-        if camera is None:
-            camera = Camera(
-                camera_code=DEMO_CODE,
-                department_id=department.id if department else None,
-                location=func.ST_SetSRID(func.ST_MakePoint(DEMO_LON, DEMO_LAT), 4326),
-            )
-            session.add(camera)
-
-        camera.name = DEMO_NAME
-        camera.vms_id = vms.id
-        camera.anpr_enabled = True
-        camera.camera_type = "anpr"
-        camera.protocol = "rtsp"
-        camera.city = "Ahmedabad"
-        # The taluka actually containing DEMO_LAT/DEMO_LON, so the demo camera
-        # groups with the rest of the fleet instead of inventing a "district"
-        # named after the city that gap analysis could never reason about.
-        camera.district = "Sabarmati"
-        camera.junction = "Demonstration feed"
-        camera.resolution = "1920x1080"
-        camera.fps = 15
-        camera.status = CameraStatus.UNKNOWN.value
-        # `plate-region:GB` changes behaviour: the demonstration footage is
-        # British, and a camera that sees British plates should have them read
-        # as British plates. Which formats a camera sees is a property of where
-        # it points, so it belongs on the camera rather than in a worker-wide
-        # setting that would make the whole fleet accept UK plates.
-        camera.tags = [
-            "demo",
-            "recorded-footage",
-            "not-a-real-camera",
-            "plate-region:GB",
-        ]
         await session.commit()
 
-    print(f"  demo camera: {DEMO_CODE} {'created' if created else 'refreshed'}")
+    print(f"  demo camera: retired legacy {LEGACY_DEMO_CODE}")
 
 
 async def seed_fleet() -> None:
-    """Load the Ahmedabad ANPR fleet from data/seed/cameras.csv.
+    """Load the ANPR fleet from data/seed/cameras.csv.
 
-    The CSV is generated by `scripts/generate_ahmedabad_cameras.py`, which
-    thins the committed OpenStreetMap arterial network so that **every camera
-    sits on a real road vertex** of a real named corridor, in a real taluka,
-    at least 250 m from any other camera. So each row is a position a camera
-    could actually occupy.
+    The committed CSV is the **demonstration fleet**: three cameras on the
+    Ashram Road corridor, each on a real OpenStreetMap road vertex of a real
+    named arterial in a real taluka, all replaying the same clip so that a
+    vehicle genuinely appears on more than one of them and cross-camera linking
+    has something real to link.
+
+    Three, rather than the fifty-odd the generator can produce, because the
+    worker divides a single CPU budget across the cameras it is watching. Three
+    cameras get roughly seventeen times the inference budget each, which is what
+    takes capture-to-event latency low enough for a plate box to be drawn on the
+    vehicle rather than behind it. A larger fleet is a `generate_ahmedabad_cameras.py`
+    run away, and costs latency in exactly that proportion.
+
+    Whatever its size, the CSV is generated by
+    `scripts/generate_ahmedabad_cameras.py`, which thins the committed
+    OpenStreetMap arterial network so that **every camera sits on a real road
+    vertex** of a real named corridor, in a real taluka, at least 250 m from any
+    other camera. So each row is a position a camera could actually occupy.
 
     ## Why `stream_url` stays NULL
 
@@ -577,7 +574,7 @@ async def main() -> int:
         if args.only in ("vms", "all"):
             await seed_vms(department_ids)
         if args.only in ("demo-camera", "all"):
-            await seed_demo_camera()
+            await retire_legacy_demo_camera()
         if args.only in ("fleet", "all"):
             await seed_fleet()
         if args.only in ("watchlist", "all"):

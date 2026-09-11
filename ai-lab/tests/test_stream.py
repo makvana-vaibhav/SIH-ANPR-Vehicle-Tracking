@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
 
@@ -202,6 +203,62 @@ def test_event_carries_the_vehicle_bounding_box() -> None:
     event = vehicle_event(vehicle, SourceIdentity(camera_id="C1"))
     assert event["vehicle"]["bbox"] is not None
     assert event["vehicle"]["bbox"]["w"] == 400.0
+
+
+class TestBoxesAnOverlayCanDraw:
+    """What an overlay needs in order to put a box on the vehicle.
+
+    `vehicle.bbox` answers "which frame is the best evidence" and
+    `vehicle.live_bbox` answers "where is it now". They are different questions
+    and, for a vehicle crossing the frame, different answers: drawing the first
+    over live video puts the rectangle wherever the vehicle looked biggest,
+    which is a position it left seconds ago.
+    """
+
+    def test_live_bbox_is_carried_separately_from_the_best_bbox(self) -> None:
+        vehicle = make_vehicle()
+        vehicle.bbox = BBox(300, 200, 700, 520)
+        event = vehicle_event(
+            vehicle,
+            SourceIdentity(camera_id="C1"),
+            live_bbox=BBox(120, 210, 420, 480),
+        )
+        assert event["vehicle"]["bbox"]["x1"] == 300.0
+        assert event["vehicle"]["live_bbox"]["x1"] == 120.0
+
+    def test_live_bbox_is_null_rather_than_guessed(self) -> None:
+        """A consumer must be able to tell "not sent" from "same as best"."""
+        event = vehicle_event(make_vehicle(), SourceIdentity(camera_id="C1"))
+        assert event["vehicle"]["live_bbox"] is None
+
+    def test_capture_time_is_distinct_from_emit_time(self) -> None:
+        """The gap between the two is the pipeline, and it is what an overlay
+        has to schedule against. Reusing `event_time` would place every box
+        wherever the vehicle had got to by the time the read finished."""
+        captured = datetime(2026, 9, 11, 10, 31, 4, 200000, tzinfo=UTC)
+        event = vehicle_event(
+            make_vehicle(),
+            SourceIdentity(camera_id="C1"),
+            kind="vehicle.observed",
+            latency_ms=820.0,
+            captured_at=captured,
+        )
+        assert event["captured_at"] == captured.isoformat()
+        assert event["captured_at"] != event["event_time"]
+        assert event["latency_ms"] == 820.0
+
+    def test_capture_time_is_null_when_unknown(self) -> None:
+        event = vehicle_event(make_vehicle(), SourceIdentity(camera_id="C1"))
+        assert event["captured_at"] is None
+
+    def test_event_with_both_boxes_is_json_serialisable(self) -> None:
+        event = vehicle_event(
+            make_vehicle(),
+            SourceIdentity(camera_id="C1"),
+            live_bbox=BBox(1, 2, 3, 4),
+            captured_at=datetime.now(UTC),
+        )
+        assert json.loads(json.dumps(event, default=str))["vehicle"]["live_bbox"]
 
 
 class TestNagarNetraIntegrationRules:

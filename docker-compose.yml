@@ -328,7 +328,33 @@ services:
   # Cameras are split across workers by a stable hash of the camera code, so
   # scaling out is `--scale ai-worker=N` plus AI_WORKER_COUNT — no coordinator,
   # and two workers can never open the same stream.
-  ai-worker:
+  # ── One worker process per camera, on a deliberately small thread budget ──
+  #
+  # Measured on the 3-camera demo fleet, 8 physical cores / 14 vCPUs in the VM,
+  # three 1080p15 RTSP streams, `stream_demo` config, ~2 minutes each:
+  #
+  #   processes  budget/process  fps per camera  p90 latency  CPU (all workers)
+  #   1 (threads)     12 ÷ 3         1.5            ~1.0 s         12.2 cores
+  #   3                4             0.8            ~2.0 s         14   cores
+  #   3                3             1.5            ~1.0 s         11   cores
+  #   3                2             1.7            ~0.95 s         8   cores  ← this
+  #
+  # The budget only governs the ONNX intra-op pools. RTSP decode and the OCR
+  # engine's own sessions run threads outside it, so a "4-thread" process was
+  # observed running 11 busy threads, and three of those on 8 cores spent more
+  # time context-switching than inferring. Two per process is where throughput
+  # peaks, and it leaves six vCPUs for MediaMTX and the browser rendering the
+  # map — which is the difference between camera tiles that load and ones that
+  # hang.
+  #
+  # Separate processes rather than threads in one worker because the pipeline's
+  # Python-side work (letterbox, NMS, tracker, scheduler, OCR pre/post) holds
+  # the GIL; one process is capped on that whatever the budget. AI_WORKER_
+  # CAMERAS names each process's camera explicitly rather than sharding by
+  # hash, because blake2b puts CAM-DEMO-02 and -03 on the same shard of three.
+  # The list narrows the registry roster, so the camera keeps its resolved URL
+  # and plate regions. The three are one definition, anchored below.
+  ai-worker: &ai-worker
     build:
       context: .
       dockerfile: services/ai-worker/Dockerfile
@@ -337,7 +363,9 @@ services:
     <<: *default-restart
     profiles: ["ai"]
     env_file: [.env]
-    environment:
+    environment: &ai-worker-env
+      # Which camera this process owns. Overrides discovery entirely.
+      AI_WORKER_CAMERAS: ${AI_WORKER_CAMERAS_1:-CAM-DEMO-01}
       REDIS_URL: redis://redis:6379/0
       EVENT_STREAM_KEY: nagarnetra:events:detections
       MEDIAMTX_API_URL: http://mediamtx:9997
@@ -366,13 +394,16 @@ services:
       # the rest of the stack at ~2.7 GB, comfortably inside the 11.67 GB VM;
       # six reaches 6.8 GB and is where the exit-137 kills start. Raise
       # Docker's memory allocation before raising this. See docs/PERFORMANCE.md.
-      AI_WORKER_MAX_CAMERAS: ${AI_WORKER_MAX_CAMERAS:-4}
+      AI_WORKER_MAX_CAMERAS: ${AI_WORKER_MAX_CAMERAS:-1}
       # How long a camera holds a slot before yielding to one that is waiting.
       AI_WORKER_SLICE_SECONDS: ${AI_WORKER_SLICE_SECONDS:-45}
-      # The demonstration feed never yields its slot: it is the camera a judge
-      # is most likely to be watching, and the only one guaranteed to have
-      # legible plates.
-      AI_WORKER_PINNED: ${AI_WORKER_PINNED:-CAM-DEMO}
+      # The demonstration feeds never yield their slots: they are the cameras a
+      # judge is most likely to be watching, and the only ones guaranteed to
+      # have legible plates. All three fit inside AI_WORKER_MAX_CAMERAS, so
+      # nothing rotates and no camera is ever mid-handover when it is opened —
+      # which is what makes a plate box appear promptly rather than whenever
+      # the camera next gets a slot.
+      AI_WORKER_PINNED: ${AI_WORKER_PINNED:-CAM-DEMO-01,CAM-DEMO-02,CAM-DEMO-03}
       # ── CPU budget ──
       #
       # Total intra-op inference threads for the whole worker, divided evenly
@@ -384,7 +415,10 @@ services:
       # sweeping thread counts by hand, and setting it bypasses the division —
       # which is exactly the bug this replaced: every model taking four
       # threads, times five sessions, times one pipeline per camera.
-      AILAB_INFERENCE_BUDGET: ${AILAB_INFERENCE_BUDGET:-}
+      # Per process — see the table above; 2 is the measured optimum here.
+      # Leave it blank only when running ONE worker: blank means "cores − 2"
+      # per process, and three of those oversubscribe the machine badly.
+      AILAB_INFERENCE_BUDGET: ${AILAB_INFERENCE_BUDGET:-2}
       # OpenCV parallelises single resize/cvtColor calls. The worker already
       # has one thread per camera, so an inner pool on top of that only
       # multiplies threads against the same cores. Empty means 1 whenever more
@@ -417,6 +451,20 @@ services:
     logging: *default-logging
     networks: [nagarnetra]
 
+  ai-worker-2:
+    <<: *ai-worker
+    container_name: nagarnetra-ai-worker-2
+    environment:
+      <<: *ai-worker-env
+      AI_WORKER_CAMERAS: ${AI_WORKER_CAMERAS_2:-CAM-DEMO-02}
+
+  ai-worker-3:
+    <<: *ai-worker
+    container_name: nagarnetra-ai-worker-3
+    environment:
+      <<: *ai-worker-env
+      AI_WORKER_CAMERAS: ${AI_WORKER_CAMERAS_3:-CAM-DEMO-03}
+
   # ── Simulator — synthetic camera fleet ──────────────────────────────
   # Replays footage into MediaMTX as real RTSP, so the platform has live
   # cameras without hardware. This is the same technique the challenge
@@ -436,7 +484,13 @@ services:
       # replay clips across the fleet for load testing, where synthetic video
       # is the point rather than a pretence at a live feed.
       SIM_STREAM_COUNT: ${SIM_STREAM_COUNT:-0}
-      SIM_CAMERA_VIDEOS: ${SIM_CAMERA_VIDEOS:-CAM-DEMO=anpr_demo.mp4}
+      # One clip on all three cameras. The same vehicles therefore pass every
+      # camera, which is what gives cross-camera linking something real to
+      # link; the simulator seeks each camera to a different point in the clip
+      # so they are not all showing the same instant.
+      SIM_CAMERA_VIDEOS: ${SIM_CAMERA_VIDEOS:-CAM-DEMO-01=anpr_demo.mp4,CAM-DEMO-02=anpr_demo.mp4,CAM-DEMO-03=anpr_demo.mp4}
+      # Blank spreads cameras sharing a clip evenly across its real duration.
+      SIM_OFFSET_STEP_S: ${SIM_OFFSET_STEP_S:-}
       PYTHONPATH: /app/services/simulator:/app/services/api
     ports:
       - "${SIMULATOR_HOST_PORT:-9100}:9100"
