@@ -63,6 +63,10 @@ interface Props {
   selectedCode?: string | null
   basemap: Basemap
   onSatelliteUnavailable?: () => void
+  /** Detection density, from `/analytics/heatmap` — GeoJSON points weighted
+   *  by an `intensity` property (0-1), so MapLibre can take it directly. */
+  heatmap?: GeoJSON.FeatureCollection | null
+  showHeatmap?: boolean
 }
 
 export default function CameraMap({
@@ -72,6 +76,8 @@ export default function CameraMap({
   selectedCode,
   basemap,
   onSatelliteUnavailable,
+  heatmap = null,
+  showHeatmap = false,
 }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
@@ -162,6 +168,67 @@ export default function CameraMap({
       tooltip.remove()
     })
   }, [ready, districts])
+
+  // ── Detection-density heatmap (P4 traffic analytics) ────────────────
+  //
+  // A second weighting of the same points the camera layer already draws,
+  // not a different dataset — see HeatmapResponse's own docstring. Built
+  // once the data arrives and updated in place after that, matching the
+  // districts source above; visibility is a separate effect so toggling it
+  // on and off never touches the source.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !heatmap) return
+
+    const existing = m.getSource('analytics-heatmap') as maplibregl.GeoJSONSource | undefined
+    if (existing) {
+      existing.setData(heatmap)
+      return
+    }
+
+    m.addSource('analytics-heatmap', { type: 'geojson', data: heatmap })
+    // `addLayer` with no `beforeId` stacks on top of everything that exists
+    // *right now* — and the heatmap is toggled on well after the camera
+    // layers have loaded, so without this it would paint over every marker.
+    // Inserting it below the first camera layer keeps cameras always on top.
+    const beforeId = m.getLayer('camera-halo')
+      ? 'camera-halo'
+      : m.getLayer('clusters')
+        ? 'clusters'
+        : undefined
+    m.addLayer(
+      {
+        id: 'analytics-heatmap-layer',
+        type: 'heatmap',
+        source: 'analytics-heatmap',
+        layout: { visibility: showHeatmap ? 'visible' : 'none' },
+        paint: {
+          // `intensity` is already 0-1, relative to the busiest camera in the
+          // window — exactly what a heatmap weight wants.
+          'heatmap-weight': ['coalesce', ['get', 'intensity'], 0],
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 6, 1, 14, 3],
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 6, 16, 14, 40],
+          'heatmap-opacity': 0.75,
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0, 'rgba(0,0,0,0)',
+            0.2, 'rgba(56,189,248,0.45)',
+            0.4, 'rgba(250,204,21,0.6)',
+            0.6, 'rgba(251,146,60,0.75)',
+            0.85, 'rgba(239,68,68,0.85)',
+            1, 'rgba(220,38,38,0.95)',
+          ],
+        },
+      },
+      beforeId,
+    )
+  }, [ready, heatmap, showHeatmap])
+
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !m.getLayer('analytics-heatmap-layer')) return
+    m.setLayoutProperty('analytics-heatmap-layer', 'visibility', showHeatmap ? 'visible' : 'none')
+  }, [ready, showHeatmap])
 
   // ── Basemap switching ───────────────────────────────────────────────
   useEffect(() => {

@@ -25,14 +25,21 @@ export function Field({
       <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
-      {children}
+      {/* The label-to-control gap lives here, not on the control itself — a
+          bare Input/Select used outside a Field (an inline table cell, a
+          compact toolbar) should not carry a gap meant for a label above it.
+          A Tailwind class string cannot reliably override this at the call
+          site: `mt-1` and `mt-0` have equal specificity, and Tailwind's
+          generated stylesheet — not the order classes are written in JSX —
+          decides which one wins. */}
+      <div className="mt-1">{children}</div>
       {hint && <span className="mt-1 block text-[11px] text-muted-foreground/80">{hint}</span>}
     </label>
   )
 }
 
 export const controlClass =
-  'mt-1 w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary'
+  'w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary'
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   ({ className = '', ...rest }, ref) => (

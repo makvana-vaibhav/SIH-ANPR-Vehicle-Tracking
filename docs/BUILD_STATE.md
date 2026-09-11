@@ -1496,6 +1496,98 @@ failures logged.
 
 ---
 
+## P4 — City traffic analytics  🟡 code complete, gate not yet run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p4--city-traffic-analytics--biggest-missing-module).
+
+**Honest status up front, per CLAUDE.md §8.2: a phase is complete when its
+gate command passes, not when the code exists.** Everything below was built
+and reasoned through carefully, but this session had no Docker and no
+Node/npm available — there was no way to run `make demo`, hit the analytics
+page in a browser, or run the new pytest suite against a live Postgres. The
+gate — "the analytics page shows non-zero density, per-corridor average
+speed, a populated route-density table and a heatmap, every figure traceable
+to real rows" — is **not yet confirmed**. That confirmation is the actual
+next step, on a machine that can run the stack.
+
+### What was built
+
+Backend (`dc77c47`, prior session): migration 0004 (`corridor` column,
+backfilled), the 12-camera / 4-corridor fleet, and the six
+`/api/v1/analytics/*` endpoints (`flow`, `speed`, `routes`, `travel-time`,
+`hotspots`, `heatmap`) — see `services/api/app/routers/analytics.py` and
+`app/schemas/analytics.py`.
+
+This session, closing the gap that section left open ("the page and the
+heatmap layer are not here yet, and neither are the endpoint tests"):
+
+- **`services/api/tests/test_analytics.py`** — new. Every test builds its own
+  `vehicle_tracks` / `detections` rows inside a fixed historical window
+  (2024-03-04) rather than trusting whatever the simulator happens to have
+  produced, so the suite is deterministic against a live, concurrently-running
+  demo with no mocking. Covers: the `DISTINCT ON` dedup trap directly (a
+  plate re-persisted three times must contribute one leg, not three — proven
+  on `/speed`'s `samples` field and `/routes`' `median_gap_seconds`, not on
+  `journeys`, which is a Python `set` and would mask the regression);
+  implausible-leg exclusion (an excluded leg produces no `SegmentSpeed` at
+  all, and never reaches a median); `insufficient_history` vs
+  `insufficient_data` as two genuinely different code paths on
+  `/travel-time` (no baseline vs no current leg); RBAC (every role but
+  `api_client` reads; `api_client` is refused); and the `bucket`/`group_by`
+  params on `/flow`, including the documented silent fallback for an unknown
+  bucket string.
+- **`web/src/pages/Analytics.tsx`** — new. Flow (stacked area, recharts, one
+  series per corridor), corridor speed (bar chart for `status="ok"`
+  corridors only, with a `Badge` list naming the rest and why — a chart
+  never draws a bar for a figure that doesn't exist), route density (table),
+  travel-time (a card grid, `insufficient_history` rendered as exactly that,
+  never a zero delta), and busiest cameras. Registered at `/analytics` in
+  `App.tsx`, next to `/map`, gated on the new `analytics.read` permission
+  (added to `web/src/lib/permissions.ts` — every role but `api_client`, per
+  `rbac.py`).
+- **Heatmap layer, `web/src/components/CameraMap.tsx`** — a `heatmap`-type
+  MapLibre layer, additive to the existing camera markers and district
+  boundaries. Takes `/analytics/heatmap`'s GeoJSON directly (it is already
+  shaped for this — see that endpoint's own docstring). Wired into a toggle
+  on the existing GIS map (`MapView.tsx`, "Detection density heatmap"),
+  gated the same way, rather than only living on the new page — inserted
+  *below* the camera-marker layers so a dense heatmap can never hide a
+  camera.
+- `corridor` added to the `Camera` / `CameraFeatureProperties` frontend
+  types, and the full analytics response contract mirrored into
+  `lib/types.ts`, matching `app/schemas/analytics.py` field for field.
+
+### What is not done
+
+- **The gate itself.** Nobody has looked at the rendered page.
+- Two spot-fixes made in the same session, also unverified live: the
+  design-system pass across every screen (merged from `riya-frontend-vadi`
+  onto this branch first, so the analytics page is built on the current
+  primitives rather than the pre-redesign markup), and a colour-token fix in
+  `AnprOverlay.tsx` (an inline `rgb()` literal replaced with
+  `hsl(var(--priority-high))`, for consistency with the rest of the palette
+  — not a behaviour change).
+- The ANPR bounding-box lag an operator reported ("the box appears after the
+  car is already gone") was investigated but not changed: the sync
+  architecture in `AnprOverlay.tsx`/`StreamPlayer.tsx` is already correct on
+  reading, and the far more likely cause is the same one this phase's own
+  `SpeedProvenance` note names — a replayed clip loops every few seconds, so
+  `hls.playingDate` (real wall-clock) and what is visually on screen fall
+  out of correspondence at each loop boundary. That is a property of
+  replayed demo footage the project has already decided not to chase before
+  P7, not a frontend bug, so nothing was changed speculatively.
+
+### Next actual step
+
+On a machine with Docker and Node: `make demo`, `make ai`, open `/analytics`
+as any non-`api_client` role, and check the gate's four claims against what
+renders. Then `make test` for the new suite against the live fleet. If a
+figure is wrong or a chart is empty when it should not be, that is real
+signal this session could not get — bring it back with what the page
+actually showed.
+
+---
+
 ## Worker CPU and the thread budget  ✅ (unplanned — 10 Sep 2026)
 
 Not a roadmap phase. Raised as "cameras are not loading properly, and if they
@@ -1657,7 +1749,7 @@ Recorded so no session mistakes these for done. Verified against the code, not t
 | Gap | Detail | Phase |
 |---|---|---|
 | **Only one camera in the registry** | `CAM-DEMO` alone. A platform about linking observations across cameras has nothing to link. Blocks PS steps 1, 3, 4, 7, 8. | P1 |
-| **No traffic analytics at all** | No analytics router, no analytics page, no heatmap layer, zero `time_bucket`/`date_trunc`/continuous aggregates. `recharts` is a dependency **imported zero times** — every "chart" on screen is a Tailwind div with a percentage width. | P4 |
+| ~~No traffic analytics at all~~ | 🟡 **Code complete (P4)**, gate not yet run — see the P4 section above. Router, page, and heatmap layer all exist now; nobody has confirmed the rendered numbers against a live fleet. | — |
 | **No route-level average speed** | The only speed figure in the system is per-leg `implied_kmph`. `Route` has no speed property. | P2 |
 | **`first_seen` / `last_seen` never rendered** | Present in the API payload and in the TS type; displayed on no screen. | P2 |
 | **No journey animation** | `RouteMap.tsx` animates only camera movement (`easeTo`/`fitBounds`). No timeline, scrubber, moving marker or `requestAnimationFrame` anywhere in `web/src`. | P2 |

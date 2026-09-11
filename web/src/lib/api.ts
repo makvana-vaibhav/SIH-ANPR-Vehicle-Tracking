@@ -20,12 +20,18 @@ import type {
   ManagedUser,
   FleetHealth,
   FleetSummary,
+  FlowResponse,
   GapReport,
+  HeatmapResponse,
+  HotspotResponse,
+  RouteDensityResponse,
+  SpeedResponse,
   StreamGrant,
   ConvoyReport,
   Priority,
   Role,
   RoutablePlates,
+  TravelTimeResponse,
   UserProfile,
   UserPage,
   VehicleRoute,
@@ -544,6 +550,51 @@ export const getAudit = (query: AuditQuery = {}) => {
   }
   return request<AuditPage>(`/api/v1/audit?${params}`)
 }
+
+// ── City traffic analytics ───────────────────────────────────────────────
+
+/** Shared by every analytics call: every endpoint takes the same reporting
+ *  window, and most take nothing else. */
+export interface AnalyticsWindowQuery {
+  since?: string
+  until?: string
+}
+
+function analyticsParams(
+  query: Record<string, string | number | undefined>,
+): URLSearchParams {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return params
+}
+
+export const getAnalyticsFlow = (
+  query: AnalyticsWindowQuery & {
+    bucket?: string
+    group_by?: 'camera' | 'corridor'
+    corridor?: string
+  } = {},
+) => request<FlowResponse>(`/api/v1/analytics/flow?${analyticsParams(query)}`)
+
+export const getAnalyticsSpeed = (
+  query: AnalyticsWindowQuery & { corridor?: string } = {},
+) => request<SpeedResponse>(`/api/v1/analytics/speed?${analyticsParams(query)}`)
+
+export const getAnalyticsRoutes = (
+  query: AnalyticsWindowQuery & { limit?: number } = {},
+) => request<RouteDensityResponse>(`/api/v1/analytics/routes?${analyticsParams(query)}`)
+
+export const getAnalyticsTravelTime = (query: AnalyticsWindowQuery = {}) =>
+  request<TravelTimeResponse>(`/api/v1/analytics/travel-time?${analyticsParams(query)}`)
+
+export const getAnalyticsHotspots = (
+  query: AnalyticsWindowQuery & { limit?: number } = {},
+) => request<HotspotResponse>(`/api/v1/analytics/hotspots?${analyticsParams(query)}`)
+
+export const getAnalyticsHeatmap = (query: AnalyticsWindowQuery = {}) =>
+  request<HeatmapResponse>(`/api/v1/analytics/heatmap?${analyticsParams(query)}`)
 
 // ── Formatting ────────────────────────────────────────────────────────
 

@@ -10,6 +10,9 @@ export interface Camera {
   department_name: string | null
   vms_name: string | null
   vms_vendor: string | null
+  /** The road this camera sits on, for corridor-level analytics — see
+   *  migration 0004. Null for a camera on no corridor the platform models. */
+  corridor: string | null
   district: string | null
   city: string | null
   junction: string | null
@@ -44,6 +47,7 @@ export interface CameraFeatureProperties {
   id: string
   camera_code: string
   name: string
+  corridor: string | null
   district: string | null
   city: string | null
   junction: string | null
@@ -539,4 +543,149 @@ export interface AuditPage {
   total: number
   limit: number
   offset: number
+}
+
+// ── City traffic analytics ─────────────────────────────────────────────
+// Mirrors app/schemas/analytics.py exactly. Every figure that can be absent
+// carries a `status` rather than a substituted number — see that module's
+// docstring. `DataStatus` is a closed set so the UI can branch on it
+// exhaustively instead of pattern-matching prose.
+
+export type DataStatus = 'ok' | 'insufficient_history' | 'insufficient_data'
+
+export interface AnalyticsWindow {
+  start: string
+  end: string
+  /** Width of one time bucket, in seconds. 0 when the response is not bucketed. */
+  bucket_seconds: number
+}
+
+export interface FlowPoint {
+  ts: string
+  vehicles: number
+  with_plate: number
+}
+
+export interface FlowSeries {
+  /** Camera code, or corridor name when grouped by corridor. */
+  key: string
+  label: string
+  corridor: string | null
+  points: FlowPoint[]
+  total: number
+}
+
+export interface FlowResponse {
+  window: AnalyticsWindow
+  group_by: 'camera' | 'corridor'
+  series: FlowSeries[]
+  total_vehicles: number
+}
+
+export interface SpeedProvenance {
+  source: 'observed_journeys'
+  legs_considered: number
+  legs_excluded_implausible: number
+  note: string
+}
+
+export interface SegmentSpeed {
+  from_camera: string
+  to_camera: string
+  corridor: string | null
+  distance_km: number
+  status: DataStatus
+  samples: number
+  median_kmph: number | null
+  p85_kmph: number | null
+  median_seconds: number | null
+}
+
+export interface CorridorSpeed {
+  corridor: string
+  status: DataStatus
+  samples: number
+  median_kmph: number | null
+  segments: SegmentSpeed[]
+}
+
+export interface SpeedResponse {
+  window: AnalyticsWindow
+  provenance: SpeedProvenance
+  corridors: CorridorSpeed[]
+}
+
+export interface RoutePair {
+  from_camera: string
+  to_camera: string
+  from_corridor: string | null
+  to_corridor: string | null
+  journeys: number
+  distance_km: number
+  median_gap_seconds: number
+  same_corridor: boolean
+}
+
+export interface RouteDensityResponse {
+  window: AnalyticsWindow
+  pairs: RoutePair[]
+  total_journeys: number
+}
+
+export interface TravelTime {
+  from_camera: string
+  to_camera: string
+  corridor: string | null
+  status: DataStatus
+  current_seconds: number | null
+  current_samples: number
+  baseline_seconds: number | null
+  baseline_samples: number
+  baseline_days: number
+  /** Positive means slower than baseline. Null unless both figures exist. */
+  delta_pct: number | null
+}
+
+export interface TravelTimeResponse {
+  window: AnalyticsWindow
+  segments: TravelTime[]
+  baseline_window_days: number
+}
+
+export interface Hotspot {
+  camera_code: string
+  camera_name: string
+  corridor: string | null
+  lat: number
+  lon: number
+  vehicles: number
+  /** Share of the busiest camera's count, 0-1. */
+  intensity: number
+}
+
+export interface HotspotResponse {
+  window: AnalyticsWindow
+  by_volume: Hotspot[]
+  by_slowdown: TravelTime[]
+  slowdown_status: DataStatus
+  note: string
+}
+
+export interface HeatmapFeatureProperties {
+  camera_code: string
+  camera_name: string
+  corridor: string | null
+  vehicles: number
+  intensity: number
+}
+
+export interface HeatmapResponse {
+  type: 'FeatureCollection'
+  features: Array<{
+    type: 'Feature'
+    geometry: { type: 'Point'; coordinates: [number, number] }
+    properties: HeatmapFeatureProperties
+  }>
+  window: AnalyticsWindow
+  max_vehicles: number
 }

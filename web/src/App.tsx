@@ -5,6 +5,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { ToastProvider } from '@/components/Toast'
 import { Button, Spinner } from '@/components/ui'
 import Alerts from '@/pages/Alerts'
+import Analytics from '@/pages/Analytics'
 import AuditLog from '@/pages/AuditLog'
 import ChangePassword from '@/pages/ChangePassword'
 import Dashboard from '@/pages/Dashboard'
@@ -39,6 +40,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', gu: 'ડેશબોર્ડ', needs: PERMISSIONS.cameraRead },
   { to: '/map', label: 'GIS Map', gu: 'નકશો', needs: PERMISSIONS.cameraRead },
+  { to: '/analytics', label: 'Analytics', gu: 'વિશ્લેષણ', needs: PERMISSIONS.analyticsRead },
   { to: '/anpr', label: 'Live ANPR', gu: 'લાઇવ ANPR', needs: PERMISSIONS.streamView },
   { to: '/alerts', label: 'Alerts', gu: 'ચેતવણી', needs: PERMISSIONS.alertRead },
   {
@@ -182,6 +184,14 @@ function Shell() {
             element={
               <RequirePermission anyOf={[PERMISSIONS.cameraRead]} label="The GIS map">
                 <MapView />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <RequirePermission anyOf={[PERMISSIONS.analyticsRead]} label="Traffic analytics">
+                <Analytics />
               </RequirePermission>
             }
           />

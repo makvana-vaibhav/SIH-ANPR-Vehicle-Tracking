@@ -2,8 +2,8 @@
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
-*Updated 10 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
-**next task: P4, city traffic analytics***
+*Updated 11 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
+**P4 code complete, gate not yet run — see below***
 
 | Document | What it holds |
 |---|---|
@@ -41,7 +41,7 @@ Docker on Apple Silicon there is none, and no setting creates one.
 ```
 DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops
          └─ plus: worker CPU budget + pipeline pool (unplanned, 10 Sep)
-NEXT     P4 analytics ← start here
+NEXT     P4 analytics — code complete, gate not yet run ← run `make demo` and check it
 THEN     P5 anomaly ──▶ P6 harden                                              (V1, ~2 weeks)
 LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 predict ──▶ P11 re-ID ──▶ P12 docs
 ```
@@ -59,7 +59,7 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 | 5 | Plate search | 🟡 exact and prefix only, no fuzzy |
 | 6 | Blacklist alert **with plate crop** | ✅ **alert fires by itself, with the plate crop** |
 | 7 | Trajectory anomaly + explanation | 🟡 a physics filter, not a detector |
-| 8 | City traffic analytics | 🔴 **absent — no router, no page** |
+| 8 | City traffic analytics | 🟡 **code complete (P4), gate not yet run** — router, page and heatmap all exist; unverified against a live fleet |
 
 ---
 
@@ -86,8 +86,10 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ## ⏳ What is missing, in priority order
 
-2. **Traffic analytics.** No router, no page, no heatmap. `recharts` is a dependency imported zero
-   times; every "chart" today is a Tailwind div bar. → **P4**
+2. **Traffic analytics — verification.** Router, page and heatmap now exist (P4), built and reasoned
+   through carefully but never run: this session had no Docker and no Node/npm, so nobody has opened
+   `/analytics` in a browser or run `make test` against a live fleet. See BUILD_STATE.md's P4 section
+   for exactly what was built and what "next step" means concretely. → **P4, gate**
 4. **Anomaly detection.** The six existing flags are a cloned-plate/OCR physics filter. Nothing
    compares a journey to a norm. `AlertType.ANOMALY` has zero producers. → **P5**
 6. **A real accuracy number.** → **P7**
@@ -116,27 +118,34 @@ LATER    P7 accuracy ──▶ P8 search ──▶ P9 attributes ──▶ P10 p
 
 ---
 
-## ▶ Next step: P4 — city traffic analytics
+## ▶ Next step: run the P4 gate
 
 Full definition and gate: [ROADMAP.md](ROADMAP.md#p4--city-traffic-analytics--biggest-missing-module).
+Full build detail: [BUILD_STATE.md](BUILD_STATE.md), P4 section.
 
-The biggest missing module, and the only PS demo step with **nothing at all**
-behind it — no analytics router, no analytics page, no heatmap layer, and zero
-`time_bucket`/`date_trunc`/continuous aggregates anywhere. `recharts` is already
-a dependency and is imported zero times; every "chart" on screen today is a
-Tailwind div with a percentage width.
+The router, the page and the heatmap layer all exist now — `analytics.py` over
+the `detections` hypertable and `vehicle_tracks` (density, corridor average
+speed, route density, travel time vs baseline, hotspots), `Analytics.tsx`
+actually using `recharts`, and a `heatmap`-type MapLibre layer wired into both
+the new page's data flow and a toggle on the existing GIS map. A test suite
+for the endpoints exists too (`test_analytics.py`), built against a fixed
+historical window so it is deterministic against a live, concurrently-running
+demo.
 
-Build a new `analytics.py` router over the existing `detections` hypertable
-(density, corridor average speed, route density, travel time vs baseline,
-hotspots) and a new `Analytics.tsx` that actually uses recharts, plus a heatmap
-layer on the camera map.
+**None of it has been run.** The session that built it had no Docker and no
+Node/npm — everything was written and reasoned through against the actual
+source (the SQL, the Pydantic schemas, the existing RBAC matrix), but the gate
+itself — "the analytics page shows non-zero density, per-corridor average
+speed, a populated route-density table and a heatmap, every figure traceable to
+real rows" — needs a real `make demo` and a browser. That is the actual next
+step, not more code.
 
-**Agree the response shapes before either track starts** — this is the one phase
-where backend and frontend touch the same thing.
-
-**Honesty rule:** every figure computed from observed rows. Where a baseline has
-too little history, the UI says "insufficient history" — never a plausible
-invented number.
+**Honesty rule, unchanged:** every figure computed from observed rows. Where a
+baseline has too little history, the UI says "insufficient history" — never a
+plausible invented number. On this demo fleet, expect the speed endpoint to
+report `insufficient_data` for most or all corridors — a replayed clip makes
+every implied speed hundreds of km/h, so the correlator excludes it, correctly.
+That is documented, expected behaviour, not a bug to chase.
 
 ---
 

@@ -23,7 +23,9 @@ import {
   StatusDot,
   Spinner,
 } from '@/components/ui'
+import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
+import { PERMISSIONS } from '@/lib/permissions'
 import type {
   CameraFeatureProperties,
   CameraGeoJSON,
@@ -43,6 +45,7 @@ const STATUS_LABEL: Record<CameraStatus, string> = {
 }
 
 export default function MapView() {
+  const { can } = useAuth()
   const [cameras, setCameras] = useState<CameraGeoJSON | null>(null)
   const [districts, setDistricts] = useState<GeoJSON.FeatureCollection | null>(null)
   const [health, setHealth] = useState<FleetHealth | null>(null)
@@ -69,6 +72,27 @@ export default function MapView() {
   const [vendor, setVendor] = useState('')
   const [anprOnly, setAnprOnly] = useState(false)
   const [search, setSearch] = useState('')
+
+  // Detection-density heatmap (P4 traffic analytics), fetched on demand —
+  // an operator who never asks for it should not pay for the query.
+  const mayReadAnalytics = can(PERMISSIONS.analyticsRead)
+  const [showHeatmap, setShowHeatmap] = useState(false)
+  const [heatmap, setHeatmap] = useState<GeoJSON.FeatureCollection | null>(null)
+
+  useEffect(() => {
+    if (!showHeatmap || heatmap) return
+    let cancelled = false
+    void api
+      .getAnalyticsHeatmap()
+      .then((body) => {
+        if (cancelled) return
+        setHeatmap({ type: 'FeatureCollection', features: body.features } as GeoJSON.FeatureCollection)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [showHeatmap, heatmap])
 
   // District boundaries are a static asset: fetched once, cached by the
   // browser, and served from our own origin — no tile server involved.
@@ -260,6 +284,20 @@ export default function MapView() {
             />
           </div>
 
+          {mayReadAnalytics && (
+            <div className="mt-4 border-t border-border pt-4">
+              <Checkbox
+                checked={showHeatmap}
+                onChange={(e) => setShowHeatmap(e.target.checked)}
+                label="Detection density heatmap"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Weighted by vehicle count over the last 6 hours — the camera
+                layer stays on top so cameras are never hidden under it.
+              </p>
+            </div>
+          )}
+
           {(department || status || vendor || anprOnly || search) && (
             <Button
               variant="outline"
@@ -306,6 +344,8 @@ export default function MapView() {
             selectedCode={selected?.camera_code ?? null}
             basemap={basemap}
             onSatelliteUnavailable={handleSatelliteUnavailable}
+            heatmap={heatmap}
+            showHeatmap={showHeatmap}
           />
 
           {/* Basemap switcher */}

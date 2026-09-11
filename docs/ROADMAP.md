@@ -40,7 +40,7 @@ This is the acceptance test for V1. Status as of 9 Sep 2026.
 | 5 | Plate search | 🟡 exact + prefix only | P8 (V2) |
 | 6 | Blacklist alert **with plate crop** | 🟡 alert fires, crop impossible | **P3** |
 | 7 | Trajectory anomaly + explanation | 🟡 physics filter only, no detector | **P5** |
-| 8 | City traffic analytics | 🔴 **absent** | **P4** |
+| 8 | City traffic analytics | 🟡 **code complete, gate not run** | **P4** |
 
 ---
 
@@ -117,7 +117,12 @@ zero `put_object` / `presigned` / `boto3` hits. MinIO exists only as config and 
 ### P4 — City traffic analytics ⭐ biggest missing module
 **Track split, contract-first · ~3–4 days · PS §7**
 
-Nothing exists: no analytics router, no analytics page, no heatmap layer, zero `time_bucket` /
+> 🟡 **Code complete, gate not yet run.** Router, page and heatmap layer all exist — see
+> [BUILD_STATE.md](BUILD_STATE.md)'s P4 section for exactly what was built. The session that built
+> the frontend half and the tests had no Docker and no Node/npm, so the gate below has not been
+> confirmed against a live fleet. That confirmation is the next step.
+
+Nothing existed at the start of this phase: no analytics router, no analytics page, no heatmap layer, zero `time_bucket` /
 `date_trunc` / continuous aggregates anywhere. `recharts` is already a dependency and is **imported
 zero times** — every "chart" on screen today is a Tailwind div with a percentage width.
 
