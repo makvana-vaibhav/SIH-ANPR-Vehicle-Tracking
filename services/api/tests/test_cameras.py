@@ -729,18 +729,24 @@ class TestRecordedSourceFile:
             },
             headers=admin,
         )
-        assert created.status_code == 201, created.text
-        assert created.json()["source_file"] == "highway_cam_a.mp4"
+        # Removed again at the end: the camera code is fixed, so leaving the row
+        # behind made the whole suite fail with a 409 on its second run.
+        try:
+            assert created.status_code == 201, created.text
+            assert created.json()["source_file"] == "highway_cam_a.mp4"
 
-        # And an update can clear it, which is how the form switches a camera
-        # back to a live URL.
-        cleared = await client.patch(
-            f"/api/v1/cameras/{created.json()['id']}",
-            json={"source_file": None},
-            headers=admin,
-        )
-        assert cleared.status_code == 200, cleared.text
-        assert cleared.json()["source_file"] is None
+            # And an update can clear it, which is how the form switches a
+            # camera back to a live URL.
+            cleared = await client.patch(
+                f"/api/v1/cameras/{created.json()['id']}",
+                json={"source_file": None},
+                headers=admin,
+            )
+            assert cleared.status_code == 200, cleared.text
+            assert cleared.json()["source_file"] is None
+        finally:
+            if created.status_code == 201:
+                await client.delete(f"/api/v1/cameras/{created.json()['id']}", headers=admin)
 
     async def test_the_clip_list_is_readable_and_names_only(
         self, client: AsyncClient, auth_headers

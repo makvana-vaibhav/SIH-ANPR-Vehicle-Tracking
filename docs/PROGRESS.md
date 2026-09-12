@@ -82,9 +82,32 @@ same plate. The overlay now schedules each box against the instant the picture i
 carries it forward on the vehicle's own measured velocity, capped at 700 ms so a track that stops
 reporting stops moving. A box also appears from the *first* reading rather than waiting for
 consensus — unlabelled and dashed until the plate is confirmed, which is what used to delay it by
-a second or more. **Not yet verified on a running stack**: this machine has no Docker, so the
-numbers above are the ones the code and the payload measurement give, not a stopwatch on the demo.
-Run `make ai` and watch a corridor camera to close it.
+a second or more.
+
+**Now verified on a running stack** (13 Sep), which the session that wrote it could not do. One
+worker on CAM-DEMO-01, replaying `anpr_demo.mp4` over RTSP, measured against the host's own clock
+from a WebSocket client standing in for the browser:
+
+| stage | measured |
+|---|---|
+| capture → publish (worker, inference) | p50 137 ms · p90 165 ms |
+| publish → browser (Redis + API + WebSocket) | **p50 0 ms** · max 4 ms |
+| capture → browser, end to end | p50 135 ms · p90 201 ms · p99 345 ms |
+| gateway live edge behind real time | ~155 ms |
+| HLS display (live edge + `PART-HOLD-BACK` 0.6675 s) | ~820 ms |
+| WebRTC display (live edge + jitter buffer) | ~250–300 ms |
+
+The conclusion that matters: **the transport is not the cost and never was** — bus, API and socket
+together are under 5 ms, and the whole event-side budget is the worker's own inference. Events
+therefore arrive *before* the frame they describe on both transports, which is the case the capture
+clock exists to handle: a box whose frame has not been displayed yet is withheld (`age < 0`), not
+drawn early.
+
+`stream.track_batch_s` was 0.2 s — a 5/s ceiling — while the worker was analysing 10.2 fps, so the
+cadence rather than the inference was deciding how often a box could move. At 0.1 s the same camera
+publishes **6.2 batches/s (was 4.0)**, cutting the prediction horizon from 250 ms to 161 ms with no
+change to end-to-end latency (p50 135 → 141 ms, inside the noise) and 26% frames dropped, down from
+32%. Prediction still covers the gap; it now has a third less distance to cover.
 
 ```
 DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops

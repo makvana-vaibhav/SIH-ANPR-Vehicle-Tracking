@@ -11,6 +11,8 @@ data/models/*
 !data/models/.gitkeep
 !data/models/README.md
 data/videos/*
+# Clips pulled out of rotation but kept on disk — same rule as data/videos.
+data/videos_parked/
 # Keyframe-dense copies the simulator builds from data/videos (cache, rebuildable)
 data/prepared/
 !data/videos/.gitkeep

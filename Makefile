@@ -176,7 +176,14 @@ contracts: ## Regenerate Pydantic + TypeScript types from JSON Schema
 .PHONY: test
 test: ## Run backend and frontend test suites
 	@printf "\033[1mAPI tests\033[0m\n"
-	@$(COMPOSE) exec -T -w /app/services/api api python -m pytest tests -q
+	@# The simulator is on the path because test_cameras.py pins the API's copy
+	@# of VIDEO_SUFFIXES against the simulator's original — a value the API
+	@# accepts but the simulator skips is a camera pinned to a clip that never
+	@# plays. Only `simulator` is imported from there; `app` still resolves to
+	@# the API's own package because /app/services/api is the working directory.
+	@$(COMPOSE) exec -T -w /app/services/api \
+		-e PYTHONPATH=/app/services/api:/app/services/simulator \
+		api python -m pytest tests -q
 	@printf "\n\033[1mAI worker tests\033[0m\n"
 	@$(COMPOSE) exec -T -e PYTHONPATH=/app/services/ai-worker:/app/ai-lab api \
 		python -m pytest /app/services/ai-worker/tests -q

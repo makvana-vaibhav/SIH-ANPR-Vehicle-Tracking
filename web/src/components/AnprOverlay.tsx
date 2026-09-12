@@ -65,7 +65,7 @@
  * same box rather than drawing two.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 
 import { liveTrackKey, trackBoxKey } from '@/lib/events'
 import type { BBox, LiveTrackBatchEvent, LiveVehicleEvent } from '@/lib/types'
@@ -985,12 +985,46 @@ export default function AnprOverlay({
           const colour = uncertain
             ? 'hsl(var(--priority-high))'
             : 'hsl(var(--status-online))'
+          // The plate marker is red whatever the vehicle brackets say. It marks
+          // where the plate *is*, which is a different statement from how sure
+          // the reading is, and giving it its own colour stops the two signals
+          // competing for the same rectangle.
+          const plateColour = 'hsl(var(--priority-critical))'
+
+          // Four corner brackets rather than a closed rectangle. With eight
+          // vehicles in frame a continuous outline per car is the clutter, not
+          // the data; brackets read as a frame while leaving the vehicle itself
+          // visible. Proportional to the box, so a car in the distance does not
+          // get brackets longer than it is.
+          const arm = Math.max(
+            5,
+            Math.min(30, Math.min(vehicle.width, vehicle.height) * 0.24),
+          )
+          // Tier is carried by weight and opacity, not by a dash pattern: a
+          // 6 px bracket cannot be dashed legibly. Thin and faint still means
+          // "there is a plate here", full strength still means "this vehicle is
+          // identified" — the distinction the three tiers exist to make.
+          const armWidth = read ? 3 : 2
+          const armOpacity = read ? 1 : item.tier === 'reading' ? 0.75 : 0.55
+          const armCss = `${armWidth}px solid ${colour}`
+          const corners: Array<{ key: string; style: CSSProperties }> = [
+            { key: 'tl', style: { top: 0, left: 0, borderTop: armCss, borderLeft: armCss } },
+            { key: 'tr', style: { top: 0, right: 0, borderTop: armCss, borderRight: armCss } },
+            {
+              key: 'bl',
+              style: { bottom: 0, left: 0, borderBottom: armCss, borderLeft: armCss },
+            },
+            {
+              key: 'br',
+              style: { bottom: 0, right: 0, borderBottom: armCss, borderRight: armCss },
+            },
+          ]
 
           // The label goes above the plate when there is one, else above the
           // vehicle — and never *over* the plate, which is the one part of the
           // picture a viewer may want to read for themselves.
           const anchor = plate ?? vehicle
-          const labelBelow = anchor.top < 22
+          const labelBelow = anchor.top < 30
 
           return (
             <div
@@ -1010,23 +1044,30 @@ export default function AnprOverlay({
               data-latency-ms={item.latencyMs ?? undefined}
               style={{ opacity: item.opacity }}
             >
-              {/* Layer 1 — the vehicle. Deliberately faint: with twenty cars in
-                  frame, twenty bold rectangles are the clutter, not the data.
-                  Dashed and fainter until the plate has been read, so a box
-                  that means "there is a plate here" is never mistaken for one
-                  that means "this vehicle is identified". */}
+              {/* Layer 1 — the vehicle, as four corner brackets. This element
+                  stays the positioned rectangle (the tests read its `left`, and
+                  it is still the geometry the box describes); the brackets are
+                  nested inside it so a track's direct children remain "vehicle,
+                  plate, label" and nothing downstream has to learn a new
+                  shape. */}
               <div
-                className="absolute rounded-sm border"
+                className="absolute"
                 style={{
                   left: vehicle.left,
                   top: vehicle.top,
                   width: vehicle.width,
                   height: vehicle.height,
-                  borderColor: colour,
-                  borderStyle: read ? 'solid' : 'dashed',
-                  opacity: read ? 0.5 : item.tier === 'reading' ? 0.4 : 0.3,
+                  opacity: armOpacity,
                 }}
-              />
+              >
+                {corners.map((corner) => (
+                  <div
+                    key={corner.key}
+                    className="absolute"
+                    style={{ width: arm, height: arm, borderRadius: 2, ...corner.style }}
+                  />
+                ))}
+              </div>
 
               {/* Layer 2 — the plate the detector localised. This is the
                   earliest honest mark on the picture: it says "there is a
@@ -1040,7 +1081,7 @@ export default function AnprOverlay({
                     top: plate.top,
                     width: plate.width,
                     height: plate.height,
-                    borderColor: colour,
+                    borderColor: plateColour,
                     borderStyle: read ? 'solid' : 'dashed',
                     borderWidth: read ? 2 : 1,
                     opacity: read ? 1 : 0.8,
@@ -1054,15 +1095,19 @@ export default function AnprOverlay({
                   still moving between candidates. */}
               {read && (
                 <div
-                  className="absolute flex items-center gap-1.5 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[13px] font-bold leading-tight text-black shadow-lg"
+                  className="absolute flex items-baseline gap-2 whitespace-nowrap rounded-[3px] bg-white px-2 py-1 font-mono text-[15px] font-bold leading-none tracking-wide text-black shadow-[0_2px_10px_rgba(0,0,0,0.45)]"
                   style={{
                     left: anchor.left,
-                    top: labelBelow ? anchor.top + anchor.height + 3 : anchor.top - 20,
-                    backgroundColor: colour,
+                    top: labelBelow ? anchor.top + anchor.height + 4 : anchor.top - 28,
+                    // The card is white so the plate reads like a plate. The
+                    // confidence colour moves to an underline rather than the
+                    // background, which keeps amber-means-unsure visible without
+                    // tinting the characters themselves.
+                    borderBottom: `3px solid ${colour}`,
                   }}
                 >
                   <span>{item.plate}</span>
-                  <span className="font-sans font-normal opacity-75">
+                  <span className="font-sans text-[11px] font-medium tracking-normal text-black/55">
                     {Math.round(item.confidence * 100)}%
                   </span>
                 </div>

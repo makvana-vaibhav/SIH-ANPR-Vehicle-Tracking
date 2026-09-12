@@ -233,6 +233,54 @@ describe('AnprOverlay', () => {
       expect(screen.getByText('GJ03AB1234')).toBeDefined()
     })
 
+    it('frames the vehicle with four corner brackets, not a closed rectangle', async () => {
+      // The vehicle layer is still the positioned rectangle — everything
+      // downstream, the tests here included, reads its geometry — but it draws
+      // as four corners so eight cars in frame do not become eight solid
+      // outlines over the picture.
+      const { container } = render(
+        <AnprOverlay batch={batch([box({ plate: 'GJ03AB1234' })])} camera={CAMERA} />,
+      )
+      await tick(20)
+
+      const vehicleLayer = container.querySelector('[data-anpr-track] > div')
+      const brackets = vehicleLayer?.querySelectorAll(':scope > div') ?? []
+      expect(brackets).toHaveLength(4)
+      // Each corner draws exactly two sides; a corner with four would be a box.
+      // Asserted on the shorthand rather than `border-top-width`, because jsdom
+      // only expands a border shorthand into longhands when it can parse the
+      // colour, and these are themed `hsl(var(--token))`.
+      for (const bracket of Array.from(brackets) as HTMLElement[]) {
+        const sides = (['borderTop', 'borderRight', 'borderBottom', 'borderLeft'] as const)
+          .filter((side) => bracket.style[side] !== '')
+        expect(sides).toHaveLength(2)
+      }
+      // And all four together cover every side, so the corners are distinct
+      // rather than four copies of the same one.
+      const covered = new Set(
+        Array.from(brackets).flatMap((bracket) =>
+          (['borderTop', 'borderRight', 'borderBottom', 'borderLeft'] as const).filter(
+            (side) => (bracket as HTMLElement).style[side] !== '',
+          ),
+        ),
+      )
+      expect(covered.size).toBe(4)
+    })
+
+    it('marks the plate in red, apart from the vehicle brackets', async () => {
+      // "Where the plate is" and "how sure the reading is" are different
+      // statements. The plate marker keeps its own colour so the two signals do
+      // not compete for the same rectangle.
+      const { container } = render(
+        <AnprOverlay batch={batch([box({ plate: 'GJ03AB1234' })])} camera={CAMERA} />,
+      )
+      await tick(20)
+
+      const layers = container.querySelectorAll('[data-anpr-track] > div')
+      const plateLayer = layers[1] as HTMLElement
+      expect(plateLayer.style.borderColor).toContain('--priority-critical')
+    })
+
     it('does not second-guess the detector about what is a plate', async () => {
       // The plate detector's own floor (`plate.confidence`, 0.25) decides
       // whether something is a plate. A stricter threshold in the browser
