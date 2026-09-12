@@ -287,7 +287,7 @@ export default function LiveAnpr() {
                   <Checkbox
                     checked={showBoxes}
                     onChange={(e) => setShowBoxes(e.target.checked)}
-                    label="plate boxes"
+                    label="readings overlay"
                     labelClassName="gap-1.5 text-[11px] text-muted-foreground"
                   />
                   <span
