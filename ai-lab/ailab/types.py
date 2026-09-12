@@ -252,6 +252,36 @@ class Track:
             total += math.hypot(b.bbox.cx - a.bbox.cx, b.bbox.cy - a.bbox.cy)
         return total
 
+    def net_motion(self) -> tuple[float, float, float] | None:
+        """Straight-line displacement from first sighting to last: (dx, dy, distance).
+
+        **None when it cannot be measured** — fewer than two detected sightings.
+        Deliberately not `(0, 0, 0)`: a track the detector flickered on once is
+        not the same fact as a vehicle watched for forty seconds that never
+        moved, and the second is what a queue or an obstruction looks like.
+        Collapsing them would let every one-frame detector artefact read as a
+        stopped vehicle.
+
+        Deliberately *net*, not `travelled_px` above. The two answer different
+        questions and the difference is the whole point for traffic work: a
+        vehicle stopped at a light still accumulates travelled_px from box
+        jitter frame after frame, while its net displacement stays near zero.
+        Only the second distinguishes "queued here for 40 s" from "drove
+        through".
+
+        Image coordinates, so `dy > 0` is *downward* in the frame. What that
+        means in compass terms depends on where the camera points, which the
+        worker has no idea about — the platform owns that, and converts using
+        `cameras.heading_deg`. Nothing here pretends to know north.
+        """
+        detected = [o for o in self.observations if o.detected]
+        if len(detected) < 2:
+            return None
+        first, last = detected[0].bbox, detected[-1].bbox
+        dx = last.cx - first.cx
+        dy = last.cy - first.cy
+        return dx, dy, math.hypot(dx, dy)
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Plates

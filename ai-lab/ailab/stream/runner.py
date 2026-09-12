@@ -469,6 +469,7 @@ class StreamRunner:
     def _as_vehicle(self, track: Track) -> Vehicle:
         self._next_vehicle_id += 1
         confidences = [o.confidence for o in track.observations if o.detected]
+        motion_dx, motion_dy, motion_px = track.net_motion() or (None, None, None)
         return Vehicle(
             vehicle_id=self._next_vehicle_id,
             track_ids=[track.track_id],
@@ -486,6 +487,9 @@ class StreamRunner:
             ),
             best_crop_path=track.best_crop_path,
             bbox=track.best_observation.bbox if track.best_observation else None,
+            motion_dx=motion_dx,
+            motion_dy=motion_dy,
+            motion_px=motion_px,
         )
 
     # ── reporting ──

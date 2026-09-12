@@ -112,6 +112,19 @@ def build_event(camera_code: str, vehicle_id: int, plate_text: str) -> dict[str,
             "duration_s": 18.5,
             "frames_tracked": random.randrange(8, 40),
             "merged_from_fragments": 1,
+            # Image-space travel, mirroring `ailab.stream.events._motion_block`.
+            # Generated as a vehicle crossing the frame rather than a stopped
+            # one: the load generator exists to measure event throughput, and
+            # a fleet of synthetic stationary vehicles would light up the
+            # obstruction detector with traffic that was never real.
+            "motion": {
+                "direction": random.choice(
+                    ["approaching", "receding", "crossing_left", "crossing_right"]
+                ),
+                "dx_px": round(random.uniform(-600, 600), 1),
+                "dy_px": round(random.uniform(-400, 400), 1),
+                "distance_px": round(random.uniform(180, 700), 1),
+            },
         },
         "plate": {
             "text": plate_text,
