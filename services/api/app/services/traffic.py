@@ -39,7 +39,7 @@ single view. Both are labelled estimates everywhere they surface.
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 # ── Vocabulary ────────────────────────────────────────────────────────────

@@ -109,6 +109,27 @@ class Settings(BaseSettings):
     convoy_min_shared_cameras: int = 3
     convoy_time_window_seconds: int = 90
 
+    # ── Traffic intelligence ──────────────────────────────────────────
+    # Thresholds for congestion, queues and stopped vehicles. Reasoned
+    # defaults, not measurements: no calibrated ground truth for Ahmedabad
+    # traffic exists in this repo, and inventing one would be worse than
+    # saying so. They are expected to be tuned against a real deployment,
+    # which is why they are settings rather than constants in a function.
+    # The maths they feed lives in `app/services/traffic.py`, and
+    # `tests/test_traffic.py` pins where each boundary sits.
+    traffic_queue_min_vehicles: int = 4
+    traffic_queue_dwell_seconds: float = 25.0
+    traffic_queue_min_sustained_buckets: int = 2
+    #: A single vehicle stationary this long is worth a human look. Reported as
+    #: a *possible obstruction* — the system sees that it stopped, never why.
+    traffic_obstruction_dwell_seconds: float = 90.0
+    #: Vehicles in view that represents a saturated camera, used to normalise
+    #: occupancy before it is combined with speed and travel time.
+    traffic_occupancy_reference: int = 12
+    traffic_congestion_moderate: float = 0.30
+    traffic_congestion_heavy: float = 0.55
+    traffic_congestion_severe: float = 0.75
+
     # ── Health monitor ────────────────────────────────────────────────
     health_probe_interval_seconds: int = 30
     health_probe_timeout_seconds: int = 5
