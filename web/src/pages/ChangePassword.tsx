@@ -48,7 +48,7 @@ export default function ChangePassword() {
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="max-w-md">
-        <h1 className="text-xl font-semibold">Change password</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Change password</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Signed in as{' '}
           <span className="font-medium text-foreground">{user?.username}</span>.

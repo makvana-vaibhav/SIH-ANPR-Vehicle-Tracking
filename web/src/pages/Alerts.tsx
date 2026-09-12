@@ -17,7 +17,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import PlateCrop from '@/components/PlateCrop'
 import { SkeletonRows } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
-import { Badge, Button, Checkbox, ConnectionBadge, EmptyState, PriorityBadge } from '@/components/ui'
+import {
+  Badge,
+  Button,
+  Checkbox,
+  EmptyState,
+  Icon,
+  PageHeader,
+  PriorityBadge,
+} from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
@@ -65,10 +73,21 @@ const TRANSITION_PERMISSION: Record<AlertStatus, string> = {
   false_positive: PERMISSIONS.alertClose,
 }
 
+/** A physical-looking key, for the shortcut hints in the toolbar. */
+function Key({ children }: { children: string }) {
+  return (
+    <kbd className="rounded border border-border bg-muted px-1 font-mono text-[11px] leading-relaxed text-foreground">
+      {children}
+    </kbd>
+  )
+}
+
 export default function Alerts() {
   const toast = useToast()
   const { can } = useAuth()
-  const { alerts: liveAlerts, status: feedStatus } = useEventStream()
+  // The feed's connection state is drawn once, in the navigation rail — it is
+  // a global fact and every screen was drawing its own copy.
+  const { alerts: liveAlerts } = useEventStream()
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [cameras, setCameras] = useState<Map<string, Camera>>(new Map())
   const [openOnly, setOpenOnly] = useState(true)
@@ -189,37 +208,53 @@ export default function Alerts() {
 
   return (
     <div className="h-full space-y-4 overflow-y-auto p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Alerts</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {alerts.length} {openOnly ? 'open' : 'total'} · raised automatically
-            when a watched plate is read
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="hidden text-[10px] text-muted-foreground lg:inline">
-            <kbd className="rounded bg-muted px-1">j</kbd>/
-            <kbd className="rounded bg-muted px-1">k</kbd> move ·{' '}
-            <kbd className="rounded bg-muted px-1">a</kbd>ck ·{' '}
-            <kbd className="rounded bg-muted px-1">d</kbd>ispatch ·{' '}
-            <kbd className="rounded bg-muted px-1">c</kbd>lose ·{' '}
-            <kbd className="rounded bg-muted px-1">f</kbd>alse
-          </span>
-          <Checkbox
-            checked={openOnly}
-            onChange={(e) => setOpenOnly(e.target.checked)}
-            label="open only"
-            labelClassName="gap-1.5 text-[11px] text-muted-foreground"
-          />
-          <ConnectionBadge live={feedStatus === 'live'} label={feedStatus} />
-        </div>
-      </header>
+      <PageHeader
+        title="Alerts"
+        subtitle={
+          <>
+            <span>
+              {alerts.length} {openOnly ? 'open' : 'total'}
+            </span>
+            <span className="text-muted-foreground/40">·</span>
+            <span>raised automatically when a watched plate is read</span>
+          </>
+        }
+        actions={
+          <div className="flex items-center gap-4">
+            {/* Triage here is repetitive and reaching for a mouse for every
+                one of forty alerts is the difference between clearing a
+                backlog and giving up on it — so the shortcuts are advertised
+                rather than left to be discovered. */}
+            <span className="hidden items-center gap-1 text-[11px] text-muted-foreground xl:flex">
+              <Key>j</Key>
+              <Key>k</Key>
+              <span className="mr-1">move</span>
+              <Key>a</Key>
+              <span className="mr-1">ack</span>
+              <Key>d</Key>
+              <span className="mr-1">dispatch</span>
+              <Key>c</Key>
+              <span className="mr-1">close</span>
+              <Key>f</Key>
+              <span>false</span>
+            </span>
+            <Checkbox
+              checked={openOnly}
+              onChange={(e) => setOpenOnly(e.target.checked)}
+              label="open only"
+              labelClassName="gap-1.5 text-[11px] text-muted-foreground"
+            />
+          </div>
+        }
+      />
 
       {/* The banner exists so a critical hit cannot be missed by an operator
           looking at another part of the screen. */}
       {critical.length > 0 && (
-        <div className="animate-pulse-alert rounded-md border-2 border-status-offline bg-status-offline/15 px-4 py-2">
+        <div className="flex items-center gap-2.5 rounded-md border-2 border-status-offline bg-status-offline/15 px-4 py-2.5">
+          <span className="animate-pulse-alert">
+            <Icon name="alert" size={16} className="text-status-offline" />
+          </span>
           <p className="text-sm font-bold text-status-offline">
             {critical.length} critical alert{critical.length === 1 ? '' : 's'}{' '}
             awaiting acknowledgement

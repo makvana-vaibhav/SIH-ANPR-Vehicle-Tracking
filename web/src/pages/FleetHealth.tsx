@@ -1,16 +1,24 @@
 /**
  * Fleet health and gap analysis.
  *
- * Both are named Model 1 requirements (challenge FAQ Q15: "camera health
- * monitoring" and "gap-analysis reports").
- *
- * The gap report answers the question a commissioner actually asks — *where
- * are we blind?* — which is not the same as *which cameras are broken*.
+ * The gap report answers the question an operations lead actually asks —
+ * *where is the city blind?* — which is not the same as *which cameras are
+ * broken*. A district with no camera at all never appears in a fault list.
  */
 
 import { useEffect, useState } from 'react'
 
-import { ErrorBanner, StatTile, Table, Td, Th, Thead, Tr } from '@/components/ui'
+import {
+  ErrorBanner,
+  InfoHint,
+  PageHeader,
+  StatTile,
+  Table,
+  Td,
+  Th,
+  Thead,
+  Tr,
+} from '@/components/ui'
 import * as api from '@/lib/api'
 import type { FleetHealth as FleetHealthData, GapReport } from '@/lib/types'
 
@@ -45,17 +53,20 @@ export default function FleetHealthPage() {
 
   return (
     <div className="h-full space-y-6 overflow-y-auto p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Fleet health &amp; gap analysis</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Live availability across the estate, and where coverage is missing.
-          {health && (
-            <span className="ml-1">
-              Updated {api.relativeTime(health.generated_at)}.
-            </span>
-          )}
-        </p>
-      </header>
+      <PageHeader
+        title="Fleet health"
+        subtitle={
+          <>
+            <span>availability across the estate, and where coverage is missing</span>
+            {health && (
+              <>
+                <span className="text-muted-foreground/40">·</span>
+                <span>updated {api.relativeTime(health.generated_at)}</span>
+              </>
+            )}
+          </>
+        }
+      />
 
       {/* Availability.
        *
@@ -69,42 +80,44 @@ export default function FleetHealthPage() {
        * "Not yet probed" only appears when it is non-zero. A card permanently
        * reading 0, explaining a state that no longer normally occurs, is how
        * a screen stops being read. */}
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 md:grid-cols-4">
         <StatTile
+          variant="strip"
           label="Availability"
-          value={
-            health?.availability_pct != null ? `${health.availability_pct}%` : '—'
-          }
-          detail={`${health?.online ?? '—'} of ${health?.total ?? '—'} cameras reachable`}
+          value={health?.availability_pct != null ? `${health.availability_pct}%` : '—'}
+          detail={`${health?.online ?? '—'} of ${health?.total ?? '—'} reachable`}
           tone={health ? (health.availability_pct < 90 ? 'bad' : 'good') : undefined}
         />
         <StatTile
+          variant="strip"
           label="Offline"
           value={health?.offline ?? '—'}
-          detail="Reachable integration, no video arriving"
+          detail="reachable integration, no video"
           tone={health && health.offline > 0 ? 'bad' : undefined}
         />
         <StatTile
+          variant="strip"
           label="Degraded"
           value={health?.degraded ?? '—'}
-          detail="Video arriving, but late or dropping frames"
+          detail="video arriving late or dropping frames"
           tone={health && health.degraded > 0 ? 'warn' : undefined}
         />
+        {/* Only when it is non-zero. A card permanently reading 0, explaining
+            a state that no longer normally occurs, is how a screen stops being
+            read at all. */}
+        {health != null && health.unknown > 0 && (
+          <StatTile
+            variant="strip"
+            label="Not yet probed"
+            value={health.unknown}
+            detail="state unknown, not offline"
+            info="Normally a camera onboarded in the last minute. Availability counts these as not reachable, which is the cautious reading — never-probed and offline are different facts and this keeps them apart."
+          />
+        )}
       </section>
 
-      {health != null && health.unknown > 0 && (
-        <p className="rounded border border-status-unknown/40 bg-status-unknown/10 px-4 py-2 text-xs text-muted-foreground">
-          <strong className="text-foreground">{health.unknown}</strong> camera
-          {health.unknown === 1 ? ' has' : 's have'} not been probed yet, so
-          {health.unknown === 1 ? ' its' : ' their'} state is unknown rather than
-          offline — normally this is a camera onboarded in the last minute.
-          Availability above counts {health.unknown === 1 ? 'it' : 'them'} as
-          not reachable, which is the cautious reading.
-        </p>
-      )}
-
       {/* Per department */}
-      <section className="rounded-lg border border-border bg-card">
+      <section className="rounded-md border border-border bg-card">
         <h2 className="border-b border-border px-4 py-3 text-sm font-semibold">
           Availability by department
         </h2>
@@ -129,12 +142,14 @@ export default function FleetHealthPage() {
       </section>
 
       {/* Vendor breadth — the interoperability evidence */}
-      <section className="rounded-lg border border-border bg-card">
-        <h2 className="border-b border-border px-4 py-3 text-sm font-semibold">
+      <section className="rounded-md border border-border bg-card">
+        <h2 className="flex items-center gap-1.5 border-b border-border px-4 py-3 text-sm font-semibold">
           Federated VMS vendors
-          <span className="ml-2 font-normal text-muted-foreground">
-            one adapter interface, many vendors
-          </span>
+          <InfoHint>
+            One adapter interface reaching every vendor here. Adding another is
+            one class plus one registry entry; nothing else in the platform
+            changes.
+          </InfoHint>
         </h2>
         <div className="grid gap-px bg-border md:grid-cols-3">
           {health?.by_vendor.map((row) => (
@@ -150,12 +165,13 @@ export default function FleetHealthPage() {
 
       {/* Failure causes */}
       {health && health.top_errors.length > 0 && (
-        <section className="rounded-lg border border-border bg-card">
-          <h2 className="border-b border-border px-4 py-3 text-sm font-semibold">
+        <section className="rounded-md border border-border bg-card">
+          <h2 className="flex items-center gap-1.5 border-b border-border px-4 py-3 text-sm font-semibold">
             Failure causes (last hour)
-            <span className="ml-2 font-normal text-muted-foreground">
-              grouped, so one root cause reads as one problem
-            </span>
+            <InfoHint>
+              Grouped by error code, so one root cause reads as one problem
+              rather than as forty separate failures.
+            </InfoHint>
           </h2>
           <div className="divide-y divide-border">
             {health.top_errors.map((e) => (
@@ -177,10 +193,14 @@ export default function FleetHealthPage() {
 
       {/* Gap analysis */}
       <section>
-        <h2 className="text-base font-semibold">Gap analysis</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Four distinct failure modes, because each needs a different response.
-        </p>
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+          Gap analysis
+          <InfoHint>
+            Four distinct failure modes, kept apart because each needs a
+            different response. This answers where the city is blind, which is
+            not the same question as which cameras are broken.
+          </InfoHint>
+        </h2>
 
         <div className="mt-4 grid gap-4 md:grid-cols-4">
           <StatTile
@@ -206,7 +226,7 @@ export default function FleetHealthPage() {
         </div>
 
         {gaps && gaps.coverage_gaps.length > 0 && (
-          <div className="mt-4 rounded-lg border border-status-degraded/30 bg-status-degraded/5 p-4">
+          <div className="mt-4 rounded-md border border-status-degraded/30 bg-status-degraded/5 p-4">
             <h3 className="text-sm font-semibold text-status-degraded">
               Districts with no registered cameras
             </h3>
@@ -227,7 +247,7 @@ export default function FleetHealthPage() {
         )}
 
         {gaps && gaps.capability_gaps.length > 0 && (
-          <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
+          <div className="mt-4 overflow-hidden rounded-md border border-border bg-card">
             <h3 className="border-b border-border px-4 py-3 text-sm font-semibold">
               Districts below the ANPR coverage target
             </h3>

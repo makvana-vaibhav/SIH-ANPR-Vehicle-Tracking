@@ -18,7 +18,21 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
 import { useToast } from '@/components/Toast'
-import { Button, Field, Input, RoleBadge, Select, Table, Td, Th, Thead, Tr } from '@/components/ui'
+import {
+  Button,
+  Field,
+  InfoHint,
+  Input,
+  PageHeader,
+  RoleBadge,
+  SectionLabel,
+  Select,
+  Table,
+  Td,
+  Th,
+  Thead,
+  Tr,
+} from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
 import { PERMISSIONS, ROLE_SUMMARY } from '@/lib/permissions'
@@ -114,18 +128,29 @@ export default function Users() {
 
   return (
     <div className="h-full space-y-6 overflow-y-auto p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Accounts</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {users.length} accounts. Every action on this platform is recorded
-          against one of them, so each must belong to a named person.
-        </p>
-      </header>
+      <PageHeader
+        title="Accounts"
+        subtitle={
+          <>
+            <span>{users.length} accounts</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span>every action is recorded against one of them</span>
+            <InfoHint label="Why accounts are deactivated rather than deleted">
+              Each account must belong to a named person, because the audit
+              trail attributes every action to one. Deleting a user who has
+              acted orphans every row naming them, so the API refuses it once an
+              account has history — deactivation is what a supervisor should
+              reach for. A role change takes effect on the holder's next
+              request, not their next sign-in.
+            </InfoHint>
+          </>
+        }
+      />
 
       {/* ── Create ──────────────────────────────────────────────────── */}
       {mayCreate && (
         <form onSubmit={create} className="rounded-md border border-border bg-card p-4">
-          <h2 className="text-sm font-medium">Create an account</h2>
+          <h2 className="text-sm font-semibold">Create an account</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Username">
               <Input
@@ -177,6 +202,9 @@ export default function Users() {
       )}
 
       {/* ── The accounts ────────────────────────────────────────────── */}
+      <section>
+        <SectionLabel>All accounts</SectionLabel>
+        <div className="mt-1.5">
       <Table className="min-w-[760px]">
         <Thead>
           <tr>
@@ -196,7 +224,7 @@ export default function Users() {
                 <Td className="font-mono text-xs">
                   {account.username}
                   {self && (
-                    <span className="ml-1.5 text-[10px] text-muted-foreground">
+                    <span className="ml-1.5 text-[11px] text-muted-foreground">
                       (you)
                     </span>
                   )}
@@ -233,7 +261,7 @@ export default function Users() {
                     </span>
                     {account.must_change_password && (
                       <span
-                        className="text-[10px] text-priority-high"
+                        className="text-[11px] text-priority-high"
                         title="An administrator set this password, so two people know it. Nothing this account does is attributable until the holder changes it."
                       >
                         password not yet personal
@@ -298,12 +326,9 @@ export default function Users() {
           })}
         </tbody>
       </Table>
+        </div>
+      </section>
 
-      <p className="text-[10px] leading-relaxed text-muted-foreground">
-        Accounts are deactivated rather than deleted. A deleted user id turns
-        every audit entry naming them into an orphan, and the API refuses the
-        deletion once an account has any history.
-      </p>
     </div>
   )
 }

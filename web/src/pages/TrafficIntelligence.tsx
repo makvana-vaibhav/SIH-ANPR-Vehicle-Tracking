@@ -911,7 +911,7 @@ export default function TrafficIntelligence() {
                       </p>
                       <div className="mt-2 flex items-baseline gap-4">
                         <div>
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
                             Now
                           </p>
                           <p className="font-mono text-lg tabular-nums">
@@ -919,7 +919,7 @@ export default function TrafficIntelligence() {
                           </p>
                         </div>
                         <div>
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
                             Baseline
                           </p>
                           <p className="font-mono text-sm tabular-nums text-muted-foreground">
@@ -1054,7 +1054,7 @@ export default function TrafficIntelligence() {
                       )}
                       <div className="mt-2 flex items-baseline gap-4">
                         <div>
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
                             Now
                           </p>
                           <p className="font-mono text-lg tabular-nums">
@@ -1065,7 +1065,7 @@ export default function TrafficIntelligence() {
                         </div>
                         {c.forecasts.map((f) => (
                           <div key={f.horizon_minutes}>
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
                               +{f.horizon_minutes} min
                             </p>
                             <p className="font-mono text-sm tabular-nums text-muted-foreground">
@@ -1083,7 +1083,7 @@ export default function TrafficIntelligence() {
                           {c.factors[0]?.detail}
                         </p>
                       )}
-                      <p className="mt-1 text-[10px] text-muted-foreground">
+                      <p className="mt-1 text-[11px] text-muted-foreground">
                         {c.backtest.status === 'ok' && c.backtest.mae_pct !== null
                           ? `Backtested error: ±${c.backtest.mae_pct} pts (${c.backtest.samples} held-out buckets)`
                           : 'Not enough history yet to backtest this forecast.'}

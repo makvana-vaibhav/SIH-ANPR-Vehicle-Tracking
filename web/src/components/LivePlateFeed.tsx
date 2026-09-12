@@ -86,7 +86,7 @@ export default function LivePlateFeed({
               </span>
             </div>
 
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
               {showCamera && (
                 <span className="font-mono uppercase">{event.source?.camera_id}</span>
               )}

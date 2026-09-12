@@ -20,8 +20,11 @@ import {
   Button,
   EmptyState,
   Field,
+  InfoHint,
   Input,
+  PageHeader,
   PriorityBadge,
+  SectionLabel,
   Select,
   Table,
   Td,
@@ -116,13 +119,24 @@ export default function Watchlist() {
 
   return (
     <div className="h-full space-y-6 overflow-y-auto p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Watchlist</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {active.length} plate{active.length === 1 ? '' : 's'} being watched
-          across the fleet. Matching runs on every settled read.
-        </p>
-      </header>
+      <PageHeader
+        title="Watchlist"
+        subtitle={
+          <>
+            <span>
+              {active.length} plate{active.length === 1 ? '' : 's'} watched across the fleet
+            </span>
+            <span className="text-muted-foreground/40">·</span>
+            <span>matched on every settled read</span>
+            <InfoHint label="What adding a plate here does">
+              This is the most consequential action on the platform — it is what
+              turns a passing car into a red alert. The case reference and reason
+              are carried into the alert, which is what makes a hit actionable
+              rather than merely noisy.
+            </InfoHint>
+          </>
+        }
+      />
 
       {!mayAdd && (
         <p className="rounded border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
@@ -137,7 +151,7 @@ export default function Watchlist() {
         onSubmit={submit}
         className="rounded-md border border-border bg-card p-4"
       >
-        <h2 className="text-sm font-medium">Add a plate</h2>
+        <h2 className="text-sm font-semibold">Add a plate</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="lg:col-span-1">
             <Field label="Plate">
@@ -197,7 +211,7 @@ export default function Watchlist() {
 
       {/* ── Active ──────────────────────────────────────────────────── */}
       <section>
-        <h2 className="text-sm font-medium">Watched now</h2>
+        <SectionLabel>Watched now</SectionLabel>
         {loading ? (
           <div className="mt-2">
             <SkeletonRows rows={3} height="h-9" />
@@ -261,13 +275,14 @@ export default function Watchlist() {
       {/* ── Retired ─────────────────────────────────────────────────── */}
       {retired.length > 0 && (
         <section>
-          <h2 className="text-sm font-medium text-muted-foreground">
+          <SectionLabel>
             Retired ({retired.length})
-          </h2>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
-            Kept rather than deleted — a watchlist entry is evidence of what was
-            being looked for, and when.
-          </p>
+            <InfoHint>
+              Kept rather than deleted. A watchlist entry is evidence of what
+              was being looked for and when, so entries are retired — the delete
+              endpoint exists and is admin-only for exactly that reason.
+            </InfoHint>
+          </SectionLabel>
           <ul className="mt-2 flex flex-wrap gap-1.5">
             {retired.map((entry) => (
               <li key={entry.id}>

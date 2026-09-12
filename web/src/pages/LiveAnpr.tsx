@@ -475,7 +475,7 @@ export default function LiveAnpr() {
                         className="flex items-baseline gap-2 rounded border border-border bg-card px-2 py-1"
                       >
                         <span className="font-mono text-[11px]">{row.plate}</span>
-                        <span className="text-[10px] tabular-nums text-muted-foreground">
+                        <span className="text-[11px] tabular-nums text-muted-foreground">
                           {api.formatIST(row.ts, false)}
                         </span>
                       </li>
