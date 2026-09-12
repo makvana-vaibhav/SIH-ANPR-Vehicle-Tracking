@@ -441,6 +441,34 @@ class Pipeline:
 
             found = self._resolve_plate_ownership(found, tracked)
 
+        # Record the localisation on the vehicle, before anything tries to read
+        # it. This is the earliest instant at which a plate can honestly be
+        # drawn — the detector has found one and can say where — and it is
+        # emphatically *not* the same fact as `Track.plate_detections`, which
+        # holds only the detections that went on to produce an accepted read.
+        # Keeping the two separate is what stops an overlay's needs from
+        # quietly rewriting the accuracy statistics.
+        #
+        # Done here rather than in `_read_plate` because that is where the
+        # information gets thrown away: `_read_plate` returns early on an
+        # illegible crop, a redundant one, a conditioning failure and an OCR
+        # result below the floors, and in every one of those cases the plate was
+        # still found and its position is still the truth about this frame.
+        for plate in found:
+            if plate.track_id is None:
+                continue
+            track = tracks.get(plate.track_id)
+            if track is not None:
+                track.plate_location = plate
+                # The vehicle box on this same frame, so the plate's position
+                # *on the vehicle* is recoverable later. `_resolve_plate_
+                # ownership` may have reattributed the plate to a different
+                # track than the crop it was found in, so this is read from the
+                # owning track rather than from the detection that produced it.
+                track.plate_location_vehicle = (
+                    track.observations[-1].bbox if track.observations else None
+                )
+
         return found
 
     def _resolve_plate_ownership(

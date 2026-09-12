@@ -170,7 +170,37 @@ class Track:
     class_id: int
     observations: list[TrackObservation] = field(default_factory=list)
     plate_reads: list[PlateRead] = field(default_factory=list)
+    #: Plate detections that went on to produce an accepted OCR read.
+    #:
+    #: **Not every plate the detector found.** A localised plate is discarded
+    #: here if the crop was illegible, the crop gate judged it redundant,
+    #: conditioning failed, or no OCR variant cleared the confidence and length
+    #: floors. That is deliberate and load-bearing: `report/stats.py` counts
+    #: this list as `plate_detections` and derives `frames_with_a_plate` and the
+    #: plate-confidence distribution from it, and the accuracy harness reads
+    #: those. Widening it to mean "located" would silently change what every
+    #: one of those numbers says.
     plate_detections: list[PlateDetection] = field(default_factory=list)
+    #: The most recent plate the detector **localised** on this vehicle, read or
+    #: not, in full-frame pixels.
+    #:
+    #: This is the earliest moment at which anything can honestly be drawn over
+    #: a plate: the detector has found one and says where it is, and OCR has not
+    #: been attempted or has not yet agreed with itself. Only the latest is kept
+    #: — an overlay needs somewhere current to draw, not a history — so this is
+    #: O(1) per vehicle however long it dwells, and it is counted by nothing.
+    plate_location: PlateDetection | None = None
+    #: The vehicle box on the frame `plate_location` was found on.
+    #:
+    #: Kept because the plate box alone goes stale. The scheduler stops
+    #: searching a vehicle once its plate has converged (`skip_converged`), so
+    #: after that the last localisation is all there will ever be — and the
+    #: vehicle carries on moving. Drawn as an absolute position it ends up
+    #: behind the car, worst precisely at the point where the reading is
+    #: settled and the box is drawn most firmly. With the vehicle box it was
+    #: measured against, the plate's position *on the vehicle* is known, and
+    #: that travels with the car.
+    plate_location_vehicle: BBox | None = None
     result: PlateConsensus | None = None
     best_crop_path: str | None = None
     # Best sighting, maintained incrementally. Recomputing it by scanning every

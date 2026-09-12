@@ -2,7 +2,8 @@
 
 **Read this first.** One page: what works, what doesn't, what to do next.
 
-*Updated 11 Sep 2026 · P1–P3 complete, plus an unplanned worker-CPU fix ·
+*Updated 12 Sep 2026 · P1–P3 complete, plus unplanned worker-CPU and
+overlay-latency fixes ·
 **P4, P5, P8 and P10 code complete, P9 and P11 half built (both need a
 vision pipeline this session didn't have for their other half), gates not
 yet run — P7 blocked on data — see below***
@@ -39,6 +40,51 @@ per camera change, took it to ~570% and **doubled** detections/min (79 → ~150)
 capped by memory rather than CPU, so the default moved 3 → 4. Details and knobs in
 [PERFORMANCE.md](PERFORMANCE.md); the GPU question is answered in [GPU.md](GPU.md) — inside
 Docker on Apple Silicon there is none, and no setting creates one.
+
+**The box now appears when a plate is *located*, not when it is read** (unplanned, 12 Sep).
+The overlay used to draw nothing until OCR had reached consensus at >=0.8 confidence with valid
+grammar. Two consequences, both bad: a second or so of delay on the vehicles that do get read,
+and **nothing at all for the two-thirds that never yield a plate** (33.9% plate yield,
+[PERFORMANCE.md](PERFORMANCE.md) §6). The plate detector knows where a plate is well before
+anything reads it, and that is now what puts a rectangle on screen — dashed and faint, with the
+plate text arriving later if it arrives at all. Three visual tiers keep it honest: `located`
+(dashed, faint, no text), `reading` (dashed, firmer), `read` (solid, plate printed).
+
+This needed a fact the pipeline was throwing away. `track.plate_detections` is appended *after* a
+successful OCR read, so a localised-but-unread plate was dropped on the floor — and that list
+cannot be widened, because `report/stats.py` counts it and the accuracy harness reads those
+numbers. So `Track.plate_location` is a separate field, set at localisation time and counted by
+nothing.
+
+It also needed a new channel. `camera.tracks` publishes **one message per camera per tick**
+carrying every drawable vehicle, instead of one event per vehicle: measured at a 305-byte envelope
+plus 132 bytes per located vehicle and 218 per read one, so ten vehicles is 1,987 bytes and
+9.7 KB/s per camera at five batches a second — against 39.6 KB/s for the ten per-vehicle refreshes
+it replaces, which covered only the vehicles already read. Because the batch describes the whole
+camera it is authoritative: a vehicle absent from the newest one is gone, so a box now disappears
+when the car does rather than when a timeout expires. Per-vehicle position refreshes
+(`observed_refresh_s`) are off by default as a result. One subtlety worth knowing: the scheduler
+*stops searching* a vehicle once its plate converges, so a plate box left at its measured position
+would freeze while the car drove on — the batch therefore anchors it to the vehicle box it was
+measured against and carries it along.
+
+**The plate box no longer trails the vehicle** (unplanned, 12 Sep). Boxes were drawn at the
+coordinates a frame was measured at — ~270 ms old on arrival — and then held still until the next
+position refresh 400 ms later, so on a moving car the rectangle sat behind it and jumped to catch
+up. Four things were wrong at once and all four are fixed: the HLS player forced itself two
+seconds behind the live edge (`liveSyncDurationCount: 2`) *on top of* the gateway's own ~600 ms
+low-latency hold-back; the capture clock that says which instant is on screen was withheld from
+the overlay unless an operator ticked "sync to video", and WebRTC reported no clock at all when it
+can in fact be asked (`jitterBufferDelay`); the overlay never predicted, so a box was only ever as
+current as the last event; and every position refresh carried the full evidence payload —
+**measured 3,787 bytes against 793** for the trimmed one, growing with every further read of the
+same plate. The overlay now schedules each box against the instant the picture is showing and
+carries it forward on the vehicle's own measured velocity, capped at 700 ms so a track that stops
+reporting stops moving. A box also appears from the *first* reading rather than waiting for
+consensus — unlabelled and dashed until the plate is confirmed, which is what used to delay it by
+a second or more. **Not yet verified on a running stack**: this machine has no Docker, so the
+numbers above are the ones the code and the payload measurement give, not a stopwatch on the demo.
+Run `make ai` and watch a corridor camera to close it.
 
 ```
 DONE     platform ──▶ ANPR ──▶ scale ──▶ P1 fleet ──▶ P2 journey ──▶ P3 evidence crops

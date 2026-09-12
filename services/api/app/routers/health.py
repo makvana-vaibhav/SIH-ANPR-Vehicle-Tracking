@@ -267,8 +267,8 @@ async def _ingest_fleet() -> dict[str, Any]:
         await client.aclose()
 
     if not raw:
-        return {"workers": 0, "consumed": 0, "persisted": 0, "alerts_raised": 0,
-                "failed": 0, "latency": {}}
+        return {"workers": 0, "consumed": 0, "boxes": 0, "persisted": 0,
+                "alerts_raised": 0, "failed": 0, "latency": {}}
 
     # Drop workers that have stopped reporting. A dead worker's final totals
     # would otherwise sit in the sum forever, making a shrinking fleet look
@@ -283,6 +283,11 @@ async def _ingest_fleet() -> dict[str, Any]:
     return {
         "workers": len(workers),
         "consumed": sum(w.get("consumed", 0) for w in workers),
+        # How much of `consumed` was the live-boxes channel. Reported so the
+        # ingest rate cannot be mistaken for a sighting rate: a camera being
+        # watched publishes a batch several times a second whether or not
+        # anything on it was read.
+        "boxes": sum(w.get("boxes", 0) for w in workers),
         "persisted": sum(w.get("persisted", 0) for w in workers),
         "alerts_raised": sum(w.get("alerts_raised", 0) for w in workers),
         "failed": sum(w.get("failed", 0) for w in workers),

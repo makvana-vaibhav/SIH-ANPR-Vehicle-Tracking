@@ -6,7 +6,7 @@
  * visible symptom: the same car listed or drawn many times over.
  */
 
-import type { LiveVehicleEvent } from '@/lib/types'
+import type { LiveEvent, LiveTrackBatchEvent, LiveVehicleEvent } from '@/lib/types'
 
 /**
  * A key that is stable for as long as the tracker holds one vehicle.
@@ -38,4 +38,27 @@ export function liveTrackKey(event: LiveVehicleEvent): string {
  */
 export function isPositionRefresh(event: LiveVehicleEvent): boolean {
   return event.position_refresh === true
+}
+
+/**
+ * A batch of live boxes for one camera, rather than a sighting.
+ *
+ * Narrowed by name so a consumer cannot accidentally treat it as a detection.
+ * That mistake is the expensive one here: a vehicle appears in dozens of
+ * consecutive batches, so counting them inflates every figure on an operator's
+ * screen and listing them fills a plate feed with one car over and over.
+ */
+export function isTrackBatch(event: LiveEvent): event is LiveTrackBatchEvent {
+  return event.event === 'camera.tracks'
+}
+
+/**
+ * The same key `liveTrackKey` produces, from a batch entry.
+ *
+ * Both channels describe the same vehicles, and a box must not be drawn twice
+ * because two messages arrived about one car. Track ids are unique only within
+ * the camera that issued them, hence the camera code.
+ */
+export function trackBoxKey(cameraId: string, trackId: number): string {
+  return `${cameraId}:${trackId}`
 }

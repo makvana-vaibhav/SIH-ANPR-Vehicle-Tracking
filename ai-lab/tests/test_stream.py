@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
@@ -19,10 +20,22 @@ import cv2
 import numpy as np
 import pytest
 
+from ailab.config import RunConfig
 from ailab.stream.events import EventSink, SourceIdentity, vehicle_event
 from ailab.stream.reader import StreamReader
+from ailab.stream.runner import StreamRunner, _LiveTrack
 from ailab.track.merge import Vehicle
-from ailab.types import BBox, CropQuality, PlateCandidate, PlateConsensus, PlateDetection, PlateRead
+from ailab.types import (
+    BBox,
+    CropQuality,
+    PlateCandidate,
+    PlateConsensus,
+    PlateDetection,
+    PlateRead,
+    StageTimer,
+    Track,
+    TrackObservation,
+)
 
 
 @pytest.fixture(scope="module")
@@ -319,6 +332,430 @@ class TestBoxesAnOverlayCanDraw:
             captured_at=datetime.now(UTC),
         )
         assert json.loads(json.dumps(event, default=str))["vehicle"]["live_bbox"]
+
+
+class TestPositionRefreshesAreLean:
+    """A refresh exists to move a rectangle, and carries nothing else.
+
+    The full event carries one entry per frame the plate was read in, each with
+    its crop path, plus every candidate string and every per-character
+    confidence — and it grows for as long as the vehicle stays in view. A
+    refresh is emitted several times a second per vehicle, is never persisted,
+    and the only thing any consumer can do with it is redraw a box. Sending the
+    full payload made the message whose entire job was to be prompt into the
+    largest one on the bus.
+    """
+
+    def _refresh(self) -> dict:
+        vehicle = make_vehicle()
+        # A vehicle in view for a while: the evidence list is what grows, and
+        # it is the whole reason this matters.
+        vehicle.reads = list(vehicle.reads) * 12
+        vehicle.bbox = BBox(300, 200, 700, 520)
+        return vehicle_event(
+            vehicle,
+            SourceIdentity(camera_id="CAM-DEMO-01"),
+            kind="vehicle.observed",
+            latency_ms=271.4,
+            frame_size=(1920, 1080),
+            live_bbox=BBox(120, 210, 420, 480),
+            captured_at=datetime(2026, 9, 11, 10, 31, 4, 200000, tzinfo=UTC),
+            position_refresh=True,
+        )
+
+    def test_it_carries_everything_an_overlay_draws_with(self) -> None:
+        event = self._refresh()
+
+        # The clock to schedule against, and the pipeline's own latency.
+        assert event["captured_at"] == "2026-09-11T10:31:04.200000+00:00"
+        assert event["latency_ms"] == 271.4
+        # The frame the coordinates are in. Without it they cannot be scaled,
+        # and an overlay drops the event rather than guess a resolution.
+        assert event["frame"] == {"width": 1920, "height": 1080}
+        # Where the vehicle is now, and where it looked best. An overlay draws
+        # the first and falls back to the second.
+        assert event["vehicle"]["live_bbox"]["x1"] == 120.0
+        assert event["vehicle"]["bbox"]["x1"] == 300.0
+        assert event["vehicle"]["track_ids"] == [3]
+        # Enough of the plate to label the box and colour it.
+        assert event["plate"]["text"] == "GJ03AB1234"
+        assert event["plate"]["grammar_valid"] is True
+        assert event["plate"]["ambiguous"] is False
+        assert event["plate"]["bbox"] is not None
+        assert event["position_refresh"] is True
+        assert event["event"] == "vehicle.observed"
+
+    def test_it_carries_none_of_the_evidence(self) -> None:
+        event = self._refresh()
+
+        # Not "empty" — absent. A consumer must not be able to read a refresh
+        # as a sighting with no evidence behind it.
+        assert "evidence" not in event
+        assert "candidates" not in event["plate"]
+        assert "char_confidences" not in event["plate"].get("evidence", {})
+        assert "motion" not in event["vehicle"]
+
+    def test_it_is_several_times_smaller_than_the_full_event(self) -> None:
+        vehicle = make_vehicle()
+        vehicle.reads = list(vehicle.reads) * 12
+        shared = {
+            "source": SourceIdentity(camera_id="CAM-DEMO-01"),
+            "kind": "vehicle.observed",
+            "latency_ms": 271.4,
+            "frame_size": (1920, 1080),
+            "live_bbox": BBox(120, 210, 420, 480),
+            "captured_at": datetime(2026, 9, 11, 10, 31, 4, tzinfo=UTC),
+        }
+        full = vehicle_event(vehicle, position_refresh=False, **shared)
+        lean = vehicle_event(vehicle, position_refresh=True, **shared)
+
+        full_bytes = len(json.dumps(full, default=str))
+        lean_bytes = len(json.dumps(lean, default=str))
+        # Measured at 3,787 against 793 for this vehicle. Asserted as a ratio
+        # rather than a byte count so adding a field to either payload does not
+        # fail the test spuriously — the property is that a refresh stays an
+        # order cheaper, not that it is exactly this many bytes.
+        assert lean_bytes * 3 < full_bytes
+
+    def test_a_full_event_still_carries_its_evidence(self) -> None:
+        """The trimming must apply to refreshes and nothing else."""
+        event = vehicle_event(
+            make_vehicle(),
+            SourceIdentity(camera_id="C1"),
+            kind="vehicle.observed",
+            position_refresh=False,
+        )
+        assert event["evidence"]["plate_crop"] == "crops/plates/x.jpg"
+        assert event["plate"]["candidates"]
+        assert event["vehicle"]["motion"]["direction"]
+
+    def test_it_is_json_serialisable(self) -> None:
+        assert json.loads(json.dumps(self._refresh(), default=str))["position_refresh"]
+
+
+class _StubPipeline:
+    """Everything `StreamRunner.__init__` asks of a pipeline, and nothing more.
+
+    The batch logic under test is pure bookkeeping over `self._live` — pacing,
+    the cut point, and the one final empty message. Loading five ONNX sessions
+    to exercise it would make these tests slow, model-dependent and much worse
+    at saying what broke.
+    """
+
+    def __init__(self) -> None:
+        self.timer = StageTimer()
+
+    def reset_run_state(self) -> None:
+        return None
+
+
+@dataclass
+class _FakeCapture:
+    """The two fields `_emit_track_batch` reads off a captured frame."""
+
+    wall_time: datetime
+    age_ms: float
+
+
+def _runner(sink: EventSink, batch_s: float = 0.2) -> StreamRunner:
+    config = RunConfig()
+    config.stream.track_batch_s = batch_s
+    runner = StreamRunner(
+        config,
+        SourceIdentity(camera_id="CAM-DEMO-01"),
+        sink,
+        pipeline=_StubPipeline(),  # type: ignore[arg-type]
+    )
+    runner._frame_size = (1920, 1080)
+    return runner
+
+
+def _live_track(
+    runner: StreamRunner,
+    track_id: int,
+    *,
+    located: bool = True,
+    read: str = "",
+) -> Track:
+    """Put one vehicle in view, at a chosen stage of being read."""
+    track = Track(track_id=track_id, class_name="car", class_id=2)
+    track.observe(
+        TrackObservation(
+            frame_index=10,
+            t_s=0.4,
+            bbox=BBox(120, 210, 420, 480),
+            confidence=0.9,
+            detected=True,
+        )
+    )
+    if located:
+        track.plate_location = PlateDetection(
+            bbox=BBox(300, 400, 390, 422),
+            confidence=0.88,
+            frame_index=10,
+            t_s=0.4,
+            track_id=track_id,
+        )
+        # The vehicle box on the frame the plate was found on. Here it is the
+        # same frame as the observation above, so the plate needs no carrying
+        # and the batch reports it exactly as measured.
+        track.plate_location_vehicle = BBox(120, 210, 420, 480)
+    if read:
+        track.result = PlateConsensus(
+            text=read, confidence=0.93, method="char_vote", reads_total=4,
+            reads_agreeing=4, grammar_valid=True,
+        )
+    runner._live[track_id] = _LiveTrack(track=track, last_frame_seen=10)
+    return track
+
+
+def _capture() -> _FakeCapture:
+    return _FakeCapture(
+        wall_time=datetime(2026, 9, 12, 10, 31, 4, 200000, tzinfo=UTC),
+        age_ms=271.4,
+    )
+
+
+class TestTheLiveBoxesChannel:
+    """`camera.tracks`: every drawable vehicle on one camera, in one message.
+
+    This channel exists because an overlay needs a box per vehicle several
+    times a second, and sending that as one event per vehicle made the traffic
+    whose whole purpose is promptness scale with the number of vehicles — which
+    is exactly when promptness matters. It is the picture, not the intelligence:
+    never persisted, never counted, never listed as a sighting.
+    """
+
+    def test_a_located_plate_is_published_before_anything_has_read_it(self) -> None:
+        """The cut point, and the reason the channel exists.
+
+        The plate detector has found a plate and can say where it is. OCR has
+        not read it and may never — measured on this fleet, two-thirds of
+        tracked vehicles never yield a plate at all. Waiting for text left
+        those two-thirds with no box and the rest with a late one.
+        """
+        events: list[dict] = []
+        runner = _runner(EventSink(on_event=events.append))
+        _live_track(runner, 7, located=True, read="")
+
+        runner._emit_track_batch(_capture())
+
+        assert len(events) == 1
+        event = events[0]
+        assert event["event"] == "camera.tracks"
+        entry = event["tracks"][0]
+        assert entry["track_id"] == 7
+        assert entry["plate_bbox"] == [300.0, 400.0, 390.0, 422.0]
+        assert entry["plate_detection_confidence"] == 0.88
+        # No reading exists, so no reading is claimed. Absence is the signal,
+        # not an empty string a consumer might print.
+        assert "plate" not in entry
+        assert "confidence" not in entry
+
+    def test_a_read_plate_carries_its_text_and_verdicts(self) -> None:
+        events: list[dict] = []
+        runner = _runner(EventSink(on_event=events.append))
+        _live_track(runner, 7, read="GJ03AB1234")
+
+        runner._emit_track_batch(_capture())
+
+        entry = events[0]["tracks"][0]
+        assert entry["plate"] == "GJ03AB1234"
+        assert entry["confidence"] == 0.93
+        # The worker reports the facts; whether they clear a display gate is
+        # the overlay's policy, so both verdicts travel rather than a verdict.
+        assert entry["grammar_valid"] is True
+        assert entry["ambiguous"] is False
+
+    def test_a_vehicle_with_no_located_plate_is_not_published(self) -> None:
+        """Tracked is not drawable, under the cut point this channel uses.
+
+        Publishing every tracked vehicle would be earlier still and would cover
+        the vehicles that never yield a plate. It was considered and rejected:
+        the box is gated on the detector having found a plate, so a rectangle
+        never appears over a vehicle the system has no plate evidence for.
+        """
+        events: list[dict] = []
+        runner = _runner(EventSink(on_event=events.append))
+        _live_track(runner, 7, located=False)
+
+        runner._emit_track_batch(_capture())
+
+        assert events == []
+
+    def test_the_batch_is_paced_not_emitted_per_frame(self) -> None:
+        events: list[dict] = []
+        runner = _runner(EventSink(on_event=events.append), batch_s=0.2)
+        _live_track(runner, 7)
+
+        runner._emit_track_batch(_capture())
+        runner._emit_track_batch(_capture())
+        runner._emit_track_batch(_capture())
+
+        # Three frames, one message: a batch is a redraw, and redrawing faster
+        # than the cadence says nothing new.
+        assert len(events) == 1
+
+    def test_an_emptied_camera_says_so_exactly_once(self) -> None:
+        """Absence from the batch is how a consumer learns a vehicle has gone.
+
+        That only works if a message arrives. A camera whose last vehicle has
+        left must publish one empty batch — and then stay quiet, because a
+        camera watching an empty road has no business publishing at 5 Hz.
+        """
+        events: list[dict] = []
+        runner = _runner(EventSink(on_event=events.append))
+        _live_track(runner, 7)
+        runner._emit_track_batch(_capture())
+        assert events[0]["tracks"]
+
+        runner._live.clear()
+        runner._last_batch_s = 0.0  # fast-forward the pacer
+        runner._emit_track_batch(_capture())
+        assert events[-1]["tracks"] == []
+        assert len(events) == 2
+
+        runner._last_batch_s = 0.0
+        runner._emit_track_batch(_capture())
+        assert len(events) == 2
+
+    def test_it_carries_the_clock_the_boxes_belong_to(self) -> None:
+        events: list[dict] = []
+        runner = _runner(EventSink(on_event=events.append))
+        _live_track(runner, 7)
+
+        runner._emit_track_batch(_capture())
+
+        event = events[0]
+        # The frame the boxes were measured on, not the moment the message was
+        # built. An overlay places boxes against this or it places them wrong.
+        assert event["captured_at"] == "2026-09-12T10:31:04.200000+00:00"
+        assert event["captured_at"] != event["event_time"]
+        assert event["latency_ms"] == 271.4
+        assert event["frame"] == {"width": 1920, "height": 1080}
+
+    def test_boxes_are_four_numbers_not_six(self) -> None:
+        """`w` and `h` are `x2 - x1` and `y2 - y1`.
+
+        Every other event sends `BBox.to_dict()` and that is right for them.
+        Here the redundancy repeats per box per vehicle per tick, which is the
+        one place in this schema where byte count is a design constraint.
+        """
+        events: list[dict] = []
+        runner = _runner(EventSink(on_event=events.append))
+        _live_track(runner, 7)
+
+        runner._emit_track_batch(_capture())
+
+        assert events[0]["tracks"][0]["bbox"] == [120.0, 210.0, 420.0, 480.0]
+
+    def test_one_batch_is_cheaper_than_one_event_per_vehicle(self) -> None:
+        """The whole argument for the channel, as a number."""
+        batched: list[dict] = []
+        runner = _runner(EventSink(on_event=batched.append))
+        for track_id in range(10):
+            _live_track(runner, track_id, read="GJ03AB1234" if track_id % 3 == 0 else "")
+        runner._emit_track_batch(_capture())
+
+        vehicle = make_vehicle()
+        vehicle.reads = list(vehicle.reads) * 12
+        per_vehicle = vehicle_event(
+            vehicle,
+            SourceIdentity(camera_id="CAM-DEMO-01"),
+            kind="vehicle.observed",
+            latency_ms=271.4,
+            frame_size=(1920, 1080),
+            live_bbox=BBox(120, 210, 420, 480),
+            captured_at=datetime(2026, 9, 12, 10, 31, 4, tzinfo=UTC),
+            position_refresh=True,
+        )
+
+        batch_bytes = len(json.dumps(batched[0], default=str))
+        refresh_bytes = len(json.dumps(per_vehicle, default=str)) * 10
+        # Measured: 1,987 bytes for ten vehicles in one envelope against 7,150
+        # for ten envelopes, a factor of 3.6. Asserted as a ratio rather than a
+        # byte count so adding a field does not fail this spuriously; the
+        # property under test is that the drawing channel stays several times
+        # cheaper than sending the same boxes one vehicle at a time, and that
+        # its cost grows with the camera count rather than the traffic.
+        assert batch_bytes * 3 < refresh_bytes
+
+    def test_it_is_json_serialisable(self) -> None:
+        events: list[dict] = []
+        runner = _runner(EventSink(on_event=events.append))
+        _live_track(runner, 7, read="GJ03AB1234")
+        runner._emit_track_batch(_capture())
+
+        assert json.loads(json.dumps(events[0], default=str))["tracks"][0]["plate"]
+
+
+class TestThePlateBoxTravelsWithTheVehicle:
+    """A localised plate must not be left behind by the car it is on.
+
+    The scheduler stops searching a vehicle once its plate has converged, so
+    after that the last localisation is all there will ever be — while the
+    vehicle carries on across the frame. Reported as the absolute box it was
+    measured as, the firmest rectangle on screen becomes the most stale one.
+    """
+
+    def test_a_plate_is_carried_onto_the_vehicles_current_box(self) -> None:
+        # Plate at the bottom middle of a 300x270 vehicle box, then the vehicle
+        # moves 200px right and 30px down without changing size. The plate has
+        # to move with it: a number plate does not slide about on a car.
+        anchored = StreamRunner._anchored_plate(
+            BBox(300, 400, 390, 422),
+            BBox(120, 210, 420, 480),
+            BBox(320, 240, 620, 510),
+        )
+        assert anchored.x1 == pytest.approx(500.0)
+        assert anchored.y1 == pytest.approx(430.0)
+        assert anchored.x2 == pytest.approx(590.0)
+        assert anchored.y2 == pytest.approx(452.0)
+
+    def test_it_grows_with_a_vehicle_coming_closer(self) -> None:
+        # The vehicle box doubles in size as the car approaches. A plate held at
+        # a fixed pixel size on a vehicle twice as large no longer covers the
+        # plate, so the fractions scale rather than translate.
+        anchored = StreamRunner._anchored_plate(
+            BBox(150, 200, 250, 220),
+            BBox(100, 100, 300, 300),
+            BBox(100, 100, 500, 500),
+        )
+        assert anchored.x1 == pytest.approx(200.0)
+        assert anchored.x2 == pytest.approx(400.0)
+        assert anchored.width == pytest.approx(200.0)
+
+    def test_it_reports_the_measured_box_when_there_is_no_anchor(self) -> None:
+        """Nothing to anchor against is not licence to invent a position."""
+        plate = BBox(300, 400, 390, 422)
+        assert StreamRunner._anchored_plate(plate, None, BBox(0, 0, 10, 10)) is plate
+        assert (
+            StreamRunner._anchored_plate(plate, BBox(5, 5, 5, 5), BBox(0, 0, 10, 10))
+            is plate
+        )
+
+    def test_the_batch_carries_the_anchored_box(self) -> None:
+        events: list[dict] = []
+        runner = _runner(EventSink(on_event=events.append))
+        track = _live_track(runner, 7)
+        # The vehicle has moved on since the plate was localised: a later
+        # observation, and no new plate search because the plate converged.
+        track.observe(
+            TrackObservation(
+                frame_index=40,
+                t_s=1.6,
+                bbox=BBox(320, 240, 620, 510),
+                confidence=0.9,
+                detected=True,
+            )
+        )
+
+        runner._emit_track_batch(_capture())
+
+        entry = events[0]["tracks"][0]
+        assert entry["bbox"] == [320.0, 240.0, 620.0, 510.0]
+        # Carried with the vehicle, not left at [300, 400, 390, 422].
+        assert entry["plate_bbox"] == [500.0, 430.0, 590.0, 452.0]
 
 
 class TestNagarNetraIntegrationRules:

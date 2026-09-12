@@ -32,10 +32,16 @@ from ailab.artifacts import RunDirectory
 from ailab.config import RunConfig
 from ailab.logging import get_logger
 from ailab.pipeline import Pipeline
-from ailab.stream.events import EventSink, SourceIdentity, vehicle_event
+from ailab.stream.events import (
+    EventSink,
+    LiveTrackBox,
+    SourceIdentity,
+    track_batch_event,
+    vehicle_event,
+)
 from ailab.stream.reader import StreamReader, redact
 from ailab.track.merge import Vehicle
-from ailab.types import Detection, Frame, StageTimer, Track, TrackObservation
+from ailab.types import BBox, Detection, Frame, StageTimer, Track, TrackObservation
 
 log = get_logger(__name__)
 
@@ -47,6 +53,8 @@ class StreamStats:
     frames_processed: int = 0
     events_observed: int = 0
     events_completed: int = 0
+    track_batches: int = 0
+    boxes_published: int = 0
     tracks_started: int = 0
     tracks_retired: int = 0
     plates_read: int = 0
@@ -76,6 +84,16 @@ class StreamStats:
             "plates_read": self.plates_read,
             "events_observed": self.events_observed,
             "events_completed": self.events_completed,
+            # The live-boxes channel, reported separately because it is not
+            # sightings: many batches describe the same vehicles, and counting
+            # them among detections would inflate every figure that matters.
+            "track_batches": self.track_batches,
+            "boxes_published": self.boxes_published,
+            "boxes_per_batch": (
+                round(self.boxes_published / self.track_batches, 2)
+                if self.track_batches
+                else 0.0
+            ),
             # Capture-to-event: the number that decides whether an alert is
             # actionable. Throughput without this says nothing about latency.
             "latency_ms": {
@@ -150,6 +168,14 @@ class StreamRunner:
         self._crops_saved: dict[int, int] = {}
         self._orphans: list[Any] = []
         self._labels: dict[int, Any] = {}
+        #: `time.perf_counter` of the last `camera.tracks` batch, for pacing.
+        self._last_batch_s: float = 0.0
+        #: Whether the last batch carried anything. A camera that empties has
+        #: to say so once — the batch is authoritative, so a consumer learns a
+        #: vehicle has gone by its absence, and it can only learn that from a
+        #: message that actually arrives. Without this, the last box on a quiet
+        #: camera would hang on screen until its own timeout.
+        self._batch_had_boxes: bool = False
 
     # ─────────────────────────────────────────────────────────────────
     def run(
@@ -275,6 +301,9 @@ class StreamRunner:
                     self.stats.plates_read += 1
 
         self._emit_observed(tracks_view, captured)
+        # After the observed events, so that a batch never describes a vehicle
+        # the platform has not yet been told about.
+        self._emit_track_batch(captured)
         self._retire_stale(captured)
 
     def _on_discontinuity(self) -> None:
@@ -395,6 +424,144 @@ class StreamRunner:
             )
             self.stats.latencies_ms.append(captured.age_ms)
 
+    def _emit_track_batch(self, captured: Any) -> None:
+        """Publish every drawable vehicle on this camera, in one message.
+
+        ## The cut point: localised, not read
+
+        A vehicle enters the batch the moment the plate detector has **found** a
+        plate on it — `Track.plate_location` — regardless of whether OCR has
+        read it, or ever will. That is the earliest instant at which there is
+        something true to draw over a plate, and it is considerably earlier than
+        a reading: OCR needs several distinct looks to reach consensus, and
+        measured on this fleet only a third of tracked vehicles ever yield a
+        plate at all. Waiting for text meant two-thirds of the traffic got no
+        box, and the rest got one late.
+
+        Nothing here asserts a reading. The entry carries the plate's *position*
+        and the detector's confidence in it; `plate` is present only when there
+        is genuinely a reading, and a consumer that wants to distinguish
+        "looking at a plate" from "read a plate" has exactly the fields to do it.
+
+        ## Why one message per camera
+
+        The alternative — one event per vehicle per tick — makes the traffic
+        whose entire purpose is promptness scale with the number of vehicles,
+        which is precisely when promptness matters. One envelope carrying N
+        boxes is an order cheaper than N envelopes, and it buys a property the
+        per-vehicle form cannot have: because the batch describes the whole
+        camera, absence from it is *information*. A consumer knows a vehicle has
+        gone because it is not in the newest batch, rather than waiting out a
+        timeout or hoping a `vehicle.completed` arrives.
+
+        That is also why an emptied camera publishes one final empty batch. A
+        camera with nothing to draw has to say so, or the last box on screen
+        outlives the car by the length of whatever timeout the consumer uses.
+
+        Built from `self._live` rather than from the frame's own tracks, so a
+        vehicle briefly occluded keeps its box at its last known position
+        instead of flickering out and back.
+        """
+        stream = self.config.stream
+        if stream.track_batch_s <= 0.0:
+            return
+
+        now_s = time.perf_counter()
+        if now_s - self._last_batch_s < stream.track_batch_s:
+            return
+
+        boxes: list[LiveTrackBox] = []
+        for track_id, live in self._live.items():
+            track = live.track
+            located = track.plate_location
+            if located is None:
+                continue
+            bbox = self._latest_bbox(track)
+            if bbox is None:
+                continue
+            result = track.result
+            boxes.append(
+                LiveTrackBox(
+                    track_id=track_id,
+                    class_name=track.class_name,
+                    bbox=bbox,
+                    plate_bbox=self._anchored_plate(
+                        located.bbox, track.plate_location_vehicle, bbox
+                    ),
+                    plate_detection_confidence=located.confidence,
+                    plate_text=result.text if result else "",
+                    plate_confidence=result.confidence if result else 0.0,
+                    grammar_valid=bool(result and result.grammar_valid),
+                    ambiguous=bool(result and result.ambiguous),
+                    corrected_from=result.corrected_from if result else None,
+                )
+            )
+
+        # Nothing to say, and we already said so. Staying quiet is correct here:
+        # a camera watching an empty road should not be publishing at 5 Hz.
+        if not boxes and not self._batch_had_boxes:
+            self._last_batch_s = now_s
+            return
+
+        self._last_batch_s = now_s
+        self._batch_had_boxes = bool(boxes)
+        self.stats.track_batches += 1
+        self.stats.boxes_published += len(boxes)
+        self.sink.emit(
+            track_batch_event(
+                self.source,
+                boxes,
+                frame_size=self._frame_size,
+                captured_at=captured.wall_time,
+                latency_ms=captured.age_ms,
+                run_id=self.source.camera_id,
+            )
+        )
+
+    @staticmethod
+    def _anchored_plate(
+        plate: BBox, vehicle_then: BBox | None, vehicle_now: Any
+    ) -> BBox:
+        """The localised plate, carried onto the frame this batch describes.
+
+        A plate is localised on one frame and the vehicle keeps moving. Sent as
+        the absolute box it was measured as, it drifts behind the car — and the
+        drift never stops growing, because the scheduler *stops searching* a
+        vehicle once its plate has converged. The firmest rectangle on screen
+        would be the most stale one.
+
+        What does not go stale is where the plate sits **on the vehicle**: a
+        number plate does not move about on a car. So the position is expressed
+        as a fraction of the vehicle box it was measured against and reapplied
+        to the vehicle box now, which also handles the vehicle growing as it
+        approaches.
+
+        This is inference, and worth being plain about: the plate's position is
+        exact on the frame it was localised on and derived from the vehicle's
+        own measured box after that. It is the same class of claim as the
+        overlay's velocity prediction — computed from observations, never
+        invented — and it is strictly closer to the truth than repeating a
+        position the car has demonstrably left.
+
+        Falls back to the measured box when there is nothing to anchor to.
+        """
+        if vehicle_then is None or vehicle_now is None:
+            return plate
+        width, height = vehicle_then.width, vehicle_then.height
+        if width <= 0.0 or height <= 0.0:
+            return plate
+
+        fx1 = (plate.x1 - vehicle_then.x1) / width
+        fy1 = (plate.y1 - vehicle_then.y1) / height
+        fx2 = (plate.x2 - vehicle_then.x1) / width
+        fy2 = (plate.y2 - vehicle_then.y1) / height
+        return BBox(
+            vehicle_now.x1 + fx1 * vehicle_now.width,
+            vehicle_now.y1 + fy1 * vehicle_now.height,
+            vehicle_now.x1 + fx2 * vehicle_now.width,
+            vehicle_now.y1 + fy2 * vehicle_now.height,
+        )
+
     @staticmethod
     def _latest_bbox(track: Track) -> Any:
         """Where the track is *now*, not where it looked best.
@@ -410,7 +577,7 @@ class StreamRunner:
         """Complete the vehicles that have been out of view for long enough.
 
         Measured in source seconds, not in analysed frames. This used to count
-        frames — `reader.fps × retire_after_s` of them — but the count ticked
+        frames — `reader.fps * retire_after_s` of them — but the count ticked
         once per *analysed* frame, and a worker that keeps up with a camera by
         dropping most of it analyses a fraction of the frames it decodes. At
         the measured one-in-nine, the 1.5 s the config asks for became ~13 s:
@@ -465,6 +632,8 @@ class StreamRunner:
         track.observations.clear()
         track.plate_reads.clear()
         track.plate_detections.clear()
+        track.plate_location = None
+        track.plate_location_vehicle = None
 
     def _as_vehicle(self, track: Track) -> Vehicle:
         self._next_vehicle_id += 1

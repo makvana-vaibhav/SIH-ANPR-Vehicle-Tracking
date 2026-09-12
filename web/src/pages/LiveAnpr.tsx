@@ -7,17 +7,35 @@
  * reading itself, so the two together are honest in a way either alone would
  * not be.
  *
- * ## Synced boxes
+ * ## Where the boxes come from, and why they are not late
  *
- * By default the picture is held a couple of seconds behind live, and each
- * plate box is drawn against the video’s own capture clock rather than against
- * now. That is what puts the rectangle on the vehicle instead of behind it: the
- * delay is exactly the head start the worker needs to read a plate and get the
- * event here before the frame it came from is shown.
+ * A box has to appear early and has to be drawn on the vehicle, which keeps
+ * moving after the frame it was measured on. Four things carry that weight, and
+ * none of them is a delay the viewer has to accept:
  *
- * Turning it off gives the lowest-latency picture the network allows, with
- * boxes that trail it. Both modes label a reading with its true age, so they
- * never disagree about the facts — only about where a rectangle can be put.
+ * **A box appears as soon as a plate is *localised*** — when the detector has
+ * found a plate and can say where it is, before OCR has read it and whether or
+ * not OCR ever does. Waiting for text cost about a second of consensus, and on
+ * this fleet two-thirds of tracked vehicles never yield a reading at all. The
+ * picture distinguishes the three states, so a rectangle meaning "there is a
+ * plate here" is never mistaken for one meaning "this vehicle is identified".
+ *
+ * **The worker publishes one message per camera per tick** — `camera.tracks`,
+ * carrying every drawable vehicle at once, up to five times a second (every
+ * frame it analyses, when it is analysing fewer than that). Because that
+ * message describes the whole camera, a box also goes away the moment the car
+ * does, rather than waiting out a timeout.
+ *
+ * **The player says which capture instant is on screen** — read from the HLS
+ * programme-date tags, or measured from WebRTC's own receive lag — so a box is
+ * scheduled against the picture rather than against now. **The overlay then
+ * predicts** from the vehicle's own measured velocity across the gap between
+ * that instant and the position it was last told about.
+ *
+ * The extra buffer below is the last resort, not the mechanism: it holds the
+ * picture deliberately behind live so that every event arrives before its frame
+ * is shown. Worth spending when the worker is loaded heavily enough that
+ * capture-to-event runs into seconds, and not otherwise.
  *
  * The camera list is the ANPR fleet. Every camera in it is labelled with where
  * its video comes from rather than left to be guessed at — a judge is entitled
@@ -45,7 +63,7 @@ import PipelineDiagnostics from '@/components/PipelineDiagnostics'
 import LivePlateFeed from '@/components/LivePlateFeed'
 import StreamPlayer from '@/components/StreamPlayer'
 import { Badge, Checkbox, ConnectionBadge, ErrorBanner, StatusDot } from '@/components/ui'
-import { useCameraEvents, useEventStream } from '@/hooks/useEventStream'
+import { useCameraBoxes, useCameraEvents, useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
 import { isPositionRefresh } from '@/lib/events'
 import type { Camera, Detection, StreamGrant } from '@/lib/types'
@@ -54,13 +72,19 @@ import type { Camera, Detection, StreamGrant } from '@/lib/types'
 const RECENT_WINDOW_HOURS = 6
 
 /**
- * How far behind live to hold the picture when boxes are synced.
+ * How far behind live to hold the picture when the extra buffer is asked for.
  *
  * It has to cover capture-to-event on the worker plus the hop through Redis,
  * the API and the socket — otherwise a read arrives after its frame has already
  * been shown and the box never appears. It also has to stay inside what the
  * gateway keeps available: MediaMTX holds seven one-second segments, so beyond
  * about six seconds there is nothing left to play.
+ *
+ * Not needed for ordinary alignment any more. The gateway's low-latency HLS
+ * already holds back ~600 ms and WebRTC reports its own lag, so the overlay
+ * knows what is on screen either way; this buys headroom for a worker whose
+ * latency has run into seconds, which is a load problem rather than a
+ * synchronisation one.
  */
 const SYNC_DELAY_MS = 2_500
 
@@ -83,12 +107,11 @@ export default function LiveAnpr() {
   const [grant, setGrant] = useState<StreamGrant | null>(null)
   const [history, setHistory] = useState<Detection[]>([])
   const [showBoxes, setShowBoxes] = useState(true)
-  // Off by default: syncing holds the picture SYNC_DELAY_MS behind live, and
-  // that delay is real — it is the single biggest contributor to the video
-  // feeling laggy when you open a camera. Unsynced, the picture is as live as
-  // the transport allows and boxes are held long enough (6 s) to still be up
-  // when the vehicle they describe reaches the screen. Left as a toggle
-  // because frame-accurate placement is genuinely better for a close look.
+  // Off by default, and now genuinely optional rather than the price of
+  // correct boxes: the delay it adds is real and is the single biggest
+  // contributor to the video feeling laggy when you open a camera, while
+  // alignment no longer depends on it. Kept because a worker under enough load
+  // to push capture-to-event into seconds cannot be aligned any other way.
   const [syncBoxes, setSyncBoxes] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeCodes, setActiveCodes] = useState<Set<string>>(new Set())
@@ -101,6 +124,11 @@ export default function LiveAnpr() {
   const videoClockRef = useRef<(() => number | null) | null>(null)
 
   const liveEvents = useCameraEvents(selected?.camera_code ?? null)
+  // The live-boxes channel. One message per camera per tick carrying every
+  // vehicle the pipeline has localised a plate on, which is what the overlay
+  // draws from — earlier than a reading, and an order cheaper than sending the
+  // same boxes one vehicle at a time.
+  const liveBoxes = useCameraBoxes(selected?.camera_code ?? null)
 
   // The overlay wants every event, because position refreshes are what let it
   // follow a vehicle. The feed wants only the readings: a refresh repeats a
@@ -267,9 +295,21 @@ export default function LiveAnpr() {
                   videoClockRef.current = videoClock
                   return (
                     <AnprOverlay
+                      batch={liveBoxes}
+                      // Still passed, and used only for a camera that
+                      // publishes no batches — a worker predating the channel,
+                      // or the simulator's load mode. The overlay ignores them
+                      // for drawing once a batch has arrived.
                       events={liveEvents}
+                      camera={selected.camera_code}
                       enabled={showBoxes}
-                      videoClock={syncBoxes ? videoClock : undefined}
+                      // Always. The clock says which capture instant is on
+                      // screen, and both transports can now answer — HLS from
+                      // its programme-date tags, WebRTC from its own measured
+                      // receive lag. Withholding it unless the extra buffer
+                      // was ticked left the overlay guessing on the default
+                      // path, which is the one everybody actually watches.
+                      videoClock={videoClock}
                     />
                   )
                 }}
@@ -291,12 +331,12 @@ export default function LiveAnpr() {
                     labelClassName="gap-1.5 text-[11px] text-muted-foreground"
                   />
                   <span
-                    title={`Holds the picture ${(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live so each box lands on the frame it was measured in. Off gives the lowest latency the network allows, with boxes that trail the picture.`}
+                    title={`Holds the picture ${(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live, so every reading arrives before the frame it describes is shown. Boxes are aligned to the picture either way — turn this on only when the worker is loaded enough that readings arrive seconds late.`}
                   >
                     <Checkbox
                       checked={syncBoxes}
                       onChange={(e) => setSyncBoxes(e.target.checked)}
-                      label="sync to video"
+                      label="extra buffer"
                       labelClassName="gap-1.5 text-[11px] text-muted-foreground"
                     />
                   </span>
@@ -311,7 +351,7 @@ export default function LiveAnpr() {
               {showDiagnostics && (
                 <PipelineDiagnostics
                   events={liveEvents}
-                  videoClock={syncBoxes ? videoClockRef.current : null}
+                  videoClock={videoClockRef.current}
                   transport={grant.whep_url ? 'webrtc/hls' : 'hls'}
                 />
               )}
@@ -339,22 +379,25 @@ export default function LiveAnpr() {
               <p className="text-[10px] leading-relaxed text-muted-foreground">
                 {syncBoxes ? (
                   <>
-                    <strong className="text-foreground">Synced.</strong> The
+                    <strong className="text-foreground">Buffered.</strong> The
                     picture is held{' '}
-                    {(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live so each box
-                    can be drawn on the frame it was measured in. Every box
-                    carries the pipeline&rsquo;s own capture-to-event figure.
+                    {(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live, so every
+                    reading is already here before the frame it describes is
+                    shown and no box has to be predicted at all.
                   </>
                 ) : (
                   <>
-                    <strong className="text-foreground">Unsynced.</strong>{' '}
-                    Lowest-latency picture, and boxes that trail it: inference
-                    runs on the worker, so a read lands after the frame it came
-                    from. Each box carries how far behind it is.
+                    <strong className="text-foreground">Live.</strong> The
+                    lowest-latency picture the transport allows. A box appears
+                    as soon as a plate is located — dashed until it has been
+                    read — placed against the capture instant on screen and
+                    carried forward on the vehicle&rsquo;s own measured
+                    velocity, so it lands on the car rather than behind it.
                   </>
                 )}{' '}
-                The feed on the right is the authoritative record of what was
-                read.
+                Every box carries the pipeline&rsquo;s own capture-to-event
+                figure; tick <em>latency</em> to see it aggregated. The feed on
+                the right is the authoritative record of what was read.
               </p>
             </>
           ) : (
