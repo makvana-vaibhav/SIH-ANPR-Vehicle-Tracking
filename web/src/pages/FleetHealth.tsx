@@ -80,7 +80,14 @@ export default function FleetHealthPage() {
        * "Not yet probed" only appears when it is non-zero. A card permanently
        * reading 0, explaining a state that no longer normally occurs, is how
        * a screen stops being read. */}
-      <section className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 md:grid-cols-4">
+      {/* The column count follows the number of tiles actually rendered. A
+          `gap-px bg-border` grid draws its own dividers, so a fixed four
+          columns holding three tiles paints a fourth, empty, bordered cell. */}
+      <section
+        className={`grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 ${
+          health != null && health.unknown > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'
+        }`}
+      >
         <StatTile
           variant="strip"
           label="Availability"
@@ -151,16 +158,22 @@ export default function FleetHealthPage() {
             changes.
           </InfoHint>
         </h2>
-        <div className="grid gap-px bg-border md:grid-cols-3">
+        {/* A wrapping row rather than a divided grid: the vendor count is
+            whatever the estate happens to federate, and a three-column grid
+            holding one vendor drew two empty cells beside it. */}
+        <ul className="flex flex-wrap gap-2 p-4">
           {health?.by_vendor.map((row) => (
-            <div key={row.vendor} className="bg-card px-4 py-3">
+            <li
+              key={row.vendor}
+              className="min-w-44 rounded-md border border-border px-3 py-2"
+            >
               <p className="font-mono text-sm">{row.vendor}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {row.total} cameras · {row.online} live
               </p>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       </section>
 
       {/* Failure causes */}
