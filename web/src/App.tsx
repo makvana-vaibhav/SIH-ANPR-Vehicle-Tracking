@@ -1,35 +1,24 @@
-/** Command centre shell: navigation, session, and routing. */
+/** Command centre shell: navigation, session, and routing.
+ *
+ * v1 demo build: trimmed to the two screens shown to judges — the GIS map
+ * and Live ANPR. The rest of the platform (analytics, alerts, search,
+ * watchlist, fleet health, admin) still exists on `main`; this branch is
+ * deliberately narrow so the demo has nothing extra to click into.
+ */
 
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { ToastProvider } from '@/components/Toast'
 import { Button, Spinner } from '@/components/ui'
-import Alerts from '@/pages/Alerts'
-import Analytics from '@/pages/Analytics'
-import AuditLog from '@/pages/AuditLog'
 import ChangePassword from '@/pages/ChangePassword'
-import Dashboard from '@/pages/Dashboard'
-import FleetHealthPage from '@/pages/FleetHealth'
-import Cameras from '@/pages/Cameras'
 import LiveAnpr from '@/pages/LiveAnpr'
 import Login from '@/pages/Login'
 import MapView from '@/pages/MapView'
-import Users from '@/pages/Users'
-import VehicleSearch from '@/pages/VehicleSearch'
-import Watchlist from '@/pages/Watchlist'
 import RequirePermission from '@/components/RequirePermission'
 import { useAuth } from '@/hooks/useAuth'
-import { EventStreamProvider, useEventStream } from '@/hooks/useEventStream'
+import { EventStreamProvider } from '@/hooks/useEventStream'
 import { PERMISSIONS, ROLE_SUMMARY, type Permission } from '@/lib/permissions'
 
-/**
- * Primary navigation, Gujarati alongside English.
- *
- * `needs` is the permission that makes a tab usable at all. A role without it
- * does not see the tab — an auditor shown "Vehicle Search" only to be refused
- * on arrival learns that this system's errors are noise, which is an expensive
- * thing to teach a control room.
- */
 interface NavItem {
   to: string
   label: string
@@ -37,42 +26,9 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { to: '/dashboard', label: 'Dashboard', needs: PERMISSIONS.cameraRead },
   { to: '/map', label: 'GIS Map', needs: PERMISSIONS.cameraRead },
-  { to: '/analytics', label: 'Analytics', needs: PERMISSIONS.analyticsRead },
   { to: '/anpr', label: 'Live ANPR', needs: PERMISSIONS.streamView },
-  { to: '/alerts', label: 'Alerts', needs: PERMISSIONS.alertRead },
-  {
-    to: '/vehicles',
-    label: 'Vehicle Search',
-    needs: PERMISSIONS.searchExecute,
-  },
-  {
-    to: '/watchlist',
-    label: 'Watchlist',
-    needs: PERMISSIONS.watchlistRead,
-  },
-  { to: '/health', label: 'Fleet Health', needs: PERMISSIONS.cameraRead },
-  { to: '/cameras', label: 'Cameras', needs: PERMISSIONS.cameraRead },
-  { to: '/users', label: 'Accounts', needs: PERMISSIONS.userRead },
-  { to: '/audit', label: 'Audit', needs: PERMISSIONS.auditRead },
 ]
-
-/**
- * Unacknowledged alerts, on the navigation itself.
- *
- * An operator triaging one camera has to learn that another one just fired
- * without being on the alerts screen to see it.
- */
-function AlertBadge() {
-  const { counts } = useEventStream()
-  if (counts.alerts === 0) return null
-  return (
-    <span className="ml-1.5 rounded-full bg-status-offline px-1.5 text-[10px] font-bold text-white">
-      {counts.alerts}
-    </span>
-  )
-}
 
 export default function App() {
   const { user, loading } = useAuth()
@@ -89,8 +45,8 @@ export default function App() {
     return <Login />
   }
 
-  // The provider sits above the header because the navigation itself shows a
-  // live alert count. One socket serves every screen inside it.
+  // One event-stream socket serves both screens inside it (live ANPR readings
+  // and the map's camera status).
   return (
     <EventStreamProvider>
       <ToastProvider>
@@ -114,9 +70,6 @@ function Shell() {
           </span>
         </div>
 
-        {/* min-w-0 lets the nav shrink rather than push the identity block
-            off the header; overflow-x-auto keeps every tab reachable on a
-            narrow control-room monitor instead of hiding some. */}
         <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {NAV.filter((item) => can(item.needs)).map((item) => (
             <NavLink
@@ -131,7 +84,6 @@ function Shell() {
               }
             >
               {item.label}
-              {item.to === '/alerts' && <AlertBadge />}
             </NavLink>
           ))}
         </nav>
@@ -163,14 +115,6 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Navigate to={landing} replace />} />
           <Route
-            path="/dashboard"
-            element={
-              <RequirePermission anyOf={[PERMISSIONS.cameraRead]} label="The dashboard">
-                <Dashboard />
-              </RequirePermission>
-            }
-          />
-          <Route
             path="/map"
             element={
               <RequirePermission anyOf={[PERMISSIONS.cameraRead]} label="The GIS map">
@@ -179,83 +123,10 @@ function Shell() {
             }
           />
           <Route
-            path="/analytics"
-            element={
-              <RequirePermission anyOf={[PERMISSIONS.analyticsRead]} label="Traffic analytics">
-                <Analytics />
-              </RequirePermission>
-            }
-          />
-          <Route
             path="/anpr"
             element={
               <RequirePermission anyOf={[PERMISSIONS.streamView]} label="Live ANPR">
                 <LiveAnpr />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/alerts"
-            element={
-              <RequirePermission anyOf={[PERMISSIONS.alertRead]} label="Alerts">
-                <Alerts />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/vehicles"
-            element={
-              <RequirePermission
-                anyOf={[PERMISSIONS.searchExecute]}
-                label="Vehicle search"
-              >
-                <VehicleSearch />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/watchlist"
-            element={
-              <RequirePermission
-                anyOf={[PERMISSIONS.watchlistRead]}
-                label="The watchlist"
-              >
-                <Watchlist />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/health"
-            element={
-              <RequirePermission anyOf={[PERMISSIONS.cameraRead]} label="Fleet health">
-                <FleetHealthPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/cameras"
-            element={
-              <RequirePermission anyOf={[PERMISSIONS.cameraRead]} label="Cameras">
-                <Cameras />
-              </RequirePermission>
-            }
-          />
-          {/* The screen was called Integration until it grew the ability to
-              actually onboard something. Old links should still land. */}
-          <Route path="/integration" element={<Navigate to="/cameras" replace />} />
-          <Route
-            path="/users"
-            element={
-              <RequirePermission anyOf={[PERMISSIONS.userRead]} label="Account administration">
-                <Users />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/audit"
-            element={
-              <RequirePermission anyOf={[PERMISSIONS.auditRead]} label="The audit trail">
-                <AuditLog />
               </RequirePermission>
             }
           />
