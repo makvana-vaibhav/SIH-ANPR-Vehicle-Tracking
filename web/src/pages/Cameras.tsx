@@ -267,7 +267,7 @@ export default function Cameras() {
   }
 
   return (
-    <div className="space-y-6 overflow-y-auto p-6">
+    <div className="h-full space-y-6 overflow-y-auto p-6">
       <header>
         <h1 className="text-xl font-semibold">Cameras</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">

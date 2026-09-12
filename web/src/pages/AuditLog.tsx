@@ -90,7 +90,7 @@ export default function AuditLog() {
   }, [load])
 
   return (
-    <div className="space-y-4 overflow-y-auto p-6">
+    <div className="h-full space-y-4 overflow-y-auto p-6">
       <header>
         <h1 className="text-xl font-semibold">Audit trail</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">

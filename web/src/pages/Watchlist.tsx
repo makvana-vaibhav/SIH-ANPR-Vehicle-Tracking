@@ -115,7 +115,7 @@ export default function Watchlist() {
   const retired = entries.filter((e) => !e.active)
 
   return (
-    <div className="space-y-6 overflow-y-auto p-6">
+    <div className="h-full space-y-6 overflow-y-auto p-6">
       <header>
         <h1 className="text-xl font-semibold">Watchlist</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
