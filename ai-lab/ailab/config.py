@@ -55,12 +55,16 @@ class DetectorConfig(BaseModel):
     plate_bearing_classes: list[str] = Field(
         default_factory=lambda: ["car", "motorcycle", "bus", "truck"]
     )
-    # "auto" takes the best provider actually installed. "cuda" and "coreml"
-    # raise at startup when their provider is absent rather than falling back
-    # to CPU, because a GPU deployment that silently runs on CPU is a capacity
-    # plan wrong by an order of magnitude that reports nothing. Inside Docker
-    # on Apple Silicon only "cpu" exists — see docs/GPU.md.
-    device: Literal["auto", "cpu", "cuda", "coreml"] = "auto"
+    # "auto" takes the best provider actually installed. "cuda", "coreml" and
+    # "dml" raise at startup when their provider is absent rather than falling
+    # back to CPU, because a GPU deployment that silently runs on CPU is a
+    # capacity plan wrong by an order of magnitude that reports nothing.
+    # Inside Docker on Apple Silicon only "cpu" exists — see docs/GPU.md.
+    # "dml" (DirectML) needs the `onnxruntime-directml` package in place of
+    # plain `onnxruntime` and only exists on Windows — unmeasured on this
+    # project's hardware, so treat any DirectML figure as extrapolated until
+    # someone runs it, same as "cuda".
+    device: Literal["auto", "cpu", "cuda", "coreml", "dml"] = "auto"
     # ONNX Runtime intra-op threads. 0 picks a measured default; the library's
     # own default (one per core) is markedly slower on small models.
     threads: int = Field(default=0, ge=0)

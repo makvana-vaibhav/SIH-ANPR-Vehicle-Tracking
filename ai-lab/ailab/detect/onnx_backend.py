@@ -63,27 +63,45 @@ def select_providers(device: str = "auto") -> list[str]:
     NVIDIA container toolkit. This is the deployment path in
     `scripts/capacity_model.py --gpu-speedup`.
 
-    An explicit `cuda` or `coreml` raises when the provider is missing rather
-    than quietly running on CPU: a GPU deployment that silently falls back is a
-    capacity plan that is wrong by an order of magnitude and says nothing.
-    `auto` takes the best present and is what the demo runs.
+    **Windows, any DirectX12 GPU: DirectML**, needing `onnxruntime-directml`
+    in place of plain `onnxruntime`. Unlike CUDA this is not NVIDIA-only — it
+    reaches integrated Intel/AMD graphics too, which matters for a judge's or
+    demo laptop that has no discrete GPU at all. Not measured on this
+    project's hardware; treat any figure as extrapolated until someone runs
+    it, exactly like the CUDA path.
+
+    An explicit `cuda`, `coreml` or `dml` raises when the provider is missing
+    rather than quietly running on CPU: a GPU deployment that silently falls
+    back is a capacity plan that is wrong by an order of magnitude and says
+    nothing. `auto` takes the best present and is what the demo runs.
     """
     installed = list(ort.get_available_providers())
     if device == "cpu":
         return ["CPUExecutionProvider"]
 
-    explicit = {"cuda": "CUDAExecutionProvider", "coreml": "CoreMLExecutionProvider"}
+    explicit = {
+        "cuda": "CUDAExecutionProvider",
+        "coreml": "CoreMLExecutionProvider",
+        "dml": "DmlExecutionProvider",
+    }
     if device in explicit:
         wanted = explicit[device]
         if wanted not in installed:
             raise RuntimeError(
                 f"device={device!r} requested but onnxruntime has no {wanted}. "
                 f"Installed: {installed}. See docs/GPU.md — inside Docker on Apple "
-                f"Silicon no accelerator exists, so use device='auto'."
+                f"Silicon no accelerator exists, and DirectML needs the "
+                f"onnxruntime-directml package on Windows; use device='auto' "
+                f"to fall back automatically instead of raising."
             )
         return [wanted, "CPUExecutionProvider"]
 
-    preferred = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
+    preferred = [
+        "CUDAExecutionProvider",
+        "DmlExecutionProvider",
+        "CoreMLExecutionProvider",
+        "CPUExecutionProvider",
+    ]
     return [p for p in preferred if p in installed] or ["CPUExecutionProvider"]
 
 

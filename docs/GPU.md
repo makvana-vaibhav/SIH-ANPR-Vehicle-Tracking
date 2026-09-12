@@ -35,21 +35,60 @@ in the docs is labelled **extrapolated**, never *measured*.
 
 ---
 
-## The three real paths
+## The four real paths
 
 | Where | Provider | Status | Use |
 |---|---|---|---|
 | Docker on Apple Silicon | `CPUExecutionProvider` | **What the demo runs.** | Development, the demo laptop |
 | macOS natively (no Docker) | `CoreMLExecutionProvider` | Supported by the code; needs a host install | Getting more cameras out of this Mac |
 | Linux + NVIDIA | `CUDAExecutionProvider` | Supported by the code; not testable here | Production / the city deployment |
+| **Windows, any DirectX12 GPU** | `DmlExecutionProvider` | Supported by the code; not testable here | A Windows demo/judge laptop, including one with only integrated graphics |
 
 `device` is set per model in the pipeline config and accepts
-`auto` (default), `cpu`, `cuda`, `coreml`.
+`auto` (default), `cpu`, `cuda`, `coreml`, `dml`.
 
-`auto` takes the best provider actually present. An explicit `cuda` or `coreml`
-**raises at startup** when that provider is missing, rather than silently
-running on CPU — a GPU deployment that quietly falls back is a capacity plan
-wrong by an order of magnitude that reports nothing.
+`auto` takes the best provider actually present. An explicit `cuda`, `coreml`
+or `dml` **raises at startup** when that provider is missing, rather than
+silently running on CPU — a GPU deployment that quietly falls back is a
+capacity plan wrong by an order of magnitude that reports nothing.
+
+---
+
+## Path 4 — DirectML, for a Windows demo machine
+
+DirectML is Microsoft's DirectX12-based ML acceleration layer. The reason it
+belongs in this list even though CUDA already covers "GPU deployment" is that
+it is **not NVIDIA-only** — it reaches any DirectX12 device, including the
+integrated Intel/AMD graphics most laptops actually have. CUDA needs a
+discrete NVIDIA card; DirectML needs Windows and nothing else.
+
+```
+pip uninstall onnxruntime
+pip install onnxruntime-directml
+python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+# expect DmlExecutionProvider in the list
+```
+
+Then set `device: dml` on the detector(s) in the pipeline config.
+
+**Two cautions before trusting the result, same spirit as the CoreML section
+above:**
+
+* DirectML is not automatically faster for models this small. Its own docs
+  note that a naive pipeline pays CPU↔GPU transfer on every call, which can
+  cost more than these YOLOv8n/YOLO11n-scale models take to run outright.
+  Whether it pays has to be **measured on the actual demo hardware**, and
+  that measurement has not been run here — this project has no Windows+GPU
+  box to run it on today.
+* Like the CUDA path, `onnxruntime-directml` and plain `onnxruntime` cannot
+  both be installed — swapping one for the other is a `requirements.txt`
+  change for whichever image runs on Windows, not something to bake into the
+  shared default (`docs/GPU.md`'s CPU-only image is what ships everywhere
+  else).
+
+`scripts/capacity_model.py --gpu-speedup` models the fleet-sizing consequence
+of a GPU deployment; its speedup factor is an assumption for DirectML exactly
+as it already is for CUDA, until measured.
 
 ---
 
