@@ -37,6 +37,15 @@
  *
  * **End-to-end** — AI + transport. The figure that decides whether a box can
  * land on the right vehicle.
+ *
+ * **Time to first plate / confirmed** — seconds from a vehicle's first
+ * observation to its first plate reading, and to that reading crossing the
+ * same bar the overlay uses for a checkmark (`event.plate.time_to_first_
+ * read_s`/`time_to_confirmed_s`, computed once on the worker in
+ * `Pipeline._read_plate`). This is the primary KPI: every other row above
+ * times a single frame's trip through part of the pipeline; this times how
+ * much of a vehicle's whole time on screen passed before the platform had
+ * anything to show for it.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -92,6 +101,8 @@ export default function PipelineDiagnostics({
 
     const ai: number[] = []
     const transportMs: number[] = []
+    const timeToFirstRead: number[] = []
+    const timeToConfirmed: number[] = []
     let withPlate = 0
 
     for (const event of events.slice(0, SAMPLE_LIMIT)) {
@@ -112,6 +123,18 @@ export default function PipelineDiagnostics({
         if (hop >= 0 && hop < 60_000) transportMs.push(hop)
       }
       if (event.plate?.text) withPlate += 1
+      // How much of the vehicle's time on screen passed before it had a
+      // reading at all, and before that reading was confident enough to
+      // show a checkmark — the worker's own measurement (see
+      // Track.first_read_latency_s), not derived here. This is the number
+      // the fast-path display exists to minimise; `latency_ms` above times
+      // one frame's trip to the bus, not a vehicle's whole transit.
+      if (typeof event.plate?.time_to_first_read_s === 'number') {
+        timeToFirstRead.push(event.plate.time_to_first_read_s * 1000)
+      }
+      if (typeof event.plate?.time_to_confirmed_s === 'number') {
+        timeToConfirmed.push(event.plate.time_to_confirmed_s * 1000)
+      }
     }
 
     // Bound the arrival map: it is keyed per event and would otherwise grow
@@ -138,6 +161,8 @@ export default function PipelineDiagnostics({
       endToEnd:
         aiP50 !== null && transportP50 !== null ? aiP50 + transportP50 : null,
       readRate: events.length > 0 ? withPlate / Math.min(events.length, SAMPLE_LIMIT) : null,
+      timeToFirstReadP50: percentile(timeToFirstRead, 0.5),
+      timeToConfirmedP50: percentile(timeToConfirmed, 0.5),
     }
   }, [events, videoClock])
 
@@ -147,6 +172,12 @@ export default function PipelineDiagnostics({
     ['Transport (event → browser)', ms(stats.transportP50)],
     ['Video behind source', ms(stats.videoLag)],
     ['End-to-end (AI + transport)', ms(stats.endToEnd)],
+    // The primary KPI: how much of a vehicle's time in frame passes before it
+    // has a reading at all, and before that reading is confirmed — as
+    // opposed to every row above, which times one frame's trip through the
+    // pipeline, not a vehicle's whole transit.
+    ['Time to first plate p50', ms(stats.timeToFirstReadP50)],
+    ['Time to confirmed p50', ms(stats.timeToConfirmedP50)],
   ]
 
   return (

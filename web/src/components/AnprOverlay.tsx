@@ -124,23 +124,34 @@ interface TrackBox {
   box: BBox
   /** The plate box, when the pipeline localised one. Null is normal. */
   plateBox: BBox | null
-  /** Whether the reading has stabilised enough to put text on the video. */
+  /** Whether the reading has stabilised enough for a checkmark rather than
+   * "reading" — never gates whether the box is drawn at all. */
   confirmed: boolean
   frame: { width: number; height: number }
 }
 
 /**
- * Has this reading settled enough to label the video with it?
+ * Has this reading settled enough to show a checkmark rather than "reading"?
  *
- * Consensus already votes per character across every frame a vehicle was read
- * in; this is the display gate on top of it. An unconfirmed reading still
- * appears in the feed beside the video with all its evidence — it simply does
- * not get text drawn over live traffic, because a plate that is still moving
- * between candidates is worse than no label at all.
+ * This used to gate whether a plate was drawn *at all* — an unconfirmed
+ * reading was withheld from the video entirely, on the reasoning that a
+ * plate still moving between candidates is worse than no label. That traded
+ * away exactly the thing a live overlay exists for: the platform's own
+ * fast-path event (`vehicle.observed`, emitted the moment OCR produces any
+ * usable text, never waiting on consensus to settle) has been usable since
+ * before this function existed. Now every readable plate is drawn
+ * immediately, labelled "reading"; this only decides when it flips to a
+ * confirmed checkmark.
+ *
+ * Prefers the worker's own `plate.status` when present — computed by
+ * `aggregate.consensus.is_confirmed` on the same data, so the overlay and the
+ * backend's own idea of "confirmed" cannot drift apart. Falls back to
+ * recomputing locally for events from a worker that predates the field.
  */
 function isConfirmed(event: LiveVehicleEvent): boolean {
   const plate = event.plate
   if (!plate?.text) return false
+  if (plate.status) return plate.status === 'confirmed'
   // Grammar and ambiguity are the pipeline's own verdicts on whether the
   // string is a plate at all, and they are decisive: `AP05JEO1` and
   // `KH0522431` both arrive with respectable confidence and are not plates.
@@ -389,7 +400,7 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
 
   return (
     <div ref={hostRef} className="pointer-events-none absolute inset-0">
-      {dedupeByVehicle(visible.filter((v) => v.confirmed)).map((item) => {
+      {dedupeByVehicle(visible).map((item) => {
         const rect = contentRect(size, item.frame)
         const scaleX = rect.width / item.frame.width
         const scaleY = rect.height / item.frame.height
@@ -401,28 +412,28 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
           height: (box.y2 - box.y1) * scaleY,
         })
 
-        // Draw only readings the pipeline stands behind.
-        //
-        // Measured on one camera over 120 events: 13 "distinct" plates for
-        // roughly half that many cars — `AP05JEO` alongside `AP053EOT`,
-        // `XH05ZTK` alongside `XH05ZTX`. Each misread variant is a separate
-        // track and so was drawn as a separate box, which is why a single car
-        // carried a stack of eight overlapping rectangles and why the plates
-        // on screen looked wrong: they *were* wrong, and shown anyway.
-        //
-        // Every reading still reaches the feed beside the video with its
-        // evidence, invalid-format and ambiguous flags included. The video
-        // shows the ones that survived grammar, ambiguity and confidence — one
-        // box per car that was genuinely read.
-        if (!item.confirmed) return null
-
+        // Every readable plate is drawn — the fast path this overlay exists
+        // to serve is exactly "don't make the viewer wait for consensus to
+        // settle". `dedupeByVehicle` (by confidence, below) is what still
+        // stops a single car showing a stack of rectangles when the tracker
+        // holds it as more than one track: measured on one camera over 120
+        // events, 13 "distinct" plates for roughly half that many cars —
+        // `AP05JEO` alongside `AP053EOT`. Only the most confident candidate
+        // for a given patch of screen is drawn; the rest are still in the
+        // feed beside the video with their full evidence.
         const vehicle = place(item.box)
         if (vehicle.width < 4 || vehicle.height < 4) return null
         const plate = item.plateBox ? place(item.plateBox) : null
 
-        // Amber for a reading the system is less sure of, green otherwise.
+        // Amber for a reading the system is less sure of even once settled,
+        // grey while it is still forming, green once it is both settled and
+        // clean.
         const uncertain = item.ambiguous || item.correctedFrom !== null
-        const colour = uncertain ? 'hsl(var(--priority-high))' : 'hsl(var(--status-online))'
+        const colour = !item.confirmed
+          ? 'hsl(var(--status-unknown))'
+          : uncertain
+            ? 'hsl(var(--priority-high))'
+            : 'hsl(var(--status-online))'
 
         // The label goes above the plate when there is one, else above the
         // vehicle — and never *over* the plate, which is the one part of the
@@ -468,27 +479,28 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
                 above and used to anchor the label near the plate rather than
                 the vehicle. */}
 
-            {/* The reading, only once it has settled. An unconfirmed plate is
-                still in the feed beside the video with its full evidence; it
-                just does not get text drawn over live traffic while it is
-                still moving between candidates. */}
-            {item.confirmed && (
-              <div
-                className="absolute flex items-center gap-1.5 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[13px] font-bold leading-tight text-black shadow-lg"
-                style={{
-                  left: anchor.left,
-                  top: labelBelow
-                    ? anchor.top + anchor.height + 3
-                    : anchor.top - 20,
-                  backgroundColor: colour,
-                }}
-              >
-                <span>{item.plate}</span>
-                <span className="font-sans font-normal opacity-75">
-                  {Math.round(item.confidence * 100)}%
-                </span>
-              </div>
-            )}
+            {/* The reading, shown the moment OCR produces anything usable —
+                never withheld pending consensus, database persistence or
+                trajectory processing, none of which this component even has
+                access to. Labelled "reading" until it crosses the same bar
+                `is_confirmed()` uses on the worker, then flips in place to a
+                checkmark; same key, same DOM node, so this never creates a
+                second card for one vehicle. */}
+            <div
+              className="absolute flex items-center gap-1.5 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[13px] font-bold leading-tight text-black shadow-lg"
+              style={{
+                left: anchor.left,
+                top: labelBelow
+                  ? anchor.top + anchor.height + 3
+                  : anchor.top - 20,
+                backgroundColor: colour,
+              }}
+            >
+              <span>{item.plate}</span>
+              <span className="font-sans font-normal opacity-75">
+                {item.confirmed ? '✓' : 'reading'} {Math.round(item.confidence * 100)}%
+              </span>
+            </div>
           </div>
         )
       })}

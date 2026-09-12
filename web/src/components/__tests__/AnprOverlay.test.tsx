@@ -217,23 +217,61 @@ describe('AnprOverlay', () => {
     expect(box?.getAttribute('data-latency-ms')).toBe('300')
   })
 
-  it('draws nothing at all while a reading is still unconfirmed', async () => {
-    // Measured on one camera over 120 events: 13 "distinct" plates for about
-    // half that many cars — `AP05JEO` alongside `AP053EOT`. Each misread
-    // variant is its own track, so drawing every one stacked eight
-    // rectangles on a single car and put demonstrably wrong plates on screen.
-    //
-    // The reading is not lost: it goes to the feed beside the video with its
-    // invalid-format and ambiguous flags intact. The video shows only what
-    // survived grammar, ambiguity and confidence.
+  it('draws an unconfirmed reading immediately, labelled as still reading', async () => {
+    // The fast path this overlay exists to serve: don't make the viewer wait
+    // for consensus to settle before showing anything. A low-confidence first
+    // OCR result is shown right away, styled as "reading" rather than
+    // withheld — the full evidence (grammar/ambiguity flags) still reaches
+    // the feed beside the video regardless.
     const unsettled = event()
     unsettled.plate.confidence = 0.42
 
     const { container } = render(<AnprOverlay events={[unsettled]} />)
     await tick(20)
 
-    expect(container.querySelector('[data-anpr-box]')).toBeNull()
-    expect(screen.queryByText('GJ03AB1234')).toBeNull()
+    const box = container.querySelector('[data-anpr-box="GJ03AB1234"]')
+    expect(box).not.toBeNull()
+    expect(box?.getAttribute('data-confirmed')).toBe('false')
+    expect(screen.getByText('GJ03AB1234')).toBeDefined()
+    expect(screen.getByText(/reading/)).toBeDefined()
+  })
+
+  it('flips an unconfirmed reading to confirmed in place, not as a new box', async () => {
+    const unsettled = event()
+    unsettled.plate.confidence = 0.42
+    const { container, rerender } = render(<AnprOverlay events={[unsettled]} />)
+    await tick(20)
+    expect(
+      container.querySelector('[data-anpr-box="GJ03AB1234"]')?.getAttribute('data-confirmed'),
+    ).toBe('false')
+
+    rerender(<AnprOverlay events={[event()]} />)
+    await tick(20)
+
+    // Still exactly one box for this plate, now confirmed — not a second one
+    // alongside the first.
+    expect(screen.getAllByText('GJ03AB1234')).toHaveLength(1)
+    expect(
+      container.querySelector('[data-anpr-box="GJ03AB1234"]')?.getAttribute('data-confirmed'),
+    ).toBe('true')
+    expect(screen.getByText(/✓/)).toBeDefined()
+  })
+
+  it('prefers the backend-computed status over recomputing locally', async () => {
+    // `plate.status` is what `is_confirmed()` on the worker decided, from the
+    // same rule this component would otherwise reapply. A high-confidence,
+    // grammar-valid reading the worker has explicitly marked "reading" (e.g.
+    // ambiguous a moment ago and not yet re-evaluated) must not be redrawn as
+    // confirmed just because the numbers alone would pass.
+    const stillReading = event()
+    stillReading.plate.status = 'reading'
+
+    const { container } = render(<AnprOverlay events={[stillReading]} />)
+    await tick(20)
+
+    expect(
+      container.querySelector('[data-anpr-box="GJ03AB1234"]')?.getAttribute('data-confirmed'),
+    ).toBe('false')
   })
 
   describe('synced to the video clock', () => {

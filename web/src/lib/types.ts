@@ -375,6 +375,19 @@ export interface LiveVehicleEvent {
     format: string
     bbox?: BBox | null
     evidence?: { reads_total?: number; agreement?: number; method?: string }
+    /**
+     * "reading" once OCR has produced any usable text; "confirmed" once it
+     * passes the same bar the overlay itself draws on (grammar-valid, not
+     * ambiguous, confidence >= 0.8 — see `aggregate.consensus.is_confirmed`
+     * on the worker). Absent on events from a worker that predates the
+     * field; treat that the same as "reading".
+     */
+    status?: 'reading' | 'confirmed'
+    /** Seconds from the vehicle's first sighting to this milestone — the
+     * number that answers "how long did the plate take to show up". Absent
+     * on events from a worker that predates it. */
+    time_to_first_read_s?: number | null
+    time_to_confirmed_s?: number | null
   }
   /**
    * Crop evidence for this sighting. The worker publishes only the object
