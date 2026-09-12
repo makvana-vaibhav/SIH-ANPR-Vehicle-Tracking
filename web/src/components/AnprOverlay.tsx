@@ -876,8 +876,17 @@ export default function AnprOverlay({
             // A jump this large is a track re-association, not a prediction
             // error. Snapping is less misleading than dragging the rectangle
             // across the picture to hide it.
+            //
+            // A retired vehicle snaps for a different reason: smoothing exists
+            // to interpolate between measurements, and for a vehicle that has
+            // left there are no more measurements to interpolate towards. Its
+            // last measured box is where the car actually was, so that is where
+            // it must fade from. Smoothed instead, a box whose newest position
+            // had not been drawn yet — routine when synced, because a
+            // measurement arrives before the picture reaches its instant —
+            // slides backwards across the frame as the car drives out of it.
             offset:
-              jump > snapAbove
+              jump > snapAbove || item.retired
                 ? null
                 : {
                     x1: state.box.x1 - predicted.x1,
