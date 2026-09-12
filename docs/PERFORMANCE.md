@@ -256,3 +256,89 @@ four.
 The thing slots actually buy is **coverage**: 10 → 15 → 27 distinct cameras
 seen in five minutes, at no CPU cost. That matters for PS demo step 3, which
 needs the same vehicle on more than one camera before it can link anything.
+
+---
+
+## 8. Time-to-first-plate (12 Sep 2026)
+
+Everything above times *frames* and *models*. It says nothing about the
+number a judge actually watches: how much of a vehicle's time on screen
+passes before it has a plate reading at all, and before that reading is
+confident enough for the live overlay to show it. Distinct from the
+capture-to-event latency in §7 — that times one frame's trip to the bus, not
+a vehicle's whole transit.
+
+`Track.first_read_latency_s` / `confirmed_latency_s` now measure exactly
+this (set once, in `Pipeline._read_plate`, which both the batch pipeline and
+the live `StreamRunner` call — see the field docstrings in `ailab/types.py`).
+Surfaced in `ailab compare` (new "1st read"/"confirmed" columns) and in the
+live worker's own summary line. **No before/after run has been made on a
+live camera yet** — this session had no Docker — so the numbers below are
+the two changes made and the reasoning for each; run `ailab compare` per the
+commands in `ai-lab/PERFORMANCE.md`'s own reproduction section before
+trusting them further than "directionally right".
+
+### What changed
+
+1. **`stream.yaml`'s plate-scheduler gate opened earlier**:
+   `min_vehicle_width` 100→60px, `min_interval` 4→2 analysed frames. The
+   100px gate in particular could withhold the *first* plate search until a
+   vehicle was already close to leaving a wide-angle camera's frame.
+   `ocr.min_crop_width` (52px) and `is_legible()` already reject a crop too
+   small to read, so opening this earlier trades "never searched" for "tried
+   and cheaply failed legibility", not for a wasted OCR call.
+2. **The detector's fp16-on-CPU tax — measured, and hardware-dependent.**
+   `scripts/fetch_models.sh` pins `yolov8n.onnx` labelled "fp16, 640px" —
+   confirmed by re-downloading it (checksum matches the pin) and inspecting
+   it with onnxruntime directly: input/output are genuinely `float16`. A
+   real fp32 re-export of the same architecture was built for comparison
+   (`yolo export format=onnx half=False imgsz=640`, official COCO
+   `yolov8n.pt`, opset 12 — 12.3 MB against the pinned build's 6.4 MB, as
+   expected for the same weights at double precision).
+   Bare-onnxruntime benchmark (no ai-lab, no OpenCV — the model's own
+   `session.run()` on a random input, 4 intra-op threads, 3 warmup + 15
+   timed calls, **3 repeats each**), on a 14-core Windows machine — a real
+   machine, though not the eventual demo laptop:
+   | precision | run 1 | run 2 | run 3 |
+   |---|---|---|---|
+   | fp16 (pinned) | 41.0ms | 41.3ms | 41.1ms |
+   | fp32 (this export) | 41.1ms | 44.1ms | 41.6ms |
+   **No meaningful difference on this CPU** — both land at ~41ms median,
+   well within run-to-run noise (the one 44.1ms mean was a single outlier
+   call at 63ms dragging its mean up; medians agree). This directly
+   contradicts the Apple-Silicon-measured finding in §8 above (452ms →
+   126ms was about *thread count*, not precision) and the general
+   ONNX-Runtime-CPU folklore that fp16 is always slower — on *this* CPU it
+   plainly is not. **Conclusion: not swapping the shipped model.** The
+   Apple Silicon result doesn't transfer to this hardware, and pinning a new
+   model file for a measured ~0% gain is complexity with no payoff. This is
+   exactly why the rule is "measure on the target, don't port a number from
+   a different machine" — re-run this comparison on whatever the actual demo
+   laptop turns out to be before deciding either way there.
+3. **DirectML added as an opt-in `device`** (`ai-lab/ailab/config.py`,
+   `detect/onnx_backend.py`) — unlike CUDA it reaches any DirectX12 GPU on
+   Windows, including integrated graphics, which matches a Windows demo
+   laptop far better. Unmeasured on real hardware; see `docs/GPU.md`.
+
+### Considered and deliberately not done: pipelining detect(N+1) with OCR(N)
+
+`StreamRunner._process` runs detect → track → plate-detect → OCR
+**sequentially, on one thread per camera**. Overlapping OCR/plate-detect for
+the frame just tracked with vehicle-detection of the next frame — on a
+second thread, handed off through a depth-1 "drop to latest" queue matching
+`StreamReader`'s own philosophy — would raise analysed-frames-per-second
+without changing any threshold, which should mean faster convergence to a
+confident reading with no accuracy cost.
+
+**Not implemented in this branch.** `Pipeline`/`Track` mutation is
+documented as not thread-safe (`pipeline.py`'s own `reset_run_state`
+docstring, `pipeline_pool.py`), and this project has already been burned once
+by a subtle, hard-to-see correctness bug in this exact area (track
+fragmentation, §9 above) — the kind of bug concurrency is especially good at
+hiding. Writing that change untested, in an environment with no way to run
+the pipeline at all (no Docker, no OpenCV/onnxruntime runtime here), is a
+worse trade than leaving it as a documented, scoped proposal for a session
+that can actually run `ailab run`/`services/ai-worker/tests` against it. The
+design above is what such a session should build, gated behind a config flag
+defaulting off until `ailab compare`'s new latency columns confirm both a
+win and no regression.
