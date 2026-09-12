@@ -377,6 +377,13 @@ class EventConsumer:
                 "track_ids": vehicle.get("track_ids", []),
                 "merged_from_fragments": vehicle.get("merged_from_fragments", 1),
                 "latency_ms": event.get("latency_ms"),
+                # "confirmed" by the time the vehicle retired, or "reading" if
+                # consensus never settled — an audit trail for how confident
+                # the platform actually was, kept even though every persisted
+                # row is from a `vehicle.completed` event.
+                "status": plate.get("status"),
+                "time_to_first_read_s": plate.get("time_to_first_read_s"),
+                "time_to_confirmed_s": plate.get("time_to_confirmed_s"),
             },
             is_validated=bool(plate.get("grammar_valid", False)),
         )

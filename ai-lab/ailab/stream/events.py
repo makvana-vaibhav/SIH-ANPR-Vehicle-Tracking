@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from ailab.aggregate.consensus import is_confirmed
 from ailab.aggregate.grammar import describe_plate
 from ailab.track.merge import Vehicle
 from ailab.types import Track
@@ -74,6 +75,19 @@ def _plate_block(vehicle: Vehicle | Track) -> dict[str, Any]:
         "text": result.text,
         "confidence": round(result.confidence, 4),
         "readable": True,
+        # "reading" = a usable OCR result exists but hasn't settled yet;
+        # "confirmed" = it has (see `aggregate.consensus.is_confirmed`, the
+        # exact predicate the live overlay uses to decide whether to show a
+        # checkmark). A platform consumer that wants "the first plate the
+        # moment it's usable" should act on `readable`, not wait for this to
+        # say "confirmed" — that would defeat the point of a fast path.
+        "status": "confirmed" if is_confirmed(result) else "reading",
+        # How long this took, in source-clock seconds from the vehicle's
+        # first observation. The primary KPI for a fast-path display: null
+        # only for a caller that predates `Track.first_read_latency_s` (see
+        # its docstring), never withheld deliberately.
+        "time_to_first_read_s": vehicle.first_read_latency_s,
+        "time_to_confirmed_s": vehicle.confirmed_latency_s,
         "grammar_valid": result.grammar_valid,
         "grammar_note": result.grammar_note,
         "ambiguous": result.ambiguous,

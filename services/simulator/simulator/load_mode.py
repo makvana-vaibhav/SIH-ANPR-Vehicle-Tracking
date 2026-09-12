@@ -117,6 +117,11 @@ def build_event(camera_code: str, vehicle_id: int, plate_text: str) -> dict[str,
             "text": plate_text,
             "confidence": confidence,
             "readable": True,
+            # Mirrors `aggregate.consensus.is_confirmed` on the real worker:
+            # grammar-valid and unambiguous here always, so it comes down to
+            # the same confidence bar. Kept in step by hand — see
+            # `ailab.stream.events` for the real computation.
+            "status": "confirmed" if confidence >= 0.80 else "reading",
             "grammar_valid": True,
             "grammar_note": "",
             "ambiguous": False,

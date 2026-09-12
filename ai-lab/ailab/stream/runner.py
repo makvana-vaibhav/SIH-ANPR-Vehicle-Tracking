@@ -527,6 +527,8 @@ class StreamRunner:
             ),
             best_crop_path=track.best_crop_path,
             bbox=track.best_observation.bbox if track.best_observation else None,
+            first_read_latency_s=track.first_read_latency_s,
+            confirmed_latency_s=track.confirmed_latency_s,
         )
 
     # ── reporting ──

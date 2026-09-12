@@ -24,6 +24,7 @@ itself a finding worth seeing.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -54,6 +55,11 @@ class Vehicle:
     # The vehicle's box at its best sighting. Carried on the event so the
     # platform can place the vehicle in the frame without re-deriving it.
     bbox: Any = None
+    # Same fields as `Track` — see its docstring. Carried through so the
+    # emitted event can expose "how long did this take" directly, which is
+    # the number that decides whether a fast-path display is worth having.
+    first_read_latency_s: float | None = None
+    confirmed_latency_s: float | None = None
 
     @property
     def duration_s(self) -> float:
@@ -62,6 +68,17 @@ class Vehicle:
     @property
     def plate(self) -> str:
         return self.result.text if self.result else ""
+
+
+def _earliest(values: Iterable[float | None]) -> float | None:
+    """Smallest non-None value in an iterable, or None if all are.
+
+    Used to pool `first_read_latency_s`/`confirmed_latency_s` across a
+    fragment group: several tracks may have merged into one vehicle, and the
+    milestone that matters is whichever fragment reached it first.
+    """
+    present = [v for v in values if v is not None]
+    return min(present) if present else None
 
 
 def _compatible(a: Track, b: Track, max_gap_s: float) -> bool:
@@ -199,6 +216,8 @@ def merge(tracks: dict[int, Track], config: RunConfig) -> list[Vehicle]:
                 best_crop_path=best_track.best_crop_path,
                 merged_from_fragments=len(group),
                 bbox=best_observation.bbox if best_observation else None,
+                first_read_latency_s=_earliest(t.first_read_latency_s for t in group),
+                confirmed_latency_s=_earliest(t.confirmed_latency_s for t in group),
             )
         )
     return vehicles
