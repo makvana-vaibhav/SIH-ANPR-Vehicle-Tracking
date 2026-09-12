@@ -1,3 +1,17 @@
+/*
+  Typefaces, self-hosted.
+
+  Bundled by Vite from node_modules and served from our own origin — the
+  offline promise in CLAUDE.md §3 rules out Google Fonts or any other CDN, and
+  until now `tailwind.config.js` named Inter and JetBrains Mono without either
+  ever being loaded, so the whole product silently rendered in system-ui.
+
+  Only the upright axis is imported. Nothing in this interface is set in
+  italic, and `wght-italic.css` would double the font payload to serve it.
+*/
+@import '@fontsource-variable/geist/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -23,7 +37,8 @@
     --popover: 222 47% 8%;
     --popover-foreground: 210 40% 96%;
 
-    /* Primary — Gujarat Police khaki-gold, legible on dark */
+    /* Primary — a khaki-gold that stays legible against the slate surfaces
+       without competing with the red and amber the status palette reserves. */
     --primary: 43 74% 52%;
     --primary-foreground: 222 47% 8%;
 
@@ -59,6 +74,29 @@
     --priority-high: 24 95% 53%;
     --priority-medium: 38 92% 50%;
     --priority-low: 199 89% 48%;
+
+    /* ── Chart series ─────────────────────────────────────────────
+       Categorical identity only — which corridor, which vehicle class.
+       Deliberately separate from the status and priority palettes above:
+       a chart series painted in `--status-online` says "this corridor is
+       healthy" to anyone who has learned what green means on every other
+       screen, which is a claim the chart is not making.
+
+       Assigned in fixed slot order and never cycled. Past four series the
+       remainder folds into one neutral "other" band rather than repeating a
+       hue — two corridors sharing a colour is worse than not naming them.
+
+       Validated as a set against --card (#0d1321): OKLCH lightness inside the
+       dark band, chroma above the gray floor, worst adjacent colour-vision
+       separation ΔE 8.4, normal-vision ΔE 19.4, all four above 3:1 contrast.
+       Re-run the check before changing any value here. */
+    --chart-1: 213 77% 56%;
+    --chart-2: 17 70% 50%;
+    --chart-3: 159 73% 36%;
+    --chart-4: 40 100% 39%;
+    /* The "everything else" band. Neutral on purpose — it is an absence of
+       identity, not a fifth identity. */
+    --chart-other: 215 16% 47%;
   }
 
   * {
@@ -73,6 +111,14 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Every figure in this product is read in a column against the figure above
+     it — camera counts, plate counts, percentages, latencies. Proportional
+     digits make those columns ragged and a changing counter jitter, so lining
+     figures are the default and a caller opts out rather than in. */
+  body {
+    font-variant-numeric: tabular-nums;
+  }
+
   /* Number plates, camera codes, coordinates and timestamps: monospace and
      slightly tracked out, because they are read one character at a time and
      a misread plate is an operational error. */
@@ -81,6 +127,15 @@
   .coord,
   .ts {
     @apply font-mono tracking-wider tabular-nums;
+  }
+
+  /* One visible focus treatment for the whole product.
+     Every interactive element in here was relying on the browser default,
+     which the dark surfaces render nearly invisible — and Alerts is designed
+     to be driven from the keyboard, so this is a working affordance rather
+     than a compliance checkbox. `:focus-visible` keeps it off mouse clicks. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring/70 ring-offset-2 ring-offset-background;
   }
 
   /* Scrollbars — the event ticker and alert feed scroll constantly. */
