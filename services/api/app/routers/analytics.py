@@ -793,6 +793,16 @@ def _thresholds() -> traffic.TrafficThresholds:
     )
 
 
+#: The direction labels the worker emits, and the only strings this router will
+#: act on. An explicit set rather than `hasattr` on the response model: the
+#: value arrives from an event, and `hasattr(counts, "model_dump")` is true, so
+#: attribute-name dispatch would let a malformed event overwrite a method
+#: instead of incrementing a counter.
+_DIRECTIONS = frozenset(
+    {"approaching", "receding", "crossing_left", "crossing_right", "stationary"}
+)
+
+
 def _direction_counts(directions: list[str | None]) -> DirectionCounts:
     """Tally the worker's image-space direction labels.
 
@@ -800,14 +810,16 @@ def _direction_counts(directions: list[str | None]) -> DirectionCounts:
     exactly once. Counted as `unmeasured` rather than folded into
     `stationary`, because the obstruction detector keys on stationary and
     conflating the two would invent stopped vehicles out of tracker noise.
+    Anything unrecognised lands there too, rather than being dropped.
     """
-    counts = DirectionCounts()
+    tally = dict.fromkeys(_DIRECTIONS, 0)
+    unmeasured = 0
     for raw in directions:
-        if raw is not None and hasattr(counts, raw):
-            setattr(counts, raw, getattr(counts, raw) + 1)
+        if raw in tally:
+            tally[raw] += 1
         else:
-            counts.unmeasured += 1
-    return counts
+            unmeasured += 1
+    return DirectionCounts(**tally, unmeasured=unmeasured)
 
 
 def _queue_samples(rows: list[Any], bucket_seconds: int) -> list[traffic.QueueSample]:
