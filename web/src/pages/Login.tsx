@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { useAuth } from '@/hooks/useAuth'
-import { Button, ErrorBanner, Field, Icon, Input } from '@/components/ui'
+import { BrandMark, Button, ErrorBanner, Field, Icon, Input } from '@/components/ui'
 
 /**
  * The seeded accounts, so a reviewer can move between roles.
@@ -49,12 +49,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2.5">
-          <span
-            aria-hidden
-            className="grid h-8 w-8 place-items-center rounded-md bg-primary text-base font-bold text-primary-foreground"
-          >
-            C
-          </span>
+          <BrandMark size={30} className="text-primary" />
           <div>
             <h1 className="text-lg font-semibold leading-tight tracking-tight">Contrail</h1>
             <p className="text-[11px] text-muted-foreground">

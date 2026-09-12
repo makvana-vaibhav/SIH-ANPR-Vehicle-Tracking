@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Same surface tone as the app's own cards (--card), so the favicon
+       reads as part of the product rather than a default browser square. -->
+  <rect width="32" height="32" rx="7" fill="#0d1321" />
+  <!-- The contrail mark, in the app's one accent colour (--primary). Same
+       path as BrandMark.tsx's 24px viewBox, scaled and centred into this
+       32px canvas — one glyph, not a redraw. -->
+  <g transform="translate(4 4)">
+    <path d="M3.2 21.5 Q10.5 19.8 16.8 9.3 Q13 14.5 7.2 19 Z" fill="#dfac2a" />
+    <circle cx="18.6" cy="7.3" r="2.15" fill="#dfac2a" />
+  </g>
+</svg>

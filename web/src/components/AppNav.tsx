@@ -21,7 +21,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
-import { Icon, type IconName } from '@/components/ui'
+import { BrandMark, Icon, type IconName } from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
 import { PERMISSIONS, ROLE_SUMMARY, type Permission } from '@/lib/permissions'
@@ -114,12 +114,7 @@ export default function AppNav() {
     >
       {/* ── Brand ──────────────────────────────────────────────────── */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
-        <span
-          aria-hidden
-          className="grid h-6 w-6 shrink-0 place-items-center rounded bg-primary text-[13px] font-bold text-primary-foreground"
-        >
-          C
-        </span>
+        <BrandMark size={20} className="text-primary" />
         {!collapsed && (
           <span className="truncate text-sm font-semibold tracking-tight">Contrail</span>
         )}
