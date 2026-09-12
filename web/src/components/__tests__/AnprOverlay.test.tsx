@@ -30,6 +30,12 @@ class StubResizeObserver {
 
 const START = Date.parse('2026-09-11T10:31:00.000Z')
 
+/** One animation frame at 60 Hz. */
+const FRAME_MS = 16
+
+/** Mirrors AnprOverlay's own unsynced hold. */
+const HOLD_UNSYNCED_MS = 6_000
+
 function event(
   overrides: {
     trackId?: number
@@ -73,15 +79,29 @@ function event(
       ambiguous: false,
       corrected_from: null,
       format: 'in_current',
+      // Multi-frame agreement. Without it the reading is unconfirmed and the
+      // overlay draws the box but no label — see `isConfirmed`.
+      evidence: { reads_total: 4, agreement: 3 },
     },
     frame: { width: 1920, height: 1080 },
   }
 }
 
-/** Advance both clocks together and let the animation frame run. */
+/** Advance both clocks together and let the animation frame run.
+ *
+ * Two frames, not one. The overlay sets its visible state from *inside* an
+ * animation frame, so the frame that reacts to a new event schedules the draw
+ * and the next one paints it. Asserting after a single frame races the
+ * renderer: the same assertion passed or failed run to run. The extra frame
+ * costs 16 ms of simulated time, immaterial against the 700-2500 ms hold
+ * windows these tests exercise.
+ */
 async function tick(ms: number) {
   await act(async () => {
     vi.advanceTimersByTime(ms)
+  })
+  await act(async () => {
+    vi.advanceTimersByTime(FRAME_MS)
   })
 }
 
@@ -120,9 +140,14 @@ describe('AnprOverlay', () => {
   })
 
   it('draws separate boxes for separate tracks', async () => {
+    // Different `x1`, because two vehicles occupy different pixels. The
+    // fixture's default put both tracks at the same coordinates, which is
+    // exactly the case `dedupeByVehicle` exists to collapse: one car held as
+    // two tracks, each with its own OCR result, drawn as two labels
+    // disagreeing with each other on top of one vehicle.
     const events = [
-      event({ trackId: 7, plate: 'GJ03AB1234' }),
-      event({ trackId: 9, plate: 'GJ01CD5678' }),
+      event({ trackId: 7, plate: 'GJ03AB1234', x1: 100 }),
+      event({ trackId: 9, plate: 'GJ01CD5678', x1: 900 }),
     ]
     render(<AnprOverlay events={events} />)
     await tick(20)
@@ -140,7 +165,12 @@ describe('AnprOverlay', () => {
     await tick(20)
     expect(screen.queryByText('GJ03AB1234')).not.toBeNull()
 
-    await tick(4_000)
+    // Past the unsynced hold, whatever it currently is. This asserted 4 s,
+    // which silently encoded a 2.5 s hold and broke the moment the hold was
+    // restored to the 6 s that makes a box outlast the video's own delay. The
+    // property under test is that a box which stops being refreshed goes away
+    // — not how long that takes.
+    await tick(HOLD_UNSYNCED_MS + 1_000)
 
     expect(screen.queryByText('GJ03AB1234')).toBeNull()
   })
@@ -174,11 +204,36 @@ describe('AnprOverlay', () => {
     expect(screen.queryByText('GJ03AB1234')).toBeNull()
   })
 
-  it('reports the capture-to-event latency rather than wall-clock age', async () => {
-    render(<AnprOverlay events={[event()]} />)
+  it('carries the capture-to-event latency rather than wall-clock age', async () => {
+    // The figure is the worker's own measurement of how long the read took,
+    // not how long ago the browser happened to receive it. It is no longer
+    // printed on the box — per-box timings were the clutter — but it must
+    // still travel with the reading so the diagnostics panel can aggregate it
+    // and so a single box remains inspectable.
+    const { container } = render(<AnprOverlay events={[event()]} />)
     await tick(20)
 
-    expect(screen.getByText('+0.3s')).toBeDefined()
+    const box = container.querySelector('[data-anpr-box="GJ03AB1234"]')
+    expect(box?.getAttribute('data-latency-ms')).toBe('300')
+  })
+
+  it('draws nothing at all while a reading is still unconfirmed', async () => {
+    // Measured on one camera over 120 events: 13 "distinct" plates for about
+    // half that many cars — `AP05JEO` alongside `AP053EOT`. Each misread
+    // variant is its own track, so drawing every one stacked eight
+    // rectangles on a single car and put demonstrably wrong plates on screen.
+    //
+    // The reading is not lost: it goes to the feed beside the video with its
+    // invalid-format and ambiguous flags intact. The video shows only what
+    // survived grammar, ambiguity and confidence.
+    const unsettled = event()
+    unsettled.plate.confidence = 0.42
+
+    const { container } = render(<AnprOverlay events={[unsettled]} />)
+    await tick(20)
+
+    expect(container.querySelector('[data-anpr-box]')).toBeNull()
+    expect(screen.queryByText('GJ03AB1234')).toBeNull()
   })
 
   describe('synced to the video clock', () => {

@@ -25,6 +25,7 @@ from typing import Any, Literal
 import httpx
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Response, status
+from redis.exceptions import RedisError
 
 from app.core.config import settings
 from app.core.logging import get_logger

@@ -7,20 +7,25 @@ can an analyst actually do?" without grepping.
 
 The matrix, as specified:
 
-| Role       | Cameras | Streams | Watchlist | Alerts    | Search | Users | Audit |
-|------------|---------|---------|-----------|-----------|--------|-------|-------|
-| admin      | CRUD    | view    | CRUD      | all       | yes    | CRUD  | read  |
-| supervisor | CRU     | view    | CRU       | ack/close | yes    | –     | read  |
-| operator   | read    | view    | read      | ack       | yes    | –     | –     |
-| analyst    | read    | –       | read      | read      | yes    | –     | –     |
-| auditor    | read    | –       | read      | read      | –      | –     | read  |
-| api_client | create  | –       | –         | –         | –      | –     | –     |
+| Role       | Cameras | Streams | Watchlist | Alerts    | Search | Analytics | Users | Audit |
+|------------|---------|---------|-----------|-----------|--------|-----------|-------|-------|
+| admin      | CRUD    | view    | CRUD      | all       | yes    | read      | CRUD  | read  |
+| supervisor | CRU     | view    | CRU       | ack/close | yes    | read      | –     | read  |
+| operator   | read    | view    | read      | ack       | yes    | read      | –     | –     |
+| analyst    | read    | –       | read      | read      | yes    | read      | –     | –     |
+| auditor    | read    | –       | read      | read      | –      | read      | –     | read  |
+| api_client | create  | –       | –         | –         | –      | –         | –     | –     |
 
-Two entries deserve explanation:
+Three entries deserve explanation:
 
 * **auditor has no search.** An auditor's job is to review *who did what*, not
   to look up vehicles. Granting plate search to the role that oversees plate
   search would defeat the point of separating them.
+* **auditor does have analytics.** Unlike search, traffic analytics identifies
+  nobody: it reports how many vehicles crossed a junction and how fast the road
+  is moving. There is no separation-of-duties reason to withhold it, and an
+  auditor reviewing a surge of plate searches benefits from seeing whether the
+  road was actually busy.
 * **api_client can only create cameras.** It exists so another department can
   self-register its estate with an API key. It cannot read the fleet, search,
   or see alerts — a compromised integration key exposes nothing.
@@ -65,6 +70,12 @@ class Permission(StrEnum):
     # Search and intelligence
     SEARCH_EXECUTE = "search.execute"
 
+    # City traffic analytics. Separate from SEARCH_EXECUTE because it answers a
+    # different question about different subjects: search follows one vehicle
+    # and is audited per query, analytics reports aggregate road conditions and
+    # identifies nobody.
+    ANALYTICS_READ = "analytics.read"
+
     # User administration
     USER_CREATE = "user.create"
     USER_READ = "user.read"
@@ -99,6 +110,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.STREAM_VIEW,
             Permission.SEARCH_EXECUTE,
             Permission.AUDIT_READ,
+            Permission.ANALYTICS_READ,
         }
     ),
     Role.OPERATOR: frozenset(
@@ -109,6 +121,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.ALERT_READ,
             Permission.ALERT_ACKNOWLEDGE,
             Permission.SEARCH_EXECUTE,
+            Permission.ANALYTICS_READ,
         }
     ),
     Role.ANALYST: frozenset(
@@ -117,6 +130,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.WATCHLIST_READ,
             Permission.ALERT_READ,
             Permission.SEARCH_EXECUTE,
+            Permission.ANALYTICS_READ,
         }
     ),
     Role.AUDITOR: frozenset(
@@ -125,6 +139,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.WATCHLIST_READ,
             Permission.ALERT_READ,
             Permission.AUDIT_READ,
+            Permission.ANALYTICS_READ,
         }
     ),
     # Machine identity for departmental self-registration. Nothing else.

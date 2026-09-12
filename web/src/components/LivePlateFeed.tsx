@@ -22,7 +22,7 @@ interface Props {
 
 function confidenceColour(value: number): string {
   if (value >= 0.85) return 'text-status-online'
-  if (value >= 0.6) return 'text-amber-400'
+  if (value >= 0.6) return 'text-priority-high'
   return 'text-status-offline'
 }
 
@@ -126,13 +126,25 @@ export default function LivePlateFeed({
                 </span>
               )}
               {plate.ambiguous && (
-                <span className="rounded bg-amber-500/15 px-1 py-px text-amber-400">
+                <span className="rounded bg-priority-high/15 px-1 py-px text-priority-high">
                   ambiguous
                 </span>
               )}
+              {/* The pre-correction string is deliberately not shown.
+                  `was GX150CJ` next to `GX150GJ` reads as two conflicting
+                  answers to someone scanning the feed, when it is really one
+                  answer plus the grammar repair that produced it — and with a
+                  row per reading it doubled the text on screen. The correction
+                  is still carried on the event and in `ocr_raw` on the stored
+                  detection, which is where an operator checking a specific
+                  reading should see it. `repaired` says the same thing in one
+                  word. */}
               {plate.corrected_from && (
-                <span className="rounded bg-amber-500/15 px-1 py-px font-mono text-amber-400">
-                  was {plate.corrected_from}
+                <span
+                  className="rounded bg-priority-high/15 px-1 py-px text-priority-high"
+                  title={`Grammar repaired from ${plate.corrected_from}`}
+                >
+                  repaired
                 </span>
               )}
             </div>

@@ -48,10 +48,26 @@ import type { BBox, LiveVehicleEvent } from '@/lib/types'
  * jitter. Longer than that and a vehicle that has left the frame keeps a
  * rectangle floating where it no longer is.
  */
-const HOLD_SYNCED_MS = 1_200
+// Synced, the box is drawn on the very frame it was measured in, so it needs
+// only to outlast the gap between position refreshes. Longer would leave a
+// rectangle behind a car the picture has already moved past — the whole point
+// of syncing is that it does not have to.
+const HOLD_SYNCED_MS = 1_800
 
-/** Unsynced, the box cannot track the car, so it is held long enough to read. */
-const HOLD_UNSYNCED_MS = 2_500
+/**
+ * Unsynced, the box cannot track the car, so it is held long enough to read.
+ *
+ * Six seconds, which is what this component used before it grew a video clock,
+ * and the reason that version looked right. Inference lands ~270 ms after the
+ * frame, but the *picture* reaches the browser over HLS several seconds later
+ * still — so a box arrives before the car it describes is even on screen. A
+ * six-second hold spans that offset: the box is already up when the vehicle
+ * appears, and fades out after it has passed.
+ *
+ * Shortening it to 2.5 s is what made readings look like they were flashing up
+ * and vanishing against the wrong cars.
+ */
+const HOLD_UNSYNCED_MS = 6_000
 
 /** A retired vehicle is gone. Clear it promptly rather than waiting out the hold. */
 const HOLD_AFTER_COMPLETED_MS = 700
@@ -61,6 +77,24 @@ const FADE_MS = 500
 
 /** Drop a box from the store this long after it stopped being drawn. */
 const PRUNE_AFTER_MS = 5_000
+
+/**
+ * Below this, a reading is shown in the feed but not drawn on the video.
+ *
+ * Deliberately *not* gated on `evidence.agreement`. That field is a fraction
+ * (`reads_agreeing / reads_total`), not a count, and measured on the live feed
+ * it is frequently 0.0 even for readings the pipeline is otherwise sure of —
+ * `EY61NBG` arrives at 0.92 confidence over four reads with agreement 0.0. An
+ * earlier version of this gate required `agreement >= 2`, which is
+ * unsatisfiable for a 0..1 value: it silently suppressed **every** label.
+ *
+ * Grammar validity and the ambiguity flag are the signals that actually
+ * separate a plate from a misread, and they are what this uses.
+ */
+const CONFIRM_CONFIDENCE = 0.8
+
+/** Above this shared area, two boxes are treated as the same vehicle. */
+const SAME_VEHICLE_OVERLAP = 0.55
 
 interface Props {
   events: LiveVehicleEvent[]
@@ -86,8 +120,32 @@ interface TrackBox {
   /** Capture-to-event, as the worker measured it. */
   latencyMs: number | null
   completed: boolean
+  /** The vehicle box — what an operator matches to a car on screen. */
   box: BBox
+  /** The plate box, when the pipeline localised one. Null is normal. */
+  plateBox: BBox | null
+  /** Whether the reading has stabilised enough to put text on the video. */
+  confirmed: boolean
   frame: { width: number; height: number }
+}
+
+/**
+ * Has this reading settled enough to label the video with it?
+ *
+ * Consensus already votes per character across every frame a vehicle was read
+ * in; this is the display gate on top of it. An unconfirmed reading still
+ * appears in the feed beside the video with all its evidence — it simply does
+ * not get text drawn over live traffic, because a plate that is still moving
+ * between candidates is worse than no label at all.
+ */
+function isConfirmed(event: LiveVehicleEvent): boolean {
+  const plate = event.plate
+  if (!plate?.text) return false
+  // Grammar and ambiguity are the pipeline's own verdicts on whether the
+  // string is a plate at all, and they are decisive: `AP05JEO1` and
+  // `KH0522431` both arrive with respectable confidence and are not plates.
+  if (!plate.grammar_valid || plate.ambiguous) return false
+  return (plate.confidence ?? 0) >= CONFIRM_CONFIDENCE
 }
 
 /**
@@ -113,6 +171,48 @@ function contentRect(
     width,
     height,
   }
+}
+
+
+/** Fraction of the smaller box that the two boxes share. */
+function overlapFraction(a: BBox, b: BBox): number {
+  const left = Math.max(a.x1, b.x1)
+  const right = Math.min(a.x2, b.x2)
+  const top = Math.max(a.y1, b.y1)
+  const bottom = Math.min(a.y2, b.y2)
+  if (right <= left || bottom <= top) return 0
+  const intersection = (right - left) * (bottom - top)
+  const areaA = Math.max(1, (a.x2 - a.x1) * (a.y2 - a.y1))
+  const areaB = Math.max(1, (b.x2 - b.x1) * (b.y2 - b.y1))
+  return intersection / Math.min(areaA, areaB)
+}
+
+/**
+ * One box per vehicle, not one per reading.
+ *
+ * The tracker can hold the same car as more than one track, and each track
+ * carries its own OCR result — measured on live footage, `AV06HVE` and
+ * `AV08HVE` arrive together, both past grammar and both above the confidence
+ * gate, because `0`/`8` is the classic confusion. Drawn straight, that is two
+ * labelled rectangles on one car disagreeing with each other in front of the
+ * viewer.
+ *
+ * Boxes covering mostly the same pixels are therefore the same vehicle, and
+ * only the most confident reading is drawn. The others are not discarded from
+ * the system — every one is in the feed beside the video with its evidence,
+ * which is where a disagreement should be visible.
+ */
+function dedupeByVehicle<T extends { box: BBox; confidence: number }>(
+  items: T[],
+): T[] {
+  const kept: T[] = []
+  for (const item of [...items].sort((a, b) => b.confidence - a.confidence)) {
+    if (kept.some((k) => overlapFraction(k.box, item.box) >= SAME_VEHICLE_OVERLAP)) {
+      continue
+    }
+    kept.push(item)
+  }
+  return kept
 }
 
 function parseTime(value: string | null | undefined): number | null {
@@ -165,8 +265,13 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
       // the wrong vehicle, so they are dropped instead.
       if (!frame?.width || !frame?.height) continue
 
-      // The timestamped box, falling back to the best-sighting box for events
-      // from a worker that does not publish one.
+      // The **vehicle** box, not the plate box.
+      //
+      // A plate box is ~90x22 px on a 1280px-wide picture — too small to
+      // associate with a car at a glance, and it jitters between frames
+      // because a small box amplifies small coordinate errors. The vehicle box
+      // is what an operator can actually match to a car on screen. The plate
+      // box is still carried in the event for anything that wants to zoom.
       const box = event.vehicle?.live_bbox ?? event.vehicle?.bbox
       if (!box) continue
 
@@ -188,6 +293,8 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
       tracks.set(key, {
         key,
         plate: event.plate.text,
+        plateBox: event.plate.bbox ?? null,
+        confirmed: isConfirmed(event),
         confidence: event.plate.confidence ?? 0,
         ambiguous: Boolean(event.plate.ambiguous),
         correctedFrom: event.plate.corrected_from ?? null,
@@ -282,52 +389,112 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
 
   return (
     <div ref={hostRef} className="pointer-events-none absolute inset-0">
-      {visible.map((item) => {
+      {dedupeByVehicle(visible.filter((v) => v.confirmed)).map((item) => {
         const rect = contentRect(size, item.frame)
         const scaleX = rect.width / item.frame.width
         const scaleY = rect.height / item.frame.height
-        const left = rect.left + item.box.x1 * scaleX
-        const top = rect.top + item.box.y1 * scaleY
-        const width = (item.box.x2 - item.box.x1) * scaleX
-        const height = (item.box.y2 - item.box.y1) * scaleY
 
-        // A repaired or ambiguous reading is shown in amber, so an operator can
-        // see at a glance which readings the system is less sure of.
+        const place = (box: BBox) => ({
+          left: rect.left + box.x1 * scaleX,
+          top: rect.top + box.y1 * scaleY,
+          width: (box.x2 - box.x1) * scaleX,
+          height: (box.y2 - box.y1) * scaleY,
+        })
+
+        // Draw only readings the pipeline stands behind.
+        //
+        // Measured on one camera over 120 events: 13 "distinct" plates for
+        // roughly half that many cars — `AP05JEO` alongside `AP053EOT`,
+        // `XH05ZTK` alongside `XH05ZTX`. Each misread variant is a separate
+        // track and so was drawn as a separate box, which is why a single car
+        // carried a stack of eight overlapping rectangles and why the plates
+        // on screen looked wrong: they *were* wrong, and shown anyway.
+        //
+        // Every reading still reaches the feed beside the video with its
+        // evidence, invalid-format and ambiguous flags included. The video
+        // shows the ones that survived grammar, ambiguity and confidence — one
+        // box per car that was genuinely read.
+        if (!item.confirmed) return null
+
+        const vehicle = place(item.box)
+        if (vehicle.width < 4 || vehicle.height < 4) return null
+        const plate = item.plateBox ? place(item.plateBox) : null
+
+        // Amber for a reading the system is less sure of, green otherwise.
         const uncertain = item.ambiguous || item.correctedFrom !== null
-        const colour = uncertain ? 'rgb(234 179 8)' : 'rgb(34 197 94)'
+        const colour = uncertain ? 'hsl(var(--priority-high))' : 'hsl(var(--status-online))'
 
-        if (width < 4 || height < 4) return null
+        // The label goes above the plate when there is one, else above the
+        // vehicle — and never *over* the plate, which is the one part of the
+        // picture a viewer may want to read for themselves.
+        const anchor = plate ?? vehicle
+        const labelBelow = anchor.top < 22
 
         return (
           <div
             key={item.key}
-            className="absolute"
-            style={{ left, top, width, height, opacity: item.opacity }}
+            // A stable handle for tests and for anyone inspecting the DOM.
+            // Boxes are found by this rather than by their label, because
+            // whether a reading is labelled is a display policy that changes;
+            // whether a box exists for a track is the behaviour under test.
+            data-anpr-box={item.plate}
+            data-confirmed={item.confirmed ? 'true' : 'false'}
+            // The pipeline's own capture-to-event figure, carried but not
+            // painted. It used to be printed on every box, which is exactly
+            // the clutter that made the picture unreadable — the aggregate
+            // belongs in the diagnostics panel. Kept here so the number stays
+            // inspectable per reading rather than being thrown away.
+            data-latency-ms={item.latencyMs ?? undefined}
+            style={{ opacity: item.opacity }}
           >
+            {/* Layer 1 — the vehicle. Deliberately faint: with twenty cars in
+                frame, twenty bold rectangles are the clutter, not the data. */}
             <div
-              className="h-full w-full rounded-sm border-2"
-              style={{ borderColor: colour }}
+              className="absolute rounded-sm border"
+              style={{
+                left: vehicle.left,
+                top: vehicle.top,
+                width: vehicle.width,
+                height: vehicle.height,
+                borderColor: colour,
+                opacity: 0.5,
+              }}
             />
-            <div
-              className="absolute -top-6 left-0 flex items-center gap-1.5 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[11px] font-bold text-black shadow"
-              style={{ backgroundColor: colour }}
-            >
-              <span>{item.plate}</span>
-              <span className="font-sans font-normal opacity-80">
-                {item.confidence.toFixed(2)}
-              </span>
-              {/* The pipeline's own capture-to-event figure. This is the number
-                  that says how far behind the picture a reading really is, and
-                  it stays on screen whether or not the box could be synced. */}
-              {item.latencyMs !== null && (
-                <span className="font-sans font-normal opacity-60">
-                  +{(item.latencyMs / 1000).toFixed(1)}s
+
+            {/* Layer 2 — the plate itself, drawn firmly because it is the
+                thing that was actually read. */}
+            {plate && plate.width >= 3 && (
+              <div
+                className="absolute rounded-[2px] border-2"
+                style={{
+                  left: plate.left,
+                  top: plate.top,
+                  width: plate.width,
+                  height: plate.height,
+                  borderColor: colour,
+                }}
+              />
+            )}
+
+            {/* The reading, only once it has settled. An unconfirmed plate is
+                still in the feed beside the video with its full evidence; it
+                just does not get text drawn over live traffic while it is
+                still moving between candidates. */}
+            {item.confirmed && (
+              <div
+                className="absolute flex items-center gap-1.5 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[13px] font-bold leading-tight text-black shadow-lg"
+                style={{
+                  left: anchor.left,
+                  top: labelBelow
+                    ? anchor.top + anchor.height + 3
+                    : anchor.top - 20,
+                  backgroundColor: colour,
+                }}
+              >
+                <span>{item.plate}</span>
+                <span className="font-sans font-normal opacity-75">
+                  {Math.round(item.confidence * 100)}%
                 </span>
-              )}
-            </div>
-            {item.correctedFrom && (
-              <div className="absolute -bottom-5 left-0 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-300">
-                was {item.correctedFrom}
               </div>
             )}
           </div>

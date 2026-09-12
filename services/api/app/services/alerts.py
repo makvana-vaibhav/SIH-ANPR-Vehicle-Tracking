@@ -30,8 +30,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.models.enums import AlertStatus
+from app.models.enums import AlertStatus, AlertType, Priority
 from app.models.intelligence import Alert
+from app.services.anomaly import Reason
 from app.services.watchlist import Match
 
 log = get_logger(__name__)
@@ -174,6 +175,79 @@ async def raise_for_match(
     return alert
 
 
+async def raise_for_anomaly(
+    session: AsyncSession,
+    *,
+    plate: str,
+    camera_id: uuid.UUID | None,
+    camera_code: str,
+    arrived_at: datetime,
+    reasons: list[Reason],
+) -> Alert | None:
+    """Create a trajectory-anomaly alert, unless it is a recent repeat.
+
+    Shares the watchlist deduper rather than a second one: the failure mode
+    is identical (the same fact re-raised on every cycle a slow-moving
+    journey happens to get re-scored) and a second in-memory structure would
+    only be a second thing that can drift from the first.
+
+    Priority follows the strongest factor found, not a raw count — a single
+    `impossible_hop` (the physics filter's own strongest signal, promoted
+    here) matters more than three merely-rare transitions.
+    """
+    now = datetime.now(UTC)
+    repeat = deduper.seen(plate, camera_code, now)
+    if repeat is not None:
+        log.info(
+            "alert.deduplicated",
+            plate=plate,
+            camera=camera_code,
+            alert_id=str(repeat.alert_id),
+            repeats=repeat.repeats,
+            alert_type=AlertType.ANOMALY.value,
+        )
+        return None
+
+    priority = (
+        Priority.HIGH.value
+        if any(r.factor == "impossible_hop" for r in reasons)
+        else Priority.MEDIUM.value
+    )
+
+    alert = Alert(
+        detection_id=None,
+        # There is no single detection behind a journey-level finding — a hop
+        # aggregates every sighting in its dwell window — so `detection_ts` is
+        # set to when the anomalous leg arrived, for the same chronological
+        # sorting a detection-backed alert gets, without claiming a detection
+        # identity that does not exist.
+        detection_ts=arrived_at,
+        watchlist_id=None,
+        camera_id=camera_id,
+        alert_type=AlertType.ANOMALY.value,
+        priority=priority,
+        plate_normalised=plate,
+        confidence=None,
+        status=AlertStatus.NEW.value,
+        notes="; ".join(r.detail for r in reasons),
+        reasons=[r.to_dict() for r in reasons],
+    )
+    session.add(alert)
+    await session.flush()
+
+    deduper.remember(plate, camera_code, alert.id, now)
+    log.info(
+        "alert.raised",
+        alert_id=str(alert.id),
+        plate=plate,
+        camera=camera_code,
+        alert_type=alert.alert_type,
+        priority=alert.priority,
+        factors=[r.factor for r in reasons],
+    )
+    return alert
+
+
 async def transition(
     session: AsyncSession,
     alert: Alert,
@@ -224,6 +298,7 @@ def alert_payload(alert: Alert, match: Match | None = None) -> dict[str, Any]:
         "detection_id": str(alert.detection_id) if alert.detection_id else None,
         "created_at": (alert.created_at or datetime.now(UTC)).isoformat(),
         "notes": alert.notes,
+        "reasons": alert.reasons,
     }
     if match is not None:
         payload["watchlist"] = {

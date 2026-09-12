@@ -22,6 +22,19 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 
 import { SkeletonRows } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
+import {
+  Button,
+  Checkbox,
+  Field,
+  Input,
+  Select,
+  StatusBadge,
+  Table,
+  Td,
+  Th,
+  Thead,
+  Tr,
+} from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
 import { PERMISSIONS } from '@/lib/permissions'
@@ -50,13 +63,6 @@ const EMPTY = {
   resolution: '1920x1080',
   fps: '15',
   anpr_enabled: true,
-}
-
-const STATUS_STYLE: Record<string, string> = {
-  online: 'bg-status-online/15 text-status-online border-status-online/40',
-  offline: 'bg-status-offline/15 text-status-offline border-status-offline/40',
-  degraded: 'bg-amber-500/15 text-amber-400 border-amber-500/40',
-  unknown: 'bg-muted text-muted-foreground border-border',
 }
 
 export default function Cameras() {
@@ -272,56 +278,48 @@ export default function Cameras() {
                   {editing ? `Amend ${editing.camera_code}` : 'Onboard a camera'}
                 </h2>
                 {editing && (
-                  <button
-                    type="button"
-                    onClick={cancelEdit}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
+                  <Button variant="ghost" size="sm" onClick={cancelEdit}>
                     Cancel
-                  </button>
+                  </Button>
                 )}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Camera code" hint="Unique, estate-wide">
-                  <input
+                  <Input
                     required
                     disabled={Boolean(editing)}
                     value={form.camera_code}
                     onChange={(e) => set('camera_code', e.target.value.toUpperCase())}
                     placeholder="CAM-00301"
-                    className={inputClass}
                   />
                 </Field>
                 <Field label="Name" hint="What an operator will recognise">
-                  <input
+                  <Input
                     required
                     value={form.name}
                     onChange={(e) => set('name', e.target.value)}
                     placeholder="Kalawad Road Junction"
-                    className={inputClass}
                   />
                 </Field>
                 <Field label="Latitude" hint={`${BOUNDS.latMin} – ${BOUNDS.latMax}`}>
-                  <input
+                  <Input
                     required
                     type="number"
                     step="any"
                     value={form.lat}
                     onChange={(e) => set('lat', e.target.value)}
                     placeholder="22.2863"
-                    className={inputClass}
                   />
                 </Field>
                 <Field label="Longitude" hint={`${BOUNDS.lonMin} – ${BOUNDS.lonMax}`}>
-                  <input
+                  <Input
                     required
                     type="number"
                     step="any"
                     value={form.lon}
                     onChange={(e) => set('lon', e.target.value)}
                     placeholder="70.7728"
-                    className={inputClass}
                   />
                 </Field>
               </div>
@@ -336,36 +334,33 @@ export default function Cameras() {
                     : 'RTSP or HLS. Without one the camera is a registry record that can never be watched or analysed.'
                 }
               >
-                <input
+                <Input
                   value={form.stream_url}
                   onChange={(e) => set('stream_url', e.target.value)}
                   placeholder="rtsp://user:password@10.0.0.24:554/Streaming/Channels/101"
-                  className={`${inputClass} font-mono text-xs`}
+                  className="font-mono text-xs"
                 />
               </Field>
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="District">
-                  <input
+                  <Input
                     value={form.district}
                     onChange={(e) => set('district', e.target.value)}
                     placeholder="Rajkot"
-                    className={inputClass}
                   />
                 </Field>
                 <Field label="City">
-                  <input
+                  <Input
                     value={form.city}
                     onChange={(e) => set('city', e.target.value)}
                     placeholder="Rajkot"
-                    className={inputClass}
                   />
                 </Field>
                 <Field label="Department">
-                  <select
+                  <Select
                     value={form.department_code}
                     onChange={(e) => set('department_code', e.target.value)}
-                    className={inputClass}
                   >
                     <option value="">Unassigned</option>
                     {departments.map((d) => (
@@ -373,189 +368,170 @@ export default function Cameras() {
                         {d.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 <Field
                   label="Heading"
                   hint="Degrees the camera faces; used to reject impossible route hops"
                 >
-                  <input
+                  <Input
                     type="number"
                     min={0}
                     max={359}
                     value={form.heading_deg}
                     onChange={(e) => set('heading_deg', e.target.value)}
                     placeholder="90"
-                    className={inputClass}
                   />
                 </Field>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Type">
-                  <select
+                  <Select
                     value={form.camera_type}
                     onChange={(e) => set('camera_type', e.target.value)}
-                    className={inputClass}
                   >
                     {['fixed', 'ptz', 'anpr', 'dome', 'thermal'].map((t) => (
                       <option key={t} value={t}>
                         {t}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 <Field label="Protocol">
-                  <select
+                  <Select
                     value={form.protocol}
                     onChange={(e) => set('protocol', e.target.value)}
-                    className={inputClass}
                   >
                     {['rtsp', 'http', 'hls', 'onvif'].map((p) => (
                       <option key={p} value={p}>
                         {p}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 <Field label="Resolution">
-                  <input
+                  <Input
                     value={form.resolution}
                     onChange={(e) => set('resolution', e.target.value)}
                     placeholder="1920x1080"
-                    className={inputClass}
                   />
                 </Field>
                 <Field label="Frame rate">
-                  <input
+                  <Input
                     type="number"
                     min={1}
                     max={120}
                     value={form.fps}
                     onChange={(e) => set('fps', e.target.value)}
                     placeholder="15"
-                    className={inputClass}
                   />
                 </Field>
               </div>
 
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.anpr_enabled}
-                  onChange={(e) => set('anpr_enabled', e.target.checked)}
-                  className="h-4 w-4 rounded border-border bg-background"
-                />
-                <span>Analyse this camera for number plates</span>
-                <span className="text-xs text-muted-foreground">
-                  — the worker picks it up on its next discovery pass
-                </span>
-              </label>
+              <Checkbox
+                checked={form.anpr_enabled}
+                onChange={(e) => set('anpr_enabled', e.target.checked)}
+                label={
+                  <>
+                    Analyse this camera for number plates{' '}
+                    <span className="text-xs text-muted-foreground">
+                      — the worker picks it up on its next discovery pass
+                    </span>
+                  </>
+                }
+              />
 
-              <button
-                type="submit"
-                disabled={busy}
-                className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-              >
+              <Button type="submit" disabled={busy}>
                 {busy ? 'Saving…' : editing ? 'Save changes' : 'Onboard camera'}
-              </button>
+              </Button>
             </form>
           )}
 
           <div className="space-y-3">
-            <input
+            <Input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter by code, name or district"
-              className={`${inputClass} max-w-sm`}
+              className="max-w-sm"
             />
 
             {loading ? (
               <SkeletonRows rows={6} />
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <table className="w-full min-w-[54rem] text-sm">
-                  <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-2">Code</th>
-                      <th className="px-3 py-2">Name</th>
-                      <th className="px-3 py-2">District</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">ANPR</th>
-                      <th className="px-3 py-2">Source</th>
-                      <th className="px-3 py-2" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {shown.map((camera) => (
-                      <tr key={camera.id} className="hover:bg-muted/20">
-                        <td className="px-3 py-2 font-mono text-xs">{camera.camera_code}</td>
-                        <td className="px-3 py-2">{camera.name}</td>
-                        <td className="px-3 py-2 text-muted-foreground">
-                          {camera.district ?? '—'}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span
-                            className={`rounded border px-2 py-0.5 text-xs ${
-                              STATUS_STYLE[camera.status] ?? STATUS_STYLE.unknown
-                            }`}
+              <Table>
+                <Thead>
+                  <tr>
+                    <Th>Code</Th>
+                    <Th>Name</Th>
+                    <Th>District</Th>
+                    <Th>Status</Th>
+                    <Th>ANPR</Th>
+                    <Th>Source</Th>
+                    <Th />
+                  </tr>
+                </Thead>
+                <tbody>
+                  {shown.map((camera) => (
+                    <Tr key={camera.id}>
+                      <Td className="font-mono text-xs">{camera.camera_code}</Td>
+                      <Td>{camera.name}</Td>
+                      <Td className="text-muted-foreground">{camera.district ?? '—'}</Td>
+                      <Td>
+                        <StatusBadge status={camera.status} />
+                      </Td>
+                      <Td className="text-xs">
+                        {camera.anpr_enabled ? (
+                          <span className="text-status-online">on</span>
+                        ) : (
+                          <span className="text-muted-foreground">off</span>
+                        )}
+                      </Td>
+                      <Td className="text-xs text-muted-foreground">
+                        {camera.has_stream ? (
+                          // A boolean, never the URL: it carries credentials
+                          // for every federated camera on the grid.
+                          <span title="Stream configured">configured</span>
+                        ) : (camera.tags ?? []).includes('demo') ? (
+                          // Read from the registry's own tags rather than
+                          // matched against one hardcoded camera code: the
+                          // demonstration fleet is three cameras now, and a
+                          // code match silently mislabelled the other two as
+                          // having no stream at all.
+                          <span>recorded clip</span>
+                        ) : (
+                          <span className="text-priority-high">no stream</span>
+                        )}
+                      </Td>
+                      <Td className="text-right">
+                        {mayUpdate && (
+                          <button
+                            onClick={() => startEdit(camera)}
+                            className="text-xs text-primary hover:underline"
                           >
-                            {camera.status}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-xs">
-                          {camera.anpr_enabled ? (
-                            <span className="text-status-online">on</span>
-                          ) : (
-                            <span className="text-muted-foreground">off</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-muted-foreground">
-                          {camera.has_stream ? (
-                            // A boolean, never the URL: it carries credentials
-                            // for every federated camera on the grid.
-                            <span title="Stream configured">configured</span>
-                          ) : (camera.tags ?? []).includes('demo') ? (
-                            // Read from the registry's own tags rather than
-                            // matched against one hardcoded camera code: the
-                            // demonstration fleet is three cameras now, and a
-                            // code match silently mislabelled the other two as
-                            // having no stream at all.
-                            <span>recorded clip</span>
-                          ) : (
-                            <span className="text-amber-400">no stream</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          {mayUpdate && (
-                            <button
-                              onClick={() => startEdit(camera)}
-                              className="text-xs text-primary hover:underline"
-                            >
-                              Edit
-                            </button>
-                          )}
-                          {mayDelete && (
-                            <button
-                              onClick={() => void remove(camera)}
-                              className="ml-3 text-xs text-status-offline hover:underline"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                    {shown.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
-                          No cameras match “{filter}”.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                            Edit
+                          </button>
+                        )}
+                        {mayDelete && (
+                          <button
+                            onClick={() => void remove(camera)}
+                            className="ml-3 text-xs text-status-offline hover:underline"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </Td>
+                    </Tr>
+                  ))}
+                  {shown.length === 0 && (
+                    <tr>
+                      <Td colSpan={7} className="py-8 text-center text-muted-foreground">
+                        No cameras match “{filter}”.
+                      </Td>
+                    </tr>
+                  )}
+                </tbody>
+              </Table>
             )}
           </div>
         </>
@@ -565,27 +541,6 @@ export default function Cameras() {
 
       <FederationStrip vms={vms} adapters={adapters} />
     </div>
-  )
-}
-
-const inputClass =
-  'w-full rounded border border-border bg-background px-3 py-2 text-sm outline-none transition focus:border-primary'
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string
-  hint?: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className="block space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      {children}
-      {hint && <span className="block text-[11px] text-muted-foreground/80">{hint}</span>}
-    </label>
   )
 }
 
@@ -649,20 +604,16 @@ function CsvImport({ onDone, allowed }: { onDone: () => Promise<void>; allowed: 
       />
 
       <div className="flex gap-2">
-        <button
+        <Button
+          variant="outline"
           onClick={() => void run(true)}
           disabled={!file || busy || !allowed}
-          className="rounded border border-border px-4 py-2 text-sm transition hover:bg-muted disabled:opacity-50"
         >
           {busy ? 'Checking…' : 'Validate only'}
-        </button>
-        <button
-          onClick={() => void run(false)}
-          disabled={!file || busy || !allowed}
-          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-        >
+        </Button>
+        <Button onClick={() => void run(false)} disabled={!file || busy || !allowed}>
           Import
-        </button>
+        </Button>
       </div>
 
       {result && (
@@ -676,7 +627,7 @@ function CsvImport({ onDone, allowed }: { onDone: () => Promise<void>; allowed: 
               tone={result.failed ? 'text-status-offline' : 'text-muted-foreground'}
             />
             {result.dry_run && (
-              <span className="self-center text-xs text-amber-400">
+              <span className="self-center text-xs text-priority-high">
                 validation only — nothing was written
               </span>
             )}

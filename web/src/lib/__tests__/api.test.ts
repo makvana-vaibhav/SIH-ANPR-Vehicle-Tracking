@@ -36,10 +36,10 @@ describe('token storage', () => {
     // control-room machine.
     setTokens('access-abc', 'refresh-xyz')
 
-    expect(window.sessionStorage.getItem('nagarnetra.access_token')).toBe('access-abc')
+    expect(window.sessionStorage.getItem('contrail.access_token')).toBe('access-abc')
     // jsdom does not always expose localStorage; when it does, it must be
     // empty — optional chaining keeps the assertion meaningful either way.
-    expect(window.localStorage?.getItem('nagarnetra.access_token') ?? null).toBeNull()
+    expect(window.localStorage?.getItem('contrail.access_token') ?? null).toBeNull()
   })
 
   it('survives storage being unavailable', () => {

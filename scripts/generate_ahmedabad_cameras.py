@@ -42,6 +42,7 @@ radial end to end and a ring the way round.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
@@ -271,21 +272,130 @@ def nearest_locality(point, localities) -> str:
 
 
 # ── generation ────────────────────────────────────────────────────────
+#: Corridor code (lowercased, as it appears in `tags`) → canonical name.
+#: Derived from CORRIDORS rather than written out again, so the two cannot drift.
+CORRIDOR_BY_SLUG = {corridor.code.lower(): corridor.names[0] for corridor in CORRIDORS}
+
+#: The column order of data/seed/cameras.csv. `scripts/seed.py` reads by name,
+#: so this is for humans diffing the file.
+CSV_COLUMNS = (
+    "camera_code",
+    "name",
+    "department_code",
+    "district",
+    "city",
+    "junction",
+    "corridor",
+    "lat",
+    "lon",
+    "heading_deg",
+    "camera_type",
+    "protocol",
+    "stream_url",
+    "resolution",
+    "fps",
+    "anpr_enabled",
+    "tags",
+)
+
+
+def corridor_from_tags(tags: str) -> str | None:
+    """Recover a corridor from a legacy row's `tags`.
+
+    Rows written before the `corridor` column existed carry it only as a slug in
+    `tags` (`ash|arterial|sabarmati`). Returns None when no tag matches, which
+    keeps the camera uncorridored rather than attributing it to a road by guess.
+    """
+    for tag in tags.split("|"):
+        name = CORRIDOR_BY_SLUG.get(tag.strip().lower())
+        if name:
+            return name
+    return None
+
+
+def load_preserved(path: Path, prefix: str) -> list[dict[str, str]]:
+    """Existing rows whose `camera_code` starts with `prefix`, carried over verbatim.
+
+    The demo cameras are hand-tuned — their footage, plate region and placement
+    were chosen deliberately and are what the ANPR demo path rests on. A
+    generator run that widens the fleet must not silently rewrite them, so they
+    are read back and re-emitted unchanged apart from gaining a `corridor`.
+    """
+    if not prefix or not path.exists():
+        return []
+
+    preserved: list[dict[str, str]] = []
+    with path.open(newline="") as handle:
+        for row in csv.DictReader(handle):
+            if not row.get("camera_code", "").startswith(prefix):
+                continue
+            if not (row.get("corridor") or "").strip():
+                row["corridor"] = corridor_from_tags(row.get("tags", "")) or ""
+            preserved.append(row)
+    return preserved
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate the Ahmedabad camera fleet from OSM road geometry."
+    )
+    parser.add_argument(
+        "--corridors",
+        default="",
+        help=(
+            "Comma-separated corridor codes to place cameras on "
+            f"(default: all). Known: {', '.join(c.code for c in CORRIDORS)}"
+        ),
+    )
+    parser.add_argument(
+        "--max-per-corridor",
+        type=int,
+        default=0,
+        help="Cap cameras per corridor. 0 means no cap.",
+    )
+    parser.add_argument(
+        "--preserve",
+        default="",
+        help=(
+            "camera_code prefix to carry over unchanged from the existing CSV, "
+            "e.g. CAM-DEMO. Preserved cameras also reserve their own space, so "
+            "nothing new is placed on top of them."
+        ),
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     rng = random.Random(SEED)
     vertices_by_name = load_corridor_vertices()
     talukas = load_talukas()
     localities = load_localities()
 
-    rows: list[dict[str, object]] = []
+    wanted = {code.strip().upper() for code in args.corridors.split(",") if code.strip()}
+    unknown = wanted - {corridor.code for corridor in CORRIDORS}
+    if unknown:
+        raise SystemExit(f"Unknown corridor code(s): {', '.join(sorted(unknown))}")
+
+    preserved = load_preserved(OUTPUT, args.preserve)
+    rows: list[dict[str, object]] = [dict(row) for row in preserved]
     missing: list[str] = []
     #: Every camera accepted so far, across all corridors, for the global
     #: separation check. Corridors are processed in CORRIDORS order, so which
     #: corridor keeps the camera at a crossing is deterministic.
-    accepted: list[tuple[float, float]] = []
+    #:
+    #: Seeded with the preserved cameras so a widened fleet cannot drop a new
+    #: camera on top of a demo one — the separation rule exists because the
+    #: correlator treats anything under 50 m as co-located and refuses to imply
+    #: a speed across it.
+    accepted: list[tuple[float, float]] = [
+        (float(row["lon"]), float(row["lat"])) for row in preserved
+    ]
     dropped_too_close = 0
 
     for corridor in CORRIDORS:
+        if wanted and corridor.code not in wanted:
+            continue
         vertices: list[tuple[tuple[float, float], int]] = []
         for name in corridor.names:
             vertices.extend(vertices_by_name.get(name, []))
@@ -297,6 +407,11 @@ def main() -> None:
 
         index = 0
         for point, heading in placed:
+            # The cap counts *placed* cameras, so a corridor whose first
+            # candidates fall outside the city or too close to a neighbour still
+            # reaches its quota instead of being short-changed by rejections.
+            if args.max_per_corridor and index >= args.max_per_corridor:
+                break
             taluka = taluka_for(point, talukas)
             # Outside every taluka is outside the city we claim to cover; the
             # ring road and the expressway both run past the boundary.
@@ -322,6 +437,11 @@ def main() -> None:
                     "district": taluka,
                     "city": "Ahmedabad",
                     "junction": f"{corridor.names[0]} @ {locality}",
+                    # An explicit column, not a slug inside `tags`. Traffic
+                    # analytics groups on the corridor, and a grouping key that
+                    # has to be parsed out of a tag list or a camera code is one
+                    # that silently mis-buckets the moment either is edited.
+                    "corridor": corridor.names[0],
                     "lat": f"{lat:.6f}",
                     "lon": f"{lon:.6f}",
                     "heading_deg": heading,
@@ -356,8 +476,11 @@ def main() -> None:
         raise SystemExit("No cameras generated — check the road GeoJSON is present.")
 
     rows.sort(key=lambda row: str(row["camera_code"]))
+    # Explicit, not `rows[0].keys()`: preserved rows and generated rows agree on
+    # the column *set* but not its order, so taking it from whichever row sorts
+    # first would silently reshuffle the file between runs.
     with OUTPUT.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
         writer.writeheader()
         writer.writerows(rows)
 

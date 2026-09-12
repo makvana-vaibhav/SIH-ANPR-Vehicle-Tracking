@@ -9,7 +9,7 @@ import '@/styles/index.css'
 const container = document.getElementById('root')
 
 if (!container) {
-  throw new Error('NagarNetra: #root element missing from index.html')
+  throw new Error('Contrail: #root element missing from index.html')
 }
 
 createRoot(container).render(

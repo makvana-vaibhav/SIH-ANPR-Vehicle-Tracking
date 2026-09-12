@@ -15,8 +15,18 @@ record. Two hundred and fifty of them, invented, are not.
 
 ## What it removes
 
-Cameras with **no `stream_url`**, except the demonstration camera, which
-resolves its source through MediaMTX rather than a stored URL.
+Two rules, one at a time.
+
+*Default* — cameras with **no `stream_url`**, except the demonstration cameras,
+which resolve their source through MediaMTX rather than a stored URL.
+
+*`--match-seed`* — cameras **`data/seed/cameras.csv` no longer declares**.
+Seeding is additive: `scripts/seed.py` creates and refreshes, never deletes. So
+trimming the CSV does nothing to a database that has already been seeded, and
+because the simulator builds its publishing list from the *registry* rather than
+the file, a fleet cut from 61 cameras to 12 in the CSV kept publishing 61
+streams and kept appearing in every count on every screen. This makes the file
+authoritative again.
 
 Children go first and explicitly. `detections.camera_id` is ON DELETE SET NULL,
 so deleting a camera does not remove its sightings — it orphans them, and they
@@ -25,12 +35,14 @@ keeping or deleting them.
 
     python scripts/prune_registry.py --dry-run
     python scripts/prune_registry.py
+    python scripts/prune_registry.py --match-seed --dry-run
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import sys
 from pathlib import Path
 
@@ -54,6 +66,19 @@ from app.models.registry import Camera, CameraHealth  # noqa: E402
 KEEP_WITHOUT_URL = ("CAM-DEMO", "CAM-DEMO-01", "CAM-DEMO-02", "CAM-DEMO-03")
 
 
+#: Where the declared fleet lives. `--match-seed` treats this file as the
+#: authoritative list of cameras that should exist.
+#:
+#: Resolved the same way `scripts/seed.py` does it: compose mounts the seed data
+#: at /data/seed, and the repository path is the fallback for running outside a
+#: container. The two must agree, or prune would judge the registry against a
+#: different file from the one that populated it.
+_SEED_DIR = Path("/data/seed")
+if not _SEED_DIR.exists():  # running outside the container
+    _SEED_DIR = Path(__file__).resolve().parent.parent / "data" / "seed"
+SEED_CSV = _SEED_DIR / "cameras.csv"
+
+
 def _sourceless():
     return select(Camera.id).where(
         Camera.stream_url.is_(None),
@@ -61,9 +86,42 @@ def _sourceless():
     )
 
 
+def _seed_codes() -> list[str]:
+    with SEED_CSV.open(newline="") as handle:
+        return [
+            row["camera_code"].strip()
+            for row in csv.DictReader(handle)
+            if row.get("camera_code", "").strip()
+        ]
+
+
+def _not_in_seed():
+    """Cameras the seed file no longer declares.
+
+    Seeding is additive — `scripts/seed.py` creates or refreshes, and never
+    deletes — so trimming `cameras.csv` leaves every removed camera running in
+    the registry. That is not cosmetic: the simulator builds its publishing list
+    from the **registry**, so a fleet cut from 61 cameras to 12 in the CSV went
+    on publishing 61 streams, and every count on every screen went on including
+    cameras the operator believed were gone.
+    """
+    codes = _seed_codes()
+    if not codes:
+        raise SystemExit(f"{SEED_CSV} lists no cameras — refusing to delete everything")
+    return select(Camera.id).where(Camera.camera_code.notin_(codes))
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="report, change nothing")
+    parser.add_argument(
+        "--match-seed",
+        action="store_true",
+        help=(
+            "Delete cameras that data/seed/cameras.csv no longer declares, "
+            "instead of cameras with no stream_url."
+        ),
+    )
     args = parser.parse_args()
     try:
         return await _prune(args)
@@ -75,30 +133,37 @@ async def main() -> int:
 
 
 async def _prune(args: argparse.Namespace) -> int:
+    criterion = _not_in_seed if args.match_seed else _sourceless
+    rule = (
+        "not declared in data/seed/cameras.csv"
+        if args.match_seed
+        else "with no video source"
+    )
+
     async with SessionLocal() as session:
-        doomed = (await session.execute(_sourceless())).scalars().all()
+        doomed = (await session.execute(criterion())).scalars().all()
         kept = (await session.execute(select(func.count()).select_from(Camera))).scalar_one()
 
         if not doomed:
-            print(f"  registry: {kept} cameras, all with a video source — nothing to prune")
+            print(f"  registry: {kept} cameras, none {rule} — nothing to prune")
             return 0
 
         detections = (
             await session.execute(
                 select(func.count())
                 .select_from(Detection)
-                .where(Detection.camera_id.in_(_sourceless()))
+                .where(Detection.camera_id.in_(criterion()))
             )
         ).scalar_one()
         alerts = (
             await session.execute(
                 select(func.count())
                 .select_from(Alert)
-                .where(Alert.camera_id.in_(_sourceless()))
+                .where(Alert.camera_id.in_(criterion()))
             )
         ).scalar_one()
 
-        print(f"  cameras with no video source: {len(doomed)} of {kept}")
+        print(f"  cameras {rule}: {len(doomed)} of {kept}")
         print(f"  their detections: {detections:,}")
         print(f"  their alerts: {alerts:,}")
 
@@ -108,12 +173,12 @@ async def _prune(args: argparse.Namespace) -> int:
 
         # Order matters. Alerts reference detections *and* cameras, so a police
         # record would be left pointing at nothing if the parents went first.
-        await session.execute(delete(Alert).where(Alert.camera_id.in_(_sourceless())))
+        await session.execute(delete(Alert).where(Alert.camera_id.in_(criterion())))
         await session.execute(
-            delete(Detection).where(Detection.camera_id.in_(_sourceless()))
+            delete(Detection).where(Detection.camera_id.in_(criterion()))
         )
         await session.execute(
-            delete(CameraHealth).where(CameraHealth.camera_id.in_(_sourceless()))
+            delete(CameraHealth).where(CameraHealth.camera_id.in_(criterion()))
         )
         await session.execute(delete(Camera).where(Camera.id.in_(doomed)))
         await session.commit()
@@ -121,7 +186,7 @@ async def _prune(args: argparse.Namespace) -> int:
         remaining = (
             await session.execute(select(func.count()).select_from(Camera))
         ).scalar_one()
-        print(f"  pruned. {remaining} cameras remain, every one with a video source.")
+        print(f"  pruned. {remaining} cameras remain.")
 
     return 0
 

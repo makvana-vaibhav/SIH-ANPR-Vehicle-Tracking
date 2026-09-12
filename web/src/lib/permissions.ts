@@ -39,6 +39,8 @@ export const PERMISSIONS = {
 
   searchExecute: 'search.execute',
 
+  analyticsRead: 'analytics.read',
+
   userCreate: 'user.create',
   userRead: 'user.read',
   userUpdate: 'user.update',

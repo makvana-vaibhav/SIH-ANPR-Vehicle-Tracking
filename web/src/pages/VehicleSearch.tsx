@@ -17,20 +17,44 @@
  * plate, and hiding it would remove the most useful thing on the page.
  */
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Fragment, useCallback, useEffect, useState, type FormEvent } from 'react'
 
+import PlateCrop from '@/components/PlateCrop'
 import RouteMap from '@/components/RouteMap'
 import { useToast } from '@/components/Toast'
+import {
+  Badge,
+  Button,
+  ErrorBanner,
+  EmptyState,
+  Field,
+  Input,
+  PriorityBadge,
+  SegmentedControl,
+  Select,
+  Table,
+  Td,
+  Th,
+  Thead,
+  Tr,
+} from '@/components/ui'
 import * as api from '@/lib/api'
-import type { Convoy, RouteGeoJSON, VehicleRoute } from '@/lib/types'
+import type {
+  Convoy,
+  Detection,
+  PlateSearchResult,
+  ReidMatchResponse,
+  RouteGeoJSON,
+  VehicleRoute,
+} from '@/lib/types'
 
 /** Windows an operator actually asks for. */
 const WINDOWS = [
-  { label: '1 h', hours: 1 },
-  { label: '6 h', hours: 6 },
-  { label: '24 h', hours: 24 },
-  { label: '7 d', hours: 168 },
-  { label: '30 d', hours: 720 },
+  { value: '1', label: '1 h', hours: 1 },
+  { value: '6', label: '6 h', hours: 6 },
+  { value: '24', label: '24 h', hours: 24 },
+  { value: '168', label: '7 d', hours: 168 },
+  { value: '720', label: '30 d', hours: 720 },
 ] as const
 
 /** Plain-English reasons, so a flag never appears as a bare identifier. */
@@ -62,6 +86,7 @@ function duration(seconds: number): string {
 
 export default function VehicleSearch() {
   const toast = useToast()
+  const [mode, setMode] = useState<'plate' | 'attributes'>('plate')
   const [query, setQuery] = useState('')
   const [plate, setPlate] = useState<string | null>(null)
   const [hours, setHours] = useState<number>(24)
@@ -70,6 +95,7 @@ export default function VehicleSearch() {
   const [geojson, setGeojson] = useState<RouteGeoJSON | null>(null)
   const [convoys, setConvoys] = useState<Convoy[]>([])
   const [suggestions, setSuggestions] = useState<{ plate: string; cameras: number }[]>([])
+  const [fuzzyMatches, setFuzzyMatches] = useState<PlateSearchResult[]>([])
   const [activeHop, setActiveHop] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -87,6 +113,28 @@ export default function VehicleSearch() {
     }
     void load()
   }, [hours])
+
+  // An exact search that finds nothing tries a fuzzy one automatically — a
+  // misread character or a partial plate should not dead-end on an empty
+  // screen when the vehicle is sitting one edit away in the same window.
+  useEffect(() => {
+    if (!route || route.hop_count > 0 || !plate) {
+      setFuzzyMatches([])
+      return
+    }
+    let cancelled = false
+    api
+      .searchPlates(plate, { since: since(hours) })
+      .then((body) => {
+        if (!cancelled) setFuzzyMatches(body.results.filter((r) => r.plate_normalised !== plate))
+      })
+      .catch(() => {
+        if (!cancelled) setFuzzyMatches([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [route, plate, hours])
 
   const search = useCallback(async (target: string, windowHours: number) => {
     const normalised = target.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -139,56 +187,58 @@ export default function VehicleSearch() {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Vehicle search</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Every sighting of a plate, and the journey they imply.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Vehicle search</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {mode === 'plate'
+              ? 'Every sighting of a plate, and the journey they imply.'
+              : 'Browse sightings by what a vehicle looks like, when there is no plate to search on.'}
+          </p>
+        </div>
+        <SegmentedControl
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'plate', label: 'By plate' },
+            { value: 'attributes', label: 'By attributes' },
+          ]}
+        />
       </header>
 
+      {mode === 'attributes' && <AttributeSearch />}
+
+      {mode === 'plate' && (
+        <>
       {/* ── Search ──────────────────────────────────────────────────── */}
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Plate
-          </span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value.toUpperCase())}
-            placeholder="GJ03AB1234"
-            className="mt-1 w-56 rounded border border-border bg-background px-2 py-1.5 font-mono text-sm uppercase outline-none focus:border-primary"
-          />
-        </label>
+        <div className="w-56">
+          <Field label="Plate">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value.toUpperCase())}
+              placeholder="GJ03AB1234"
+              className="font-mono uppercase"
+            />
+          </Field>
+        </div>
 
         <div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             Window
           </span>
-          <div className="mt-1 flex rounded border border-border">
-            {WINDOWS.map((w) => (
-              <button
-                key={w.hours}
-                type="button"
-                onClick={() => changeWindow(w.hours)}
-                className={`px-2.5 py-1.5 text-xs transition first:rounded-l last:rounded-r ${
-                  hours === w.hours
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {w.label}
-              </button>
-            ))}
+          <div className="mt-1">
+            <SegmentedControl
+              value={String(hours)}
+              onChange={(v) => changeWindow(Number(v))}
+              options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
+            />
           </div>
         </div>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-        >
+        <Button type="submit" disabled={busy}>
           {busy ? 'Searching…' : 'Search'}
-        </button>
+        </Button>
       </form>
 
       {suggestions.length > 0 && !route && (
@@ -218,11 +268,7 @@ export default function VehicleSearch() {
         </div>
       )}
 
-      {error && (
-        <p className="rounded border border-status-offline/40 bg-status-offline/10 px-4 py-2 text-sm text-status-offline">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {route && (
         <>
@@ -291,19 +337,61 @@ export default function VehicleSearch() {
           </section>
 
           {route.hop_count === 0 ? (
-            <div className="rounded-md border border-dashed border-border p-8 text-center">
-              <p className="text-sm">
-                <span className="font-mono">{route.plate}</span> was not seen in this
-                window.
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Try a longer window, or pick a plate from the list above.
-              </p>
-            </div>
+            <>
+              <EmptyState
+                title={
+                  <>
+                    <span className="font-mono">{route.plate}</span> was not seen in this window.
+                  </>
+                }
+                hint={
+                  fuzzyMatches.length > 0
+                    ? 'No exact match, but these plates are close to what you typed.'
+                    : 'Try a longer window, or pick a plate from the list above.'
+                }
+              />
+              {fuzzyMatches.length > 0 && (
+                <section>
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Did you mean…
+                  </h2>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    Ranked by how closely each plate matches what you typed, not by when it was seen.
+                  </p>
+                  <ul className="mt-1.5 space-y-1.5">
+                    {fuzzyMatches.map((match) => (
+                      <li key={match.plate_normalised}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuery(match.plate_normalised)
+                            void search(match.plate_normalised, hours)
+                          }}
+                          className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-card px-3 py-2 text-left transition hover:border-primary/50"
+                        >
+                          <span className="font-mono text-sm font-semibold">
+                            {match.plate_normalised}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {Math.round(match.similarity * 100)}% match
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {match.sightings} sighting{match.sightings === 1 ? '' : 's'} ·{' '}
+                            {match.cameras} camera{match.cameras === 1 ? '' : 's'}
+                          </span>
+                          {match.watchlist && <PriorityBadge priority={match.watchlist.priority} solid />}
+                          <span className="ml-auto shrink-0 text-[10px] text-primary">Search →</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </>
           ) : (
             <>
             {route.camera_count === 1 && (
-              <p className="rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
+              <p className="rounded border border-priority-high/40 bg-priority-high/10 px-4 py-2 text-xs text-priority-high">
                 All {route.hop_count} sightings are on one camera, so there is no
                 journey to draw — only a record of the vehicle passing{' '}
                 {route.hops[0]?.camera_code} more than once. A route needs the plate
@@ -389,7 +477,7 @@ export default function VehicleSearch() {
                                   flag === 'implausible_speed' ||
                                   flag === 'impossible_simultaneous'
                                     ? 'text-status-offline'
-                                    : 'text-amber-400'
+                                    : 'text-priority-high'
                                 }`}
                               >
                                 {FLAG_TEXT[flag] ?? flag}
@@ -482,6 +570,8 @@ export default function VehicleSearch() {
           )}
         </>
       )}
+        </>
+      )}
     </div>
   )
 }
@@ -499,6 +589,255 @@ function Stat({
     <div title={hint}>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="font-mono text-sm">{value}</p>
+    </div>
+  )
+}
+
+/** Windows worth offering for a browse rather than a route — shorter by
+ *  default, since an attribute query with no plate to anchor it can return a
+ *  lot more than one vehicle's worth of rows. */
+const ATTRIBUTE_WINDOWS = [
+  { value: '1', label: '1 h' },
+  { value: '6', label: '6 h' },
+  { value: '24', label: '24 h' },
+] as const
+
+/**
+ * Search beyond plates (P9) — the PS's "white SUV, near CAM-17, 10:30-11:00"
+ * case. Type, camera and time window all work today, filtering the same
+ * `detections` table the plate search reads, over whatever the pipeline has
+ * already produced. Colour does not — nothing in the pipeline extracts a
+ * vehicle's colour yet (see BUILD_STATE.md's P9 section for exactly what is
+ * and is not built) — so that field is shown, disabled, with the reason
+ * stated, rather than silently accepted and always returning nothing.
+ */
+function AttributeSearch() {
+  const toast = useToast()
+  const [vehicleType, setVehicleType] = useState('')
+  const [cameraId, setCameraId] = useState('')
+  const [cameras, setCameras] = useState<{ id: string; camera_code: string }[]>([])
+  const [hours, setHours] = useState(6)
+  const [results, setResults] = useState<Detection[] | null>(null)
+  const [total, setTotal] = useState(0)
+  const [busy, setBusy] = useState(false)
+
+  const [reidOpenId, setReidOpenId] = useState<string | null>(null)
+  const [reidResult, setReidResult] = useState<ReidMatchResponse | null>(null)
+  const [reidBusy, setReidBusy] = useState(false)
+
+  useEffect(() => {
+    api
+      .getCameras({ limit: '500' })
+      .then((page) => setCameras(page.items))
+      .catch(() => undefined)
+  }, [])
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      const page = await api.getDetections({
+        vehicle_type: vehicleType || undefined,
+        camera_id: cameraId || undefined,
+        since: since(hours),
+        readable_only: false,
+        limit: 30,
+      })
+      setResults(page.items)
+      setTotal(page.total)
+    } catch (err) {
+      toast.error(err)
+      setResults(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function toggleReid(detection: Detection) {
+    if (reidOpenId === detection.id) {
+      setReidOpenId(null)
+      setReidResult(null)
+      return
+    }
+    setReidOpenId(detection.id)
+    setReidResult(null)
+    setReidBusy(true)
+    try {
+      const result = await api.getReidCandidates({
+        detection_id: detection.id,
+        detection_ts: detection.ts,
+      })
+      setReidResult(result)
+    } catch (err) {
+      toast.error(err)
+      setReidOpenId(null)
+    } finally {
+      setReidBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
+        <div className="w-36">
+          <Field label="Type">
+            <Select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
+              <option value="">Any vehicle</option>
+              <option value="car">Car</option>
+              <option value="motorcycle">Motorcycle</option>
+              <option value="bus">Bus</option>
+              <option value="truck">Truck</option>
+            </Select>
+          </Field>
+        </div>
+
+        <div className="w-48">
+          <Field label="Camera">
+            <Select value={cameraId} onChange={(e) => setCameraId(e.target.value)}>
+              <option value="">Any camera</option>
+              {cameras.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.camera_code}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        <div className="w-32">
+          <Field
+            label="Colour"
+            hint="Not available yet — nothing in the pipeline reads vehicle colour."
+          >
+            <Input value="" disabled placeholder="Coming later" />
+          </Field>
+        </div>
+
+        <div>
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Window
+          </span>
+          <div className="mt-1">
+            <SegmentedControl
+              value={String(hours)}
+              onChange={(v) => setHours(Number(v))}
+              options={ATTRIBUTE_WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
+            />
+          </div>
+        </div>
+
+        <Button type="submit" disabled={busy}>
+          {busy ? 'Searching…' : 'Search'}
+        </Button>
+      </form>
+
+      {results !== null &&
+        (results.length === 0 ? (
+          <EmptyState
+            title="Nothing matched."
+            hint="Try a different type, camera or window — colour can't be filtered on yet."
+          />
+        ) : (
+          <div>
+            <p className="text-[11px] text-muted-foreground">
+              {results.length} shown of {total} matching
+            </p>
+            <div className="mt-1.5">
+              <Table>
+                <Thead>
+                  <tr>
+                    <Th>When (IST)</Th>
+                    <Th>Camera</Th>
+                    <Th>Type</Th>
+                    <Th>Plate</Th>
+                    <Th />
+                    <Th />
+                  </tr>
+                </Thead>
+                <tbody>
+                  {results.map((d) => (
+                    <Fragment key={d.id}>
+                      <Tr>
+                        <Td className="whitespace-nowrap text-[11px] text-muted-foreground">
+                          {api.formatIST(d.ts)}
+                        </Td>
+                        <Td className="font-mono text-xs">{d.camera_code}</Td>
+                        <Td className="text-xs capitalize">{d.vehicle_type ?? '—'}</Td>
+                        <Td className="font-mono text-xs">{d.plate ?? '—'}</Td>
+                        <Td>
+                          <PlateCrop url={d.crop_url} plate={d.plate} height={22} />
+                        </Td>
+                        <Td>
+                          {!d.plate && (
+                            <button
+                              type="button"
+                              onClick={() => void toggleReid(d)}
+                              className="text-[11px] font-medium text-primary hover:underline"
+                            >
+                              {reidOpenId === d.id ? 'Hide similar' : 'Find similar'}
+                            </button>
+                          )}
+                        </Td>
+                      </Tr>
+                      {reidOpenId === d.id && (
+                        <tr key={`${d.id}-reid`}>
+                          <td colSpan={6} className="bg-muted/40 px-3 py-2.5">
+                            {reidBusy ? (
+                              <p className="text-[11px] text-muted-foreground">Searching…</p>
+                            ) : !reidResult || reidResult.candidates.length === 0 ? (
+                              <p className="text-[11px] text-muted-foreground">
+                                No plausible candidate at another camera in the surrounding
+                                30 minutes.
+                              </p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <Badge tone={reidResult.embedding_available ? 'primary' : 'neutral'}>
+                                    {reidResult.embedding_available
+                                      ? 'appearance-matched'
+                                      : 'plausibility only'}
+                                  </Badge>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {reidResult.note}
+                                  </p>
+                                </div>
+                                <ul className="space-y-1">
+                                  {reidResult.candidates.map((c) => (
+                                    <li
+                                      key={c.detection_id}
+                                      className="flex flex-wrap items-center gap-2 rounded border border-border bg-card px-2 py-1"
+                                    >
+                                      <span className="font-mono text-xs font-semibold">
+                                        {c.camera_code}
+                                      </span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {api.formatIST(c.detection_ts)}
+                                      </span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {c.distance_km} km · {Math.round(c.elapsed_s)}s ·{' '}
+                                        {c.implied_kmph} km/h
+                                      </span>
+                                      {c.similarity !== null && (
+                                        <Badge tone="primary">sim {c.similarity.toFixed(2)}</Badge>
+                                      )}
+                                      {c.plate && (
+                                        <span className="font-mono text-xs">{c.plate}</span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          </div>
+        ))}
     </div>
   )
 }

@@ -60,7 +60,7 @@ Run: `2026-08-25T18-45-36__synthetic_traffic__default`, 240 frames, 8 plates.
 Every plate the pipeline committed to was exactly right. That is the good news
 and it is also the least interesting number here, because of what follows.
 
-### The real weakness is track fragmentation, not OCR
+### The real weakness was track fragmentation, not OCR — now merged, not yet re-measured
 
 8 real vehicles produced **18 vehicle tracks** and 10 resolved plates. One car
 (`GJ30V7380`) came back as **three separate tracks**, and another appeared twice
@@ -72,10 +72,31 @@ For this platform that matters more than a character error would. Cross-camera
 route reconstruction joins sightings by plate and time; one vehicle arriving as
 three tracks at one camera becomes three route hops that never happened.
 
-**This is the top thing to fix**, and it is a tracker problem, not an OCR
-problem. The synthetic sprites jump and rescale more abruptly than real vehicles
-do, so some of this is an artefact of the generator — which is exactly why real
-footage is needed before tuning ByteTrack against it.
+> **Status correction, 11 Sep 2026.** This section's own "next step" language
+> below used to say this was unfixed. It is not: `ailab/track/merge.py` exists,
+> is wired into both the batch pipeline (`pipeline.py`) and the live worker
+> (`stream/runner.py`), and does exactly what this finding calls for — fragments
+> that resolve the *same plate* (allowing the small edit distance the
+> `GJ12HH8771`/`GJ12H8771` case above needed) and are compatible in time are
+> merged into one `Vehicle`, with consensus recomputed over the pooled reads.
+> `fragmentation_stats()` reports the before/after ratio on every run
+> (`tracks_per_vehicle`, 1.0 = perfect). It has its own test suite
+> (`tests/test_merge.py`), including the exact "two invalid-grammar plates must
+> not merge on their own" and "an invalid fragment that started first still
+> joins the cluster it belongs to" cases this finding's numbers motivated.
+>
+> **What is still true: the fix has not been re-measured.** The 18-tracks /
+> 8-vehicles numbers above predate `merge()` being wired in — there is no run in
+> `runs/` (gitignored, and none exists in this checkout) showing the *after*
+> `tracks_per_vehicle` figure. Whoever runs the lab next should re-run this same
+> 240-frame clip and record the merged number here, replacing this note with a
+> real measurement rather than a claim about the code.
+
+It is a tracker problem, not an OCR problem, and the fix accordingly lives in
+tracking, not recognition. The synthetic sprites jump and rescale more abruptly
+than real vehicles do, so some of the original fragmentation was an artefact of
+the generator — which is exactly why real footage is still needed before tuning
+either the tracker or the merge thresholds any further.
 
 ### Calibration
 
@@ -197,8 +218,10 @@ that comparison.
 1. **Get real Gujarat CCTV footage with labelled plates.** Nothing else on this
    list produces a trustworthy number without it. Even 50 labelled plates would
    change what can be claimed.
-2. **Fix track fragmentation** — one vehicle, one track. Currently the largest
-   source of wrong output.
+2. **Re-measure track fragmentation with `merge()` applied.** The fix (§3
+   above) is built and wired into both pipelines; it has not been re-run
+   against this or any clip to confirm `tracks_per_vehicle` actually moved
+   toward 1.0. Do this before claiming the fragmentation problem is closed.
 3. **Re-measure preprocessing and the plate detector on real footage**, using
    the ablation configs, before tuning anything against synthetic results.
 4. **Replace the plate detector weights** with a permissively licensed or

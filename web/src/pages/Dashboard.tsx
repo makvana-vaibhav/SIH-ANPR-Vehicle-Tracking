@@ -24,21 +24,15 @@ import { Link } from 'react-router-dom'
 
 import LivePlateFeed from '@/components/LivePlateFeed'
 import { SkeletonRows, SkeletonStat } from '@/components/Skeleton'
+import { ConnectionBadge, EmptyState, ErrorBanner, PriorityDot, StatTile } from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
 import { PERMISSIONS } from '@/lib/permissions'
-import type { Alert, FleetHealth, Priority } from '@/lib/types'
+import type { Alert, FleetHealth } from '@/lib/types'
 
 /** Refresh cadence for the counters. The ticker is live and needs no polling. */
 const REFRESH_MS = 30_000
-
-const PRIORITY_DOT: Record<Priority, string> = {
-  critical: 'bg-status-offline',
-  high: 'bg-amber-500',
-  medium: 'bg-primary',
-  low: 'bg-muted-foreground',
-}
 
 export default function Dashboard() {
   const { user, can } = useAuth()
@@ -118,14 +112,18 @@ export default function Dashboard() {
             · all times IST
           </p>
         </div>
-        <FeedBadge status={feedStatus} />
+        <ConnectionBadge
+          live={feedStatus === 'live'}
+          label={`event feed ${feedStatus}`}
+          title={
+            feedStatus === 'live'
+              ? 'Connected to the live event feed'
+              : 'Not connected — the counters above are historical and nothing new will appear'
+          }
+        />
       </header>
 
-      {error && (
-        <p className="rounded border border-status-offline/40 bg-status-offline/10 px-4 py-2 text-sm text-status-offline">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {critical.length > 0 && (
         <Link
@@ -154,7 +152,7 @@ export default function Dashboard() {
                 those have never been probed, and never-probed is a different
                 fact from offline. The tile counts what has actually been
                 answered and says separately how much is unknown. */}
-            <Stat
+            <StatTile
               label="Feeds answering"
               value={`${health.online} / ${health.online + health.offline}`}
               detail={
@@ -171,19 +169,19 @@ export default function Dashboard() {
               }
               to="/health"
             />
-            <Stat
+            <StatTile
               label="Analysed for plates"
               value={String(anprFleet ?? '—')}
               detail={`of ${health.total} registered cameras`}
               to="/anpr"
             />
-            <Stat
+            <StatTile
               label="Plates read"
               value={readsToday === null ? '—' : readsToday.toLocaleString('en-IN')}
               detail="last 24 hours"
             />
             {maySeeAlerts ? (
-              <Stat
+              <StatTile
                 label="Open alerts"
                 value={openAlerts === null ? '—' : String(openAlerts.length)}
                 detail={
@@ -199,7 +197,7 @@ export default function Dashboard() {
                 to="/alerts"
               />
             ) : (
-              <Stat
+              <StatTile
                 label="This session"
                 value={String(counts.detections)}
                 detail="plate reads seen live"
@@ -251,12 +249,7 @@ export default function Dashboard() {
               {openAlerts === null ? (
                 <SkeletonRows rows={4} />
               ) : openAlerts.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border p-6 text-center">
-                  <p className="text-xs text-muted-foreground">
-                    Nothing open. A watched plate passing any camera will appear
-                    here by itself.
-                  </p>
-                </div>
+                <EmptyState title="Nothing open. A watched plate passing any camera will appear here by itself." />
               ) : (
                 <ul className="space-y-1.5">
                   {openAlerts.map((alert) => (
@@ -265,9 +258,7 @@ export default function Dashboard() {
                         to="/alerts"
                         className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 transition hover:border-muted-foreground/50"
                       >
-                        <span
-                          className={`h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[alert.priority]}`}
-                        />
+                        <PriorityDot priority={alert.priority} />
                         {/* A camera-down alert has no plate; showing an empty
                             gap where the identifier belongs makes the row look
                             broken rather than different. */}
@@ -315,7 +306,7 @@ export default function Dashboard() {
                   </div>
                   <div className="mt-1.5 h-1 overflow-hidden rounded bg-muted">
                     <div
-                      className={`h-full ${pct > 80 ? 'bg-status-online' : pct > 40 ? 'bg-amber-500' : 'bg-status-offline'}`}
+                      className={`h-full ${pct > 80 ? 'bg-status-online' : pct > 40 ? 'bg-priority-high' : 'bg-status-offline'}`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>
@@ -340,73 +331,4 @@ function greeting(): string {
   if (hour < 12) return 'morning'
   if (hour < 17) return 'afternoon'
   return 'evening'
-}
-
-function FeedBadge({ status }: { status: string }) {
-  const live = status === 'live'
-  return (
-    <span
-      title={
-        live
-          ? 'Connected to the live event feed'
-          : 'Not connected — the counters above are historical and nothing new will appear'
-      }
-      className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium ${
-        live
-          ? 'bg-status-online/15 text-status-online'
-          : 'bg-amber-500/15 text-amber-400'
-      }`}
-    >
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${live ? 'animate-pulse-alert bg-status-online' : 'bg-amber-400'}`}
-      />
-      event feed {status}
-    </span>
-  )
-}
-
-function Stat({
-  label,
-  value,
-  detail,
-  tone,
-  to,
-}: {
-  label: string
-  value: string
-  detail: string
-  tone?: 'good' | 'warn' | 'bad'
-  to?: string
-}) {
-  const toneClass =
-    tone === 'bad'
-      ? 'text-status-offline'
-      : tone === 'warn'
-        ? 'text-amber-400'
-        : tone === 'good'
-          ? 'text-status-online'
-          : ''
-
-  const body = (
-    <>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      <p className={`mt-1 font-mono text-2xl leading-none ${toneClass}`}>{value}</p>
-      {/* Every number says what it counts: "31 cameras" is a different claim
-          from "31 of 281", and only one of them is true. */}
-      <p className="mt-1 text-[10px] text-muted-foreground">{detail}</p>
-    </>
-  )
-
-  const className =
-    'block rounded-md border border-border bg-card px-4 py-3 transition'
-
-  return to ? (
-    <Link to={to} className={`${className} hover:border-muted-foreground/50`}>
-      {body}
-    </Link>
-  ) : (
-    <div className={className}>{body}</div>
-  )
 }

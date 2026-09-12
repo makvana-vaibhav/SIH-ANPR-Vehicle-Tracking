@@ -16,6 +16,19 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
 import { SkeletonRows } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
+import {
+  Button,
+  EmptyState,
+  Field,
+  Input,
+  PriorityBadge,
+  Select,
+  Table,
+  Td,
+  Th,
+  Thead,
+  Tr,
+} from '@/components/ui'
 import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
 import { PERMISSIONS } from '@/lib/permissions'
@@ -23,13 +36,6 @@ import type { Priority, WatchlistEntry } from '@/lib/types'
 
 const CATEGORIES = ['stolen', 'suspect', 'wanted', 'bolo', 'expired'] as const
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'critical']
-
-const PRIORITY_STYLE: Record<Priority, string> = {
-  critical: 'bg-status-offline/15 text-status-offline border-status-offline/40',
-  high: 'bg-amber-500/15 text-amber-400 border-amber-500/40',
-  medium: 'bg-primary/15 text-primary border-primary/40',
-  low: 'bg-muted text-muted-foreground border-border',
-}
 
 export default function Watchlist() {
   const toast = useToast()
@@ -133,85 +139,58 @@ export default function Watchlist() {
       >
         <h2 className="text-sm font-medium">Add a plate</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <label className="block lg:col-span-1">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Plate
-            </span>
-            <input
-              value={plate}
-              onChange={(e) => setPlate(e.target.value.toUpperCase())}
-              placeholder="GJ03AB1234"
-              className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 font-mono text-sm uppercase outline-none focus:border-primary"
-            />
-          </label>
+          <div className="lg:col-span-1">
+            <Field label="Plate">
+              <Input
+                value={plate}
+                onChange={(e) => setPlate(e.target.value.toUpperCase())}
+                placeholder="GJ03AB1234"
+                className="font-mono uppercase"
+              />
+            </Field>
+          </div>
 
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Category
-            </span>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
-            >
+          <Field label="Category">
+            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
               {CATEGORIES.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </Field>
 
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Priority
-            </span>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as Priority)}
-              className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
-            >
+          <Field label="Priority">
+            <Select value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
               {PRIORITIES.map((p) => (
                 <option key={p} value={p}>
                   {p}
                 </option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </Field>
 
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Case reference
-            </span>
-            <input
+          <Field label="Case reference">
+            <Input
               value={caseRef}
               onChange={(e) => setCaseRef(e.target.value)}
               placeholder="FIR/2026/0142"
-              className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
             />
-          </label>
+          </Field>
 
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Remarks
-            </span>
-            <input
+          <Field label="Remarks">
+            <Input
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               placeholder="Reported stolen, Rajkot City"
-              className="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
             />
-          </label>
+          </Field>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-          >
+          <Button type="submit" disabled={busy}>
             {busy ? 'Adding…' : 'Add to watchlist'}
-          </button>
+          </Button>
         </div>
       </form>
       )}
@@ -224,63 +203,57 @@ export default function Watchlist() {
             <SkeletonRows rows={3} height="h-9" />
           </div>
         ) : active.length === 0 ? (
-          <p className="mt-2 rounded border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-            {mayAdd
-              ? 'Nothing is being watched. Add a plate above.'
-              : 'Nothing is being watched. A supervisor can add a plate.'}
-          </p>
+          <div className="mt-2">
+            <EmptyState
+              title={
+                mayAdd
+                  ? 'Nothing is being watched. Add a plate above.'
+                  : 'Nothing is being watched. A supervisor can add a plate.'
+              }
+            />
+          </div>
         ) : (
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-                  <th className="pb-1.5 pr-3">Plate</th>
-                  <th className="pb-1.5 pr-3">Category</th>
-                  <th className="pb-1.5 pr-3">Priority</th>
-                  <th className="pb-1.5 pr-3">Case</th>
-                  <th className="pb-1.5 pr-3">Remarks</th>
-                  <th className="pb-1.5 pr-3">Added</th>
-                  <th className="pb-1.5" />
+          <div className="mt-2">
+            <Table className="min-w-[640px]">
+              <Thead>
+                <tr>
+                  <Th>Plate</Th>
+                  <Th>Category</Th>
+                  <Th>Priority</Th>
+                  <Th>Case</Th>
+                  <Th>Remarks</Th>
+                  <Th>Added</Th>
+                  <Th />
                 </tr>
-              </thead>
+              </Thead>
               <tbody>
                 {active.map((entry) => (
-                  <tr key={entry.id} className="border-b border-border/50">
-                    <td className="py-1.5 pr-3 font-mono font-semibold">
-                      {entry.plate_normalised}
-                    </td>
-                    <td className="py-1.5 pr-3 text-xs">{entry.category}</td>
-                    <td className="py-1.5 pr-3">
-                      <span
-                        className={`rounded border px-1.5 py-px text-[10px] font-medium uppercase ${PRIORITY_STYLE[entry.priority]}`}
-                      >
-                        {entry.priority}
-                      </span>
-                    </td>
-                    <td className="py-1.5 pr-3 text-xs text-muted-foreground">
+                  <Tr key={entry.id}>
+                    <Td className="font-mono font-semibold">{entry.plate_normalised}</Td>
+                    <Td className="text-xs">{entry.category}</Td>
+                    <Td>
+                      <PriorityBadge priority={entry.priority} />
+                    </Td>
+                    <Td className="text-xs text-muted-foreground">
                       {entry.case_ref || '—'}
-                    </td>
-                    <td className="max-w-48 truncate py-1.5 pr-3 text-xs text-muted-foreground">
+                    </Td>
+                    <Td className="max-w-48 truncate text-xs text-muted-foreground">
                       {entry.remarks || '—'}
-                    </td>
-                    <td className="py-1.5 pr-3 text-[11px] text-muted-foreground">
+                    </Td>
+                    <Td className="text-[11px] text-muted-foreground">
                       {api.formatIST(entry.created_at)}
-                    </td>
-                    <td className="py-1.5 text-right">
+                    </Td>
+                    <Td className="text-right">
                       {mayAmend && (
-                        <button
-                          type="button"
-                          onClick={() => void toggleActive(entry)}
-                          className="rounded border border-border px-2 py-0.5 text-[11px] transition hover:border-muted-foreground"
-                        >
+                        <Button variant="outline" size="sm" onClick={() => void toggleActive(entry)}>
                           Retire
-                        </button>
+                        </Button>
                       )}
-                    </td>
-                  </tr>
+                    </Td>
+                  </Tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </div>
         )}
       </section>

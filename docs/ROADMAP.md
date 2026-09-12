@@ -37,10 +37,10 @@ This is the acceptance test for V1. Status as of 9 Sep 2026.
 | 2 | ANPR: plate + confidence + camera + time | ✅ works | — |
 | 3 | Same vehicle linked across cameras | 🟡 engine ready, no cameras to link between | **P1** |
 | 4 | Vehicle journey + animated route | 🟡 no average speed, no playback | **P2** |
-| 5 | Plate search | 🟡 exact + prefix only | P8 (V2) |
+| 5 | Plate search | 🟡 fuzzy search code complete, gate not run | P8 (V2) |
 | 6 | Blacklist alert **with plate crop** | 🟡 alert fires, crop impossible | **P3** |
-| 7 | Trajectory anomaly + explanation | 🟡 physics filter only, no detector | **P5** |
-| 8 | City traffic analytics | 🔴 **absent** | **P4** |
+| 7 | Trajectory anomaly + explanation | 🟡 **code complete, gate not run** | **P5** |
+| 8 | City traffic analytics | 🟡 **code complete, gate not run** | **P4** |
 
 ---
 
@@ -117,7 +117,12 @@ zero `put_object` / `presigned` / `boto3` hits. MinIO exists only as config and 
 ### P4 — City traffic analytics ⭐ biggest missing module
 **Track split, contract-first · ~3–4 days · PS §7**
 
-Nothing exists: no analytics router, no analytics page, no heatmap layer, zero `time_bucket` /
+> 🟡 **Code complete, gate not yet run.** Router, page and heatmap layer all exist — see
+> [BUILD_STATE.md](BUILD_STATE.md)'s P4 section for exactly what was built. The session that built
+> the frontend half and the tests had no Docker and no Node/npm, so the gate below has not been
+> confirmed against a live fleet. That confirmation is the next step.
+
+Nothing existed at the start of this phase: no analytics router, no analytics page, no heatmap layer, zero `time_bucket` /
 `date_trunc` / continuous aggregates anywhere. `recharts` is already a dependency and is **imported
 zero times** — every "chart" on screen today is a Tailwind div with a percentage width.
 
@@ -152,7 +157,12 @@ speed, a populated route-density table and a heatmap — every figure traceable 
 ### P5 — Trajectory anomaly detection + explainable alerts
 **Track A · ~3 days · PS §9, §13**
 
-What exists today is a **physics filter, not an anomaly detector**: six per-leg flags
+> 🟡 **Code complete, gate not yet run.** Migration 0005, `anomaly.py`, `raise_for_anomaly`, the
+> fanout wiring, and `Alerts.tsx`'s factor list all exist — see [BUILD_STATE.md](BUILD_STATE.md)'s
+> P5 section. Not built: `scripts/replay_history.py` (the risk mitigation below). The session that
+> built this had no Docker and no Node/npm, so nothing has run against a live database yet.
+
+What existed before this phase was a **physics filter, not an anomaly detector**: six per-leg flags
 (`revisit`, `co_located`, `impossible_simultaneous`, `implausible_speed`, `unobserved_gap`,
 `heading_conflict`) that catch cloned plates and OCR misreads. Nothing compares a journey against a
 norm. `AlertType.ANOMALY` has **zero producers** — the only two alert producers in the repo are
@@ -221,6 +231,13 @@ Also:
 ### P7 — Earn the >90% accuracy claim ⭐ highest-value V2 item
 **~4–5 days, mostly human labelling**
 
+> 🔴 **Blocked on data and human time, not code.** Investigated 11 Sep 2026 (no Docker, no
+> Node/npm, and critically — no real footage; `data/videos/` is empty, `ai-lab/datasets/` does not
+> exist yet). Two things below turned out to already be done and are corrected accordingly; the
+> rest genuinely needs a person with real footage and an ai-lab runtime, which this session had
+> neither of. See the status note under "track fragmentation" below before re-reading this section
+> as a todo list.
+
 The PS states **>90% plate recognition accuracy under real-world conditions**. We currently have no
 real-world number at all. Synthetic-only measurements: **62.5–87.5% end-to-end** across two runs,
 **100% exact-match on plates attempted**, CER 0.000. `ai-lab/FINDINGS.md` is explicit that these are
@@ -230,58 +247,138 @@ The bottleneck is **recall, not OCR**. When the pipeline commits to a read it is
 to read 3 of 8 plates. Chasing a better recogniser is the wrong move.
 
 - Source **real Indian footage** with legible plates, day and night. (`anpr_demo.mp4` is UK — a
-  per-camera `plate-region:GB` tag works around it, and no shipped config may accept GB.)
+  per-camera `plate-region:GB` tag works around it, and no shipped config may accept GB.) **Not
+  done** — needs a person to actually source and license real footage; nothing to investigate or
+  write here.
 - `make mine` → label `ai-lab/datasets/mined/to_label/labels_to_fill.csv` by hand. The loop already
-  exists and pre-fills the pipeline's guess.
-- `make evaluate GT=…` → exact-match, CER, precision/recall, calibration table.
+  exists and pre-fills the pipeline's guess. **Not done** — needs the footage above first, then a
+  person watching video and typing plates. Not something a coding session can do on its behalf.
+- `make evaluate GT=…` → exact-match, CER, precision/recall, calibration table. **Not done** — needs
+  labelled footage and a runnable ai-lab (torch/onnxruntime/opencv), neither present this session.
 - Attack recall: **re-export the detector at 1280** instead of the fixed 640 (known to lose distant
-  and night vehicles), and fix **track fragmentation** — one car came back as three tracks, which is
-  the entire reason precision is 0.70 rather than ~1.0.
+  and night vehicles) — **still not done**. The shipped `yolov8n.onnx` (`ai-lab/scripts/fetch_models.sh`)
+  is a pre-exported, checksum-pinned file with a fixed 640 input; re-exporting at 1280 means running
+  Ultralytics' own export tooling against a torch checkpoint, which needs PyTorch and compute this
+  session did not have. Bumping `DetectorConfig.imgsz` in `ailab/config.py` to 1280 *without*
+  re-exporting the model would silently feed a 1280px tensor into a 640-shaped graph — not attempted.
+  — and fix **track fragmentation**: **already done**, just not documented as such until now.
+  `ailab/track/merge.py` merges tracker fragments that resolve the same plate (with the edit-distance
+  latitude the `GJ12HH8771`/`GJ12H8771` case needed) and are compatible in time, wired into both
+  `pipeline.py` and `stream/runner.py`, with its own test suite (`tests/test_merge.py`). What is
+  **not** done: re-running the evaluation to confirm `fragmentation_stats()`'s `tracks_per_vehicle`
+  actually moved toward 1.0 — see `FINDINGS.md`'s corrected §3 for the full account.
 - Publish the measured figure **with its conditions**. If it is below 90%, say so and say why.
 
 **Gate:** a measured exact-match figure on labelled real footage, reproducible from a committed run.
+**Unreachable without real footage and a person to label it — that is the actual next step, not more
+code.**
 
 ### P8 — Fuzzy and partial plate search
 **~2 days · closes the long-abandoned old Phase 8**
 
-- Query the **`pg_trgm` GIN index that already exists on `plate_normalised` and that nothing
-  queries**: `GJ03A81234` → suggests `GJ03AB1234`.
-- Faceted summary ("7 sightings · 3 cameras · 1 blacklist match"); filters on time, camera, type.
-- **Decide OpenSearch's fate.** It runs in the base profile, is only health-probed, and indexes
-  nothing. Either index detections into it properly or remove it — today it costs demo-laptop memory
-  for no function.
+> 🟡 **Code complete, gate not yet run.** `GET /api/v1/vehicles/search`, the response schema, and
+> `test_search.py` all exist — see [BUILD_STATE.md](BUILD_STATE.md)'s P8 section. This machine has
+> no Docker (so no live Postgres) and no Node/npm, but it does have a bare Python 3.14 with `ruff`
+> and the API's own dependencies installed — every file below was linted, which is more than P4-P7
+> got, but still not the same as a request actually answering.
 
-**Gate:** a misread plate returns the correct vehicle ranked first, in under 300 ms.
+- Query the **`pg_trgm` GIN index that already exists on `plate_normalised` and that nothing
+  queries**: `GJ03A81234` → suggests `GJ03AB1234`. **Done** — `_FUZZY_SEARCH_SQL` in
+  `routers/vehicles.py`, using the `%` operator so Postgres actually uses the index rather than a
+  sequential scan, with an explicit `similarity() >= :threshold` bind parameter alongside it.
+- Faceted summary ("7 sightings · 3 cameras · 1 blacklist match"); filters on time, camera, type.
+  **Done** — `PlateSearchResult` carries `sightings`, `cameras`, `first_seen`/`last_seen` and an
+  optional `watchlist` hit; `since`/`until`/`camera_id`/`vehicle_type` are all query params.
+  `VehicleSearch.tsx` now runs this automatically as "Did you mean…" whenever an exact search finds
+  nothing, rather than requiring a separate search mode.
+- **Decide OpenSearch's fate.** **Not decided — deliberately.** `docker-compose.yml`'s own comment
+  ("OpenSearch — fuzzy/partial plate search") and `.env.example` ("When OpenSearch is unreachable,
+  search falls back to Postgres pg_trgm") both describe OpenSearch as the *intended primary* backend
+  with pg_trgm as the resilience fallback — the reverse of how this phase's own framing reads at
+  first glance. Building real OpenSearch indexing needs `opensearch-py` (not installed here), a live
+  OpenSearch instance to write against, and a fuzzy query DSL to get right — none of which this
+  session could test. Removing the service instead would reverse someone else's already-implemented
+  architectural intent on a guess. Neither was attempted. What *is* true now: pg_trgm alone already
+  satisfies this phase's gate, so OpenSearch remains exactly what it was — provisioned, healthy, and
+  indexing nothing — and deciding its fate is unblocked by nothing at this point except a decision.
+
+**Gate:** a misread plate returns the correct vehicle ranked first, in under 300 ms. **Not run** — no
+Postgres available this session to measure it against.
 
 ### P9 — Attribute search (search beyond plates)
 **~3 days · PS §14**
 
+> 🟡 **Half built, gate not run.** Type/camera/time filtering on `GET /api/v1/detections`
+> (`VEHICLE_CLASSES` default so an attribute-only search never surfaces a tracked `person`/`bicycle`
+> as a vehicle candidate), the `By plate`/`By attributes` toggle in `VehicleSearch.tsx`, and
+> `test_detections.py` all exist — see [BUILD_STATE.md](BUILD_STATE.md)'s P9 section. **Vehicle-colour
+> extraction was not attempted** — this session had no `numpy`/`opencv` and no real footage to sample
+> a colour from or check a result against, the same blocker P7 has for accuracy. Writing that code
+> with no way to run it would be exactly the "plausible invented number" CLAUDE.md §5 forbids.
+
 Five `detections` columns are **permanently NULL** because nothing produces them:
 `vehicle_colour`, `crop_key` (P3), `frame_key`, `direction`, `speed_kmph`.
 
-- **Extract vehicle colour** in the pipeline and populate `vehicle_colour`.
+- **Extract vehicle colour** in the pipeline and populate `vehicle_colour`. **Not done** — needs
+  numpy/opencv and real footage; see the callout above.
 - Extend `vehicle_type` beyond the raw COCO class string it stores today (which also means `person`
-  rows currently land in `detections`).
+  rows currently land in `detections`). **Done** — an attribute-only query now defaults to
+  `VEHICLE_CLASSES = ("car", "motorcycle", "bus", "truck")` unless a specific type is requested; a
+  plate search is unaffected, it can still match any tracked class.
 - Query params and UI: *"white SUV, near CAM-17, 10:30–11:00"* → ranked candidates from appearance +
-  time + camera adjacency.
+  time + camera adjacency. **Partly done** — type/camera/time filtering and the UI toggle exist;
+  appearance-based ranking needs the colour producer above and was not built.
 
-**Gate:** an attribute-only query returns plausible candidates with no plate supplied.
+**Gate:** an attribute-only query returns plausible candidates with no plate supplied. **Not run**,
+and the "candidates from appearance" half of it cannot pass even with a live stack until vehicle
+colour has a real producer.
 
 ### P10 — Predictive traffic
 **~4 days · PS §12 · depends on P4 baselines**
 
+> 🟡 **Code complete, gate not run.** `GET /api/v1/predictions/congestion`, the Analytics.tsx
+> "Predicted congestion" panel, and `test_predictions.py` all exist — see
+> [BUILD_STATE.md](BUILD_STATE.md)'s P10 section. Same no-Docker, no-live-Postgres caveat as every
+> other phase this session, with one difference: the forecasting method's core arithmetic touches no
+> database, so it was copied into a standalone script and actually **executed** against synthetic
+> data (exact slope recovery on a linear series, ~0 backtest MAE on a linear series, correct MAE
+> increase when a deviation is planted in the held-out portion) — real evidence the method is
+> implemented correctly, not just read carefully. There is no absolute road-capacity figure anywhere
+> in this system, so "congestion" is defined as a relative measure against each camera's own history
+> — see that schema module's docstring for the full argument.
+
 - Short-horizon congestion forecast (15 / 30 min) per junction and corridor, from inflow trend, speed
-  trend and upstream state.
-- Show the **contributing factors** beside the number, per the explainability rule.
+  trend and upstream state. **Done** — an OLS trend line through the last 30 minutes of a
+  self-baselined volume index; `upstream_inflow`/`speed_trend` factors reuse the same
+  `_segment_legs` real observed-journey adjacency P4 already built, camera grouping only.
+- Show the **contributing factors** beside the number, per the explainability rule. **Done** —
+  `ContributingFactor {factor, detail}`, same shape as P5's `anomaly.Reason`.
 - **Backtest against held-out history** and report the forecast's own error. A prediction with no
-  error bar is decoration.
+  error bar is decoration. **Done** — the identical fitting procedure run against an earlier slice of
+  the same lookback window, checked against a later slice that has already happened; `mae_pct`
+  travels with every response. Not yet meaningful against *real* traffic, since that needs the live
+  fleet this session did not have.
 
 ### P11 — Vehicle re-identification
 **~4 days**
 
+> 🟡 **Half built, gate not run.** Migration `0006` (`detections.appearance_embedding`),
+> `app/services/reid.py` (cosine similarity, plus a plausibility-only fallback that reuses
+> `correlator.py`'s own haversine/150-km/h-ceiling physics directly rather than inventing new
+> thresholds), `GET /api/v1/reid/candidates`, and a "Find similar" action in `VehicleSearch.tsx`
+> all exist — see [BUILD_STATE.md](BUILD_STATE.md)'s P11 section. **The embedding itself was not
+> attempted** — no ReID model is fetched anywhere in `ai-lab/scripts/fetch_models.sh`, and this
+> session has no numpy/opencv to run one even if it existed, the same blocker P7 and P9's colour
+> half share. Results are ranked suggestions for an operator, never auto-merged into a journey —
+> an unverified appearance signal has no business silently rewriting `vehicle_tracks`.
+
 Appearance embeddings, so a vehicle links across cameras even when the plate is unreadable — this
 raises effective trajectory recall directly. Nothing exists today: intra-camera tracking is
 motion-only (ByteTrack, no appearance branch), and cross-camera linking is plate-string equality.
+**Partly done** — the candidate-matching and ranking machinery is built and reuses real
+correlator physics for its plausibility-only mode; the appearance embedding that would let it
+match on more than physics alone does not exist and needs a ReID model this session could not
+fetch, load, or verify.
 
 ### P12 — Truth pass on docs and contracts
 **~2 days · parallelisable throughout**

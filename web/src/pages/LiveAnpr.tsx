@@ -26,16 +26,25 @@
  * demonstrated. The demonstration fleet is three cameras on one corridor, all
  * replaying the same recorded footage, and each says so.
  *
- * Analysis does not depend on this screen. The worker reads every camera in
- * the fleet in the background; opening a camera here shows what it found, it
- * does not cause it to look.
+ * Analysis does not depend on this screen. Opening a camera shows what it
+ * found; it does not cause it to look.
+ *
+ * ANPR runs on the cameras a worker is assigned to, which by default is **one**
+ * — every worker decodes its camera's full frame rate, so three of them sharing
+ * a laptop tripled capture-to-event latency (measured 266 ms with one, 507 ms
+ * with three, and 8.5 s when the footage was heavier still). A late reading
+ * describes a car that has already moved on, and no amount of synchronisation
+ * can put its box in the right place. `make ai-multi` starts all three when the
+ * demo needs cross-camera linking.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import AnprOverlay from '@/components/AnprOverlay'
+import PipelineDiagnostics from '@/components/PipelineDiagnostics'
 import LivePlateFeed from '@/components/LivePlateFeed'
 import StreamPlayer from '@/components/StreamPlayer'
+import { Badge, Checkbox, ConnectionBadge, ErrorBanner, StatusDot } from '@/components/ui'
 import { useCameraEvents, useEventStream } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
 import { isPositionRefresh } from '@/lib/events'
@@ -66,17 +75,6 @@ function isDemoFeed(camera: Camera): boolean {
   return (camera.tags ?? []).includes('demo')
 }
 
-/**
- * A camera whose video comes from a live source rather than recorded footage.
- *
- * A negation rather than a vendor check, because a camera with no real source
- * is not in this registry at all: everything here either streams live or is
- * tagged as replaying a clip.
- */
-function isLiveFeed(camera: Camera): boolean {
-  return !isDemoFeed(camera)
-}
-
 export default function LiveAnpr() {
   const { status: streamStatus } = useEventStream()
 
@@ -85,9 +83,22 @@ export default function LiveAnpr() {
   const [grant, setGrant] = useState<StreamGrant | null>(null)
   const [history, setHistory] = useState<Detection[]>([])
   const [showBoxes, setShowBoxes] = useState(true)
-  const [syncBoxes, setSyncBoxes] = useState(true)
+  // Off by default: syncing holds the picture SYNC_DELAY_MS behind live, and
+  // that delay is real — it is the single biggest contributor to the video
+  // feeling laggy when you open a camera. Unsynced, the picture is as live as
+  // the transport allows and boxes are held long enough (6 s) to still be up
+  // when the vehicle they describe reaches the screen. Left as a toggle
+  // because frame-accurate placement is genuinely better for a close look.
+  const [syncBoxes, setSyncBoxes] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeCodes, setActiveCodes] = useState<Set<string>>(new Set())
+  // Diagnostics are opt-in: the panel is for proving an optimisation worked,
+  // not something an operator needs on screen during normal use.
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
+  // The player hands its capture clock to the overlay through a render prop;
+  // the diagnostics panel needs the same clock to measure how far behind the
+  // source the picture is, so it is captured here as it goes past.
+  const videoClockRef = useRef<(() => number | null) | null>(null)
 
   const liveEvents = useCameraEvents(selected?.camera_code ?? null)
 
@@ -177,36 +188,25 @@ export default function LiveAnpr() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Live ANPR</h1>
+          {/* Says which cameras are *being read*, not just which exist.
+              Every camera streams, but ANPR runs on the ones a worker is
+              assigned to — one by default, so a reading lands within a few
+              hundred milliseconds of the frame it came from and its box sits
+              on the right vehicle. The "reading plates" badge in the list is
+              driven by real recent detections, so the two always agree. */}
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Every camera in the fleet is analysed in the background. Opening one
-            shows what it found — {cameras.length} cameras,{' '}
-            {cameras.filter(isLiveFeed).length} live and{' '}
-            {cameras.filter(isDemoFeed).length} replaying recorded footage.
+            {cameras.length} cameras streaming.{' '}
+            {activeCodes.size > 0
+              ? `${activeCodes.size} being read by ANPR right now`
+              : 'No camera is being read right now'}
+            {' — '}the rest stream without analysis. Opening a camera shows what
+            it found.
           </p>
         </div>
-        <span
-          className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium ${
-            streamStatus === 'live'
-              ? 'bg-status-online/15 text-status-online'
-              : 'bg-amber-500/15 text-amber-400'
-          }`}
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              streamStatus === 'live'
-                ? 'animate-pulse-alert bg-status-online'
-                : 'bg-amber-400'
-            }`}
-          />
-          event feed {streamStatus}
-        </span>
+        <ConnectionBadge live={streamStatus === 'live'} label={`event feed ${streamStatus}`} />
       </header>
 
-      {error && (
-        <p className="rounded border border-status-offline/40 bg-status-offline/10 px-4 py-2 text-sm text-status-offline">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_300px]">
         {/* ── Camera picker ─────────────────────────────────────────── */}
@@ -231,15 +231,7 @@ export default function LiveAnpr() {
                   <span className="font-mono text-[11px] font-semibold">
                     {camera.camera_code}
                   </span>
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                      camera.status === 'online'
-                        ? 'bg-status-online'
-                        : camera.status === 'offline'
-                          ? 'bg-status-offline'
-                          : 'bg-muted-foreground'
-                    }`}
-                  />
+                  <StatusDot status={camera.status} />
                 </div>
                 <p className="truncate text-[10px] text-muted-foreground">
                   {camera.name}
@@ -248,18 +240,12 @@ export default function LiveAnpr() {
                   {/* Provenance, always. A viewer should never have to wonder
                       whether a feed is a government camera or a clip. */}
                   {isDemoFeed(camera) ? (
-                    <span className="rounded bg-amber-500/15 px-1 text-[9px] text-amber-400">
-                      recorded demo
-                    </span>
+                    <Badge tone="warning">recorded demo</Badge>
                   ) : (
-                    <span className="rounded bg-primary/15 px-1 text-[9px] text-primary">
-                      live feed
-                    </span>
+                    <Badge tone="primary">live feed</Badge>
                   )}
                   {activeCodes.has(camera.camera_code) && (
-                    <span className="rounded bg-status-online/15 px-1 text-[9px] text-status-online">
-                      reading plates
-                    </span>
+                    <Badge tone="success">reading plates</Badge>
                   )}
                 </div>
               </button>
@@ -277,13 +263,16 @@ export default function LiveAnpr() {
                 cameraCode={selected.camera_code}
                 preferHls={isSandbox}
                 syncDelayMs={syncBoxes ? SYNC_DELAY_MS : 0}
-                overlay={(videoClock) => (
-                  <AnprOverlay
-                    events={liveEvents}
-                    enabled={showBoxes}
-                    videoClock={syncBoxes ? videoClock : undefined}
-                  />
-                )}
+                overlay={(videoClock) => {
+                  videoClockRef.current = videoClock
+                  return (
+                    <AnprOverlay
+                      events={liveEvents}
+                      enabled={showBoxes}
+                      videoClock={syncBoxes ? videoClock : undefined}
+                    />
+                  )
+                }}
               />
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div>
@@ -295,31 +284,39 @@ export default function LiveAnpr() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={showBoxes}
-                      onChange={(e) => setShowBoxes(e.target.checked)}
-                      className="accent-primary"
-                    />
-                    plate boxes
-                  </label>
-                  <label
-                    className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground"
+                  <Checkbox
+                    checked={showBoxes}
+                    onChange={(e) => setShowBoxes(e.target.checked)}
+                    label="plate boxes"
+                    labelClassName="gap-1.5 text-[11px] text-muted-foreground"
+                  />
+                  <span
                     title={`Holds the picture ${(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live so each box lands on the frame it was measured in. Off gives the lowest latency the network allows, with boxes that trail the picture.`}
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={syncBoxes}
                       onChange={(e) => setSyncBoxes(e.target.checked)}
-                      className="accent-primary"
+                      label="sync to video"
+                      labelClassName="gap-1.5 text-[11px] text-muted-foreground"
                     />
-                    sync to video
-                  </label>
+                  </span>
+                  <Checkbox
+                    checked={showDiagnostics}
+                    onChange={(e) => setShowDiagnostics(e.target.checked)}
+                    label="latency"
+                    labelClassName="gap-1.5 text-[11px] text-muted-foreground"
+                  />
                 </div>
               </div>
+              {showDiagnostics && (
+                <PipelineDiagnostics
+                  events={liveEvents}
+                  videoClock={syncBoxes ? videoClockRef.current : null}
+                  transport={grant.whep_url ? 'webrtc/hls' : 'hls'}
+                />
+              )}
               {isDemoFeed(selected) ? (
-                <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] leading-relaxed text-amber-300">
+                <p className="rounded border border-priority-high/40 bg-priority-high/10 px-2 py-1.5 text-[10px] leading-relaxed text-priority-high">
                   <strong>Recorded footage, not a live camera.</strong> The
                   three cameras on this corridor replay the same file, so the
                   pipeline can be demonstrated end to end on traffic close

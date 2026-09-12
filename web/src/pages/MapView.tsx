@@ -11,32 +11,41 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import CameraMap from '@/components/CameraMap'
 import type { Basemap } from '@/lib/basemap'
 import CameraPanel from '@/components/CameraPanel'
+import {
+  Button,
+  Checkbox,
+  ErrorBanner,
+  Field,
+  Input,
+  SegmentedControl,
+  Select,
+  StatTile,
+  StatusDot,
+  Spinner,
+} from '@/components/ui'
+import { useAuth } from '@/hooks/useAuth'
 import * as api from '@/lib/api'
+import { PERMISSIONS } from '@/lib/permissions'
 import type {
   CameraFeatureProperties,
   CameraGeoJSON,
+  CameraStatus,
   Department,
   FleetHealth,
   VmsInstance,
 } from '@/lib/types'
 
-const STATUSES = ['online', 'offline', 'degraded', 'unknown'] as const
+const STATUSES: CameraStatus[] = ['online', 'offline', 'degraded', 'unknown']
 
-const STATUS_LABEL = {
+const STATUS_LABEL: Record<CameraStatus, string> = {
   online: 'Online',
   offline: 'Offline',
   degraded: 'Degraded',
   unknown: 'Awaiting integration',
-} as const
-
-const STATUS_DOT = {
-  online: 'bg-status-online',
-  offline: 'bg-status-offline',
-  degraded: 'bg-status-degraded',
-  unknown: 'bg-status-unknown',
-} as const
+}
 
 export default function MapView() {
+  const { can } = useAuth()
   const [cameras, setCameras] = useState<CameraGeoJSON | null>(null)
   const [districts, setDistricts] = useState<GeoJSON.FeatureCollection | null>(null)
   const [health, setHealth] = useState<FleetHealth | null>(null)
@@ -63,6 +72,27 @@ export default function MapView() {
   const [vendor, setVendor] = useState('')
   const [anprOnly, setAnprOnly] = useState(false)
   const [search, setSearch] = useState('')
+
+  // Detection-density heatmap (P4 traffic analytics), fetched on demand —
+  // an operator who never asks for it should not pay for the query.
+  const mayReadAnalytics = can(PERMISSIONS.analyticsRead)
+  const [showHeatmap, setShowHeatmap] = useState(false)
+  const [heatmap, setHeatmap] = useState<GeoJSON.FeatureCollection | null>(null)
+
+  useEffect(() => {
+    if (!showHeatmap || heatmap) return
+    let cancelled = false
+    void api
+      .getAnalyticsHeatmap()
+      .then((body) => {
+        if (cancelled) return
+        setHeatmap({ type: 'FeatureCollection', features: body.features } as GeoJSON.FeatureCollection)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [showHeatmap, heatmap])
 
   // District boundaries are a static asset: fetched once, cached by the
   // browser, and served from our own origin — no tile server involved.
@@ -145,36 +175,40 @@ export default function MapView() {
     <div className="flex h-full flex-col">
       {/* KPI strip */}
       <div className="grid grid-cols-2 gap-px border-b border-border bg-border md:grid-cols-5">
-        <Kpi
+        <StatTile
+          variant="strip"
           label="Cameras"
           value={health?.total ?? '—'}
-          hint={`${shownCount} shown`}
+          detail={`${shownCount} shown`}
         />
-        <Kpi
+        <StatTile
+          variant="strip"
           label="Online"
           value={health?.online ?? '—'}
-          tone="text-status-online"
-          hint={
+          tone="good"
+          detail={
             health?.integrated_availability_pct != null
               ? `${health.integrated_availability_pct}% of integrated`
               : undefined
           }
         />
-        <Kpi
+        <StatTile
+          variant="strip"
           label="Offline"
           value={health?.offline ?? '—'}
-          tone={health && health.offline > 0 ? 'text-status-offline' : undefined}
+          tone={health && health.offline > 0 ? 'bad' : undefined}
         />
-        <Kpi
+        <StatTile
+          variant="strip"
           label="Degraded"
           value={health?.degraded ?? '—'}
-          tone={health && health.degraded > 0 ? 'text-status-degraded' : undefined}
+          tone={health && health.degraded > 0 ? 'warn' : undefined}
         />
-        <Kpi
+        <StatTile
+          variant="strip"
           label="Awaiting integration"
           value={health?.awaiting_integration ?? '—'}
-          tone="text-status-unknown"
-          hint="Registered, no live feed"
+          detail="Registered, no live feed"
         />
       </div>
 
@@ -185,47 +219,41 @@ export default function MapView() {
             Filters
           </h2>
 
-          <label className="mt-4 block">
-            <span className="text-xs font-medium text-muted-foreground">Search</span>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Code, name, junction…"
-              className="mt-1 w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
-            />
-          </label>
+          <div className="mt-4">
+            <Field label="Search">
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Code, name, junction…"
+              />
+            </Field>
+          </div>
 
-          <label className="mt-4 block">
-            <span className="text-xs font-medium text-muted-foreground">Department</span>
-            <select
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              className="mt-1 w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
-            >
-              <option value="">All departments</option>
-              {departments.map((d) => (
-                <option key={d.code} value={d.code}>
-                  {d.code} ({d.camera_count})
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="mt-4">
+            <Field label="Department">
+              <Select value={department} onChange={(e) => setDepartment(e.target.value)}>
+                <option value="">All departments</option>
+                {departments.map((d) => (
+                  <option key={d.code} value={d.code}>
+                    {d.code} ({d.camera_count})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
 
-          <label className="mt-4 block">
-            <span className="text-xs font-medium text-muted-foreground">VMS vendor</span>
-            <select
-              value={vendor}
-              onChange={(e) => setVendor(e.target.value)}
-              className="mt-1 w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
-            >
-              <option value="">All vendors</option>
-              {vendors.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="mt-4">
+            <Field label="VMS vendor">
+              <Select value={vendor} onChange={(e) => setVendor(e.target.value)}>
+                <option value="">All vendors</option>
+                {vendors.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
 
           <fieldset className="mt-4">
             <legend className="text-xs font-medium text-muted-foreground">Status</legend>
@@ -239,7 +267,7 @@ export default function MapView() {
                 <StatusOption
                   key={s}
                   label={STATUS_LABEL[s]}
-                  dot={STATUS_DOT[s]}
+                  status={s}
                   count={health ? (health[s] as number) : undefined}
                   active={status === s}
                   onClick={() => setStatus(status === s ? '' : s)}
@@ -248,19 +276,32 @@ export default function MapView() {
             </div>
           </fieldset>
 
-          <label className="mt-4 flex items-center gap-2">
-            <input
-              type="checkbox"
+          <div className="mt-4">
+            <Checkbox
               checked={anprOnly}
               onChange={(e) => setAnprOnly(e.target.checked)}
-              className="h-4 w-4 rounded border-input"
+              label="ANPR-capable only"
             />
-            <span className="text-sm">ANPR-capable only</span>
-          </label>
+          </div>
+
+          {mayReadAnalytics && (
+            <div className="mt-4 border-t border-border pt-4">
+              <Checkbox
+                checked={showHeatmap}
+                onChange={(e) => setShowHeatmap(e.target.checked)}
+                label="Detection density heatmap"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Weighted by vehicle count over the last 6 hours — the camera
+                layer stays on top so cameras are never hidden under it.
+              </p>
+            </div>
+          )}
 
           {(department || status || vendor || anprOnly || search) && (
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              className="mt-4 w-full"
               onClick={() => {
                 setDepartment('')
                 setStatus('')
@@ -268,10 +309,9 @@ export default function MapView() {
                 setAnprOnly(false)
                 setSearch('')
               }}
-              className="mt-4 w-full rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition hover:border-primary/50 hover:text-foreground"
             >
               Clear filters
-            </button>
+            </Button>
           )}
 
           <div className="mt-6 border-t border-border pt-4">
@@ -288,12 +328,12 @@ export default function MapView() {
         <main className="relative min-w-0 flex-1">
           {loading && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <Spinner />
             </div>
           )}
           {error && (
-            <div className="absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded border border-status-offline/40 bg-status-offline/15 px-4 py-2 text-sm text-status-offline shadow-lg">
-              {error}
+            <div className="absolute left-1/2 top-4 z-20 -translate-x-1/2 shadow-lg">
+              <ErrorBanner>{error}</ErrorBanner>
             </div>
           )}
 
@@ -304,27 +344,31 @@ export default function MapView() {
             selectedCode={selected?.camera_code ?? null}
             basemap={basemap}
             onSatelliteUnavailable={handleSatelliteUnavailable}
+            heatmap={heatmap}
+            showHeatmap={showHeatmap}
           />
 
           {/* Basemap switcher */}
           <div className="absolute left-3 top-3 z-10 flex flex-col gap-1.5">
-            <div className="flex overflow-hidden rounded-md border border-border bg-card/90 shadow-lg backdrop-blur">
-              <BasemapButton
-                active={basemap === 'satellite'}
-                disabled={satelliteDown}
-                onClick={() => setBasemap('satellite')}
-                label="Satellite"
-                title={
-                  satelliteDown
-                    ? 'Imagery host unreachable — offline basemap in use'
-                    : 'Esri World Imagery'
-                }
-              />
-              <BasemapButton
-                active={basemap === 'offline'}
-                onClick={() => setBasemap('offline')}
-                label="Offline"
-                title="Local district GeoJSON — no tile server, no network"
+            <div className="rounded-md bg-card/90 shadow-lg backdrop-blur">
+              <SegmentedControl
+                value={basemap}
+                onChange={setBasemap}
+                disabledValues={satelliteDown ? ['satellite'] : undefined}
+                options={[
+                  {
+                    value: 'satellite',
+                    label: 'Satellite',
+                    title: satelliteDown
+                      ? 'Imagery host unreachable — offline basemap in use'
+                      : 'Esri World Imagery',
+                  },
+                  {
+                    value: 'offline',
+                    label: 'Offline',
+                    title: 'Local district GeoJSON — no tile server, no network',
+                  },
+                ]}
               />
             </div>
 
@@ -345,7 +389,7 @@ export default function MapView() {
             <ul className="mt-2 space-y-1.5">
               {STATUSES.map((s) => (
                 <li key={s} className="flex items-center gap-2 text-xs">
-                  <span className={`h-2.5 w-2.5 rounded-full ${STATUS_DOT[s]}`} />
+                  <StatusDot status={s} className="h-2.5 w-2.5" />
                   <span className="flex-1 text-muted-foreground">{STATUS_LABEL[s]}</span>
                   <span className="font-mono tabular-nums text-foreground/70">
                     {health ? (health[s] as number) : '—'}
@@ -372,69 +416,15 @@ export default function MapView() {
   )
 }
 
-function BasemapButton({
-  active,
-  disabled,
-  onClick,
-  label,
-  title,
-}: {
-  active: boolean
-  disabled?: boolean
-  onClick: () => void
-  label: string
-  title: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={`px-3 py-1.5 text-xs font-medium transition ${
-        active
-          ? 'bg-primary text-primary-foreground'
-          : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
-      } disabled:cursor-not-allowed disabled:opacity-40`}
-    >
-      {label}
-    </button>
-  )
-}
-
-function Kpi({
-  label,
-  value,
-  tone,
-  hint,
-}: {
-  label: string
-  value: number | string
-  tone?: string
-  hint?: string
-}) {
-  return (
-    <div className="bg-card px-4 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      <p className={`mt-0.5 text-2xl font-semibold tabular-nums ${tone ?? ''}`}>
-        {value}
-      </p>
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-    </div>
-  )
-}
-
 function StatusOption({
   label,
-  dot,
+  status,
   count,
   active,
   onClick,
 }: {
   label: string
-  dot?: string
+  status?: CameraStatus
   count?: number
   active: boolean
   onClick: () => void
@@ -447,7 +437,7 @@ function StatusOption({
         active ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/50'
       }`}
     >
-      {dot && <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} />}
+      {status && <StatusDot status={status} className="h-2.5 w-2.5" />}
       <span className="flex-1 truncate">{label}</span>
       {count !== undefined && (
         <span className="font-mono text-xs tabular-nums">{count}</span>

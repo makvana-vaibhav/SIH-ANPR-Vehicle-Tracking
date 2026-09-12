@@ -43,6 +43,7 @@ EXPECTED: dict[Role, set[Permission]] = {
         P.ALERT_CLOSE,
         P.SEARCH_EXECUTE,
         P.AUDIT_READ,
+        P.ANALYTICS_READ,
     },
     Role.OPERATOR: {
         P.CAMERA_READ,
@@ -51,18 +52,21 @@ EXPECTED: dict[Role, set[Permission]] = {
         P.ALERT_READ,
         P.ALERT_ACKNOWLEDGE,
         P.SEARCH_EXECUTE,
+        P.ANALYTICS_READ,
     },
     Role.ANALYST: {
         P.CAMERA_READ,
         P.WATCHLIST_READ,
         P.ALERT_READ,
         P.SEARCH_EXECUTE,
+        P.ANALYTICS_READ,
     },
     Role.AUDITOR: {
         P.CAMERA_READ,
         P.WATCHLIST_READ,
         P.ALERT_READ,
         P.AUDIT_READ,
+        P.ANALYTICS_READ,
     },
     Role.API_CLIENT: {P.CAMERA_CREATE},
 }
@@ -104,6 +108,21 @@ class TestPrivilegeBoundaries:
     def test_analyst_cannot_view_live_video(self) -> None:
         """Analysts work over recorded detections, not live feeds."""
         assert not role_has(Role.ANALYST, P.STREAM_VIEW)
+
+    def test_auditor_can_read_analytics(self) -> None:
+        """Unlike search, analytics identifies nobody.
+
+        It reports how many vehicles crossed a junction and how fast the road
+        is moving, so there is no separation-of-duties reason to withhold it
+        from the role that reviews plate searches — and an auditor looking at a
+        surge of searches benefits from knowing whether the road was busy.
+        """
+        assert role_has(Role.AUDITOR, P.ANALYTICS_READ)
+        assert not role_has(Role.AUDITOR, P.SEARCH_EXECUTE)
+
+    def test_api_client_cannot_read_analytics(self) -> None:
+        """A leaked onboarding key must not reveal traffic patterns either."""
+        assert not role_has(Role.API_CLIENT, P.ANALYTICS_READ)
 
     def test_api_client_is_write_only_and_narrow(self) -> None:
         """A leaked onboarding key must expose nothing about the estate."""

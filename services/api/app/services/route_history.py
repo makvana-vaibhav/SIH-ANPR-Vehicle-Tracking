@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models.intelligence import VehicleTrack
-from app.services import correlator
+from app.services import alerts, anomaly, correlator
 
 log = get_logger("api.route_history")
 
@@ -85,13 +85,21 @@ def _has_advanced(route: correlator.Route, previous: VehicleTrack | None) -> boo
 
 
 async def snapshot(session: AsyncSession) -> dict[str, Any]:
-    """Persist journeys that have changed since their last snapshot."""
+    """Persist journeys that have changed since their last snapshot.
+
+    Also the trajectory-anomaly producer (P5): a journey that has genuinely
+    advanced is exactly the moment new legs exist to score, and scoring only
+    those new legs — never the whole route again — is what keeps a slow,
+    repeatedly-re-persisted journey from raising the same finding on every
+    cycle. See `app/services/anomaly.py`.
+    """
     since = datetime.now(UTC) - LOOKBACK
     candidates = await correlator.recent_plates(
         session, since=since, min_cameras=MIN_CAMERAS, limit=MAX_PLATES_PER_CYCLE
     )
 
     persisted = unchanged = skipped = 0
+    raised: list[dict[str, Any]] = []
     for plate, _cameras in candidates:
         route = await correlator.build_route(session, plate, since=since)
         # A route needs two hops to be a path; persist_route agrees and would
@@ -105,8 +113,37 @@ async def snapshot(session: AsyncSession) -> dict[str, Any]:
             unchanged += 1
             continue
 
+        # `previous is None` means every hop is new (route.hops[0:]).
+        # Otherwise the slice is exactly the hops appended since the last
+        # snapshot — which can legitimately be empty: `_has_advanced` also
+        # returns True when the vehicle is still sitting at the *last*
+        # camera and only its `last_seen` moved, with no new hop added. That
+        # case has nothing new to score, and must not fall back to treating
+        # the whole route as new — doing so would re-raise a finding for
+        # legs `evaluate_new_hops` already scored on an earlier cycle.
+        previous_hop_count = (previous.hop_count or 0) if previous else 0
+        new_hops = route.hops[previous_hop_count:]
+
+        # Scored *before* persisting: the baseline query has no way to
+        # exclude "the advance about to be written", so scoring after
+        # persist_route would let this journey's own newest leg count toward
+        # the history it is being measured against.
+        reasons = await anomaly.evaluate_new_hops(session, route, new_hops)
+
         if await correlator.persist_route(session, route) is not None:
             persisted += 1
+            if reasons:
+                newest = new_hops[-1]
+                alert = await alerts.raise_for_anomaly(
+                    session,
+                    plate=route.plate,
+                    camera_id=newest.camera_id,
+                    camera_code=newest.camera_code,
+                    arrived_at=newest.arrived_at,
+                    reasons=reasons,
+                )
+                if alert is not None:
+                    raised.append(alerts.alert_payload(alert))
 
     if persisted:
         await session.commit()
@@ -116,4 +153,6 @@ async def snapshot(session: AsyncSession) -> dict[str, Any]:
         "persisted": persisted,
         "unchanged": unchanged,
         "skipped": skipped,
+        "anomalies_raised": len(raised),
+        "raised_alerts": raised,
     }

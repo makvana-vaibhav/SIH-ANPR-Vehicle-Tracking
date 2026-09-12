@@ -447,6 +447,11 @@ async def seed_fleet() -> None:
                 camera.district = row["district"].strip()
                 camera.city = row["city"].strip()
                 camera.junction = row["junction"].strip()
+                # `.get`, not `[...]`: a cameras.csv written before the corridor
+                # column existed must still seed. Such a camera is left
+                # uncorridored, which analytics reports as its own bucket rather
+                # than guessing a road from the camera code.
+                camera.corridor = (row.get("corridor") or "").strip() or None
                 camera.heading_deg = int(row["heading_deg"])
                 camera.camera_type = row["camera_type"].strip()
                 camera.protocol = row["protocol"].strip()

@@ -1496,6 +1496,522 @@ failures logged.
 
 ---
 
+## P4 — City traffic analytics  🟡 code complete, gate not yet run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p4--city-traffic-analytics--biggest-missing-module).
+
+**Honest status up front, per CLAUDE.md §8.2: a phase is complete when its
+gate command passes, not when the code exists.** Everything below was built
+and reasoned through carefully, but this session had no Docker and no
+Node/npm available — there was no way to run `make demo`, hit the analytics
+page in a browser, or run the new pytest suite against a live Postgres. The
+gate — "the analytics page shows non-zero density, per-corridor average
+speed, a populated route-density table and a heatmap, every figure traceable
+to real rows" — is **not yet confirmed**. That confirmation is the actual
+next step, on a machine that can run the stack.
+
+### What was built
+
+Backend (`dc77c47`, prior session): migration 0004 (`corridor` column,
+backfilled), the 12-camera / 4-corridor fleet, and the six
+`/api/v1/analytics/*` endpoints (`flow`, `speed`, `routes`, `travel-time`,
+`hotspots`, `heatmap`) — see `services/api/app/routers/analytics.py` and
+`app/schemas/analytics.py`.
+
+This session, closing the gap that section left open ("the page and the
+heatmap layer are not here yet, and neither are the endpoint tests"):
+
+- **`services/api/tests/test_analytics.py`** — new. Every test builds its own
+  `vehicle_tracks` / `detections` rows inside a fixed historical window
+  (2024-03-04) rather than trusting whatever the simulator happens to have
+  produced, so the suite is deterministic against a live, concurrently-running
+  demo with no mocking. Covers: the `DISTINCT ON` dedup trap directly (a
+  plate re-persisted three times must contribute one leg, not three — proven
+  on `/speed`'s `samples` field and `/routes`' `median_gap_seconds`, not on
+  `journeys`, which is a Python `set` and would mask the regression);
+  implausible-leg exclusion (an excluded leg produces no `SegmentSpeed` at
+  all, and never reaches a median); `insufficient_history` vs
+  `insufficient_data` as two genuinely different code paths on
+  `/travel-time` (no baseline vs no current leg); RBAC (every role but
+  `api_client` reads; `api_client` is refused); and the `bucket`/`group_by`
+  params on `/flow`, including the documented silent fallback for an unknown
+  bucket string.
+- **`web/src/pages/Analytics.tsx`** — new. Flow (stacked area, recharts, one
+  series per corridor), corridor speed (bar chart for `status="ok"`
+  corridors only, with a `Badge` list naming the rest and why — a chart
+  never draws a bar for a figure that doesn't exist), route density (table),
+  travel-time (a card grid, `insufficient_history` rendered as exactly that,
+  never a zero delta), and busiest cameras. Registered at `/analytics` in
+  `App.tsx`, next to `/map`, gated on the new `analytics.read` permission
+  (added to `web/src/lib/permissions.ts` — every role but `api_client`, per
+  `rbac.py`).
+- **Heatmap layer, `web/src/components/CameraMap.tsx`** — a `heatmap`-type
+  MapLibre layer, additive to the existing camera markers and district
+  boundaries. Takes `/analytics/heatmap`'s GeoJSON directly (it is already
+  shaped for this — see that endpoint's own docstring). Wired into a toggle
+  on the existing GIS map (`MapView.tsx`, "Detection density heatmap"),
+  gated the same way, rather than only living on the new page — inserted
+  *below* the camera-marker layers so a dense heatmap can never hide a
+  camera.
+- `corridor` added to the `Camera` / `CameraFeatureProperties` frontend
+  types, and the full analytics response contract mirrored into
+  `lib/types.ts`, matching `app/schemas/analytics.py` field for field.
+
+### What is not done
+
+- **The gate itself.** Nobody has looked at the rendered page.
+- Two spot-fixes made in the same session, also unverified live: the
+  design-system pass across every screen (merged from `riya-frontend-vadi`
+  onto this branch first, so the analytics page is built on the current
+  primitives rather than the pre-redesign markup), and a colour-token fix in
+  `AnprOverlay.tsx` (an inline `rgb()` literal replaced with
+  `hsl(var(--priority-high))`, for consistency with the rest of the palette
+  — not a behaviour change).
+- The ANPR bounding-box lag an operator reported ("the box appears after the
+  car is already gone") was investigated but not changed: the sync
+  architecture in `AnprOverlay.tsx`/`StreamPlayer.tsx` is already correct on
+  reading, and the far more likely cause is the same one this phase's own
+  `SpeedProvenance` note names — a replayed clip loops every few seconds, so
+  `hls.playingDate` (real wall-clock) and what is visually on screen fall
+  out of correspondence at each loop boundary. That is a property of
+  replayed demo footage the project has already decided not to chase before
+  P7, not a frontend bug, so nothing was changed speculatively.
+
+### Next actual step
+
+On a machine with Docker and Node: `make demo`, `make ai`, open `/analytics`
+as any non-`api_client` role, and check the gate's four claims against what
+renders. Then `make test` for the new suite against the live fleet. If a
+figure is wrong or a chart is empty when it should not be, that is real
+signal this session could not get — bring it back with what the page
+actually showed.
+
+---
+
+## P5 — Trajectory anomaly detection + explainable alerts  🟡 code complete, gate not yet run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p5--trajectory-anomaly-detection--explainable-alerts).
+
+Same honest status as P4 above, for the same reason: this session had no
+Docker and no Node/npm, so migration 0005 has never actually run against a
+database, and nobody has watched a real journey raise a real alert in the
+UI. Everything below was built by reading the actual source — `correlator.py`'s
+hop scoring, `route_history.py`'s snapshot cadence, `alerts.py`'s existing
+dedup pattern — not by running it.
+
+### What was built
+
+- **Migration 0005** — `reasons` JSONB column on `alerts`, nullable. This is
+  what makes CLAUDE.md's explainability rule ("every alert must carry its
+  reasons") true for the first time; it has had nothing to enforce it since
+  the rule was written.
+- **`app/services/anomaly.py`** — new. The six existing flags in
+  `correlator.score_legs` are a physics filter (could a vehicle have covered
+  this distance in this time); this is the data-driven half ROADMAP.md asks
+  for: has *any* vehicle made this camera-to-camera transition before, and
+  does this one's timing match the others'. Two learned factors
+  (`rare_transition`: fewer than 3 distinct vehicles have made this
+  transition in 30 days; `slow_transition`/`fast_transition`: current
+  duration vs the median of 5+ prior plausible legs), plus the physics
+  filter's own `implausible_speed` promoted to a named `impossible_hop`
+  factor — matching the four named in the phase definition (unexpected
+  sequence, travel time vs baseline, unusual speed, impossible hop). Every
+  query starts from the same `DISTINCT ON (plate_normalised) ORDER BY
+  created_at DESC` dedup `analytics.py` documents, for the identical reason:
+  without it a 200-times-re-persisted journey would look like 200 vehicles
+  having made the same trip.
+- **Only the newest hops are scored, and scored before the advance is
+  persisted.** `route_history.snapshot` already knows exactly which hops are
+  new since the last snapshot; scoring only those is what keeps a
+  slow-moving journey from raising the same finding on every ~1-minute
+  snapshot cycle. Scoring *before* `persist_route` matters more than it looks
+  — the baseline query has no way to exclude "the advance about to be
+  written", so scoring after persisting would let a journey's own newest leg
+  inflate the very history it is being measured against. Caught by
+  `TestSnapshotWiring` while writing the tests, not by inspection.
+- **`alerts.raise_for_anomaly`** — mirrors `raise_for_match`: same dedup
+  (shares the existing in-memory `deduper` rather than a second structure
+  that could drift from it), same lifecycle. Priority is `high` when
+  `impossible_hop` is among the reasons, `medium` otherwise — a single
+  impossible leg is a stronger signal than several merely-rare transitions.
+  Raised through the existing Redis fanout (`monitor.py` now publishes
+  `route_history.snapshot`'s `raised_alerts`), so it reaches `Alerts.tsx`
+  with no new transport, exactly as the phase definition asks.
+- **`Alerts.tsx`** renders `reasons` as a named factor list (a `Badge` per
+  factor plus the sentence) instead of the raw `notes` string those factors
+  are also joined into — falls back to `notes` for alert types with no
+  producer here yet (the watchlist near-match note).
+- **`test_anomaly.py`** — new. Three layers: pure scoring against hand-built
+  `Route`/`Hop` objects and real `vehicle_tracks` rows (rare vs. established
+  transitions, the duration ratio, the `impossible_hop` short-circuit, "only
+  new hops are scored", and a language-discipline check that no reason ever
+  says "suspect" or "criminal"); `raise_for_anomaly`'s priority and dedup;
+  and one full `route_history.snapshot` → real `Alert` row → `GET
+  /api/v1/alerts` wiring test, which is what caught the before/after-persist
+  ordering bug above.
+
+### What is not done
+
+- **The gate itself** — not run.
+- **`scripts/replay_history.py`**, the risk mitigation ROADMAP.md names
+  ("a two-week-old system has almost no history to baseline against"). Not
+  built this session — it means running the *real* pipeline over footage at
+  accelerated pace, which touches ai-worker/ai-lab and needs a runnable
+  stack to verify at all, and this session had neither. Concretely: expect
+  `rare_transition` to fire on nearly every journey until the fleet
+  accumulates real history, because with fewer than 3 vehicles having made
+  any given transition yet, *every* transition currently reads as rare. That
+  is the honest, documented state of a young system, not a bug — but it does
+  mean the demo will show a lot of anomaly alerts until either real time
+  passes or this script exists.
+
+### Next actual step
+
+`alembic upgrade head` (0005), then `make demo`, put a vehicle through a
+two-camera journey the fleet has not seen before, and confirm an ANOMALY
+alert appears in `Alerts.tsx` with its factors listed. Then `make test` for
+`test_anomaly.py` against the live fleet.
+
+---
+
+## P8 — Fuzzy and partial plate search  🟡 code complete, gate not yet run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p8--fuzzy-and-partial-plate-search).
+
+Same honest status as P4/P5: no Docker, no live Postgres, the gate ("a
+misread plate returns the correct vehicle ranked first, in under 300 ms")
+has not been measured. One difference from those two phases worth
+recording: this machine turned out to have a bare Python 3.14 with the
+API's actual dependencies (FastAPI, SQLAlchemy, Pydantic) and `ruff`
+installed, discovered partway through this phase. Every file below is
+lint-clean, which P4-P7's Python was not checked against at all — still not
+the same guarantee as a passing test run, but a real step up.
+
+### What was built
+
+- **`GET /api/v1/vehicles/search`** (`routers/vehicles.py`) — trigram
+  similarity over `plate_normalised`, using the `ix_detections_plate_trgm`
+  GIN index that has existed since migration 0001 and had never been
+  queried. The `%` operator is what makes Postgres use the index rather than
+  a sequential scan; an explicit `similarity() >= :threshold` bind parameter
+  sits alongside it so a caller can ask for a stricter match without the
+  request depending on the connection's `pg_trgm.similarity_threshold` GUC.
+  Filters on `since`/`until`/`camera_id`/`vehicle_type`; results are ranked
+  by similarity and carry a faceted summary (sightings, distinct cameras,
+  first/last seen) and, when relevant, the matching active watchlist entry
+  — the ranked-list version of "7 sightings · 3 cameras · 1 blacklist
+  match" the phase definition asks for.
+- **`PlateSearchResponse`/`PlateSearchResult`/`WatchlistHit`**
+  (`schemas/intelligence.py`), mirrored into `web/src/lib/types.ts`.
+- **`VehicleSearch.tsx`** now runs this automatically — an exact search that
+  finds nothing (`hop_count === 0`) triggers a fuzzy search over the same
+  window and renders the results as "Did you mean…", each one a button that
+  re-runs the exact search with the corrected plate. No new search mode for
+  an operator to discover; the existing screen just stops dead-ending.
+- **`test_search.py`** — new, same historical-window isolation as
+  `test_analytics.py`/`test_anomaly.py`. Covers: a one-character misread
+  finding the real plate, an exact query being marked `exact_match`, an
+  unrelated plate *not* being force-matched (the threshold floor actually
+  excludes something), facets narrowing correctly under each filter, active
+  vs. retired watchlist entries, RBAC (auditor denied, matching
+  `vehicle_route`/`vehicle_convoy`), and the audit row.
+- **A pre-existing bug found and fixed in passing**: `ruff` caught
+  `routers/health.py` referencing `RedisError` with no import for it —
+  `except (RedisError, OSError)` would itself raise `NameError` the moment
+  any exception reached that line, masking whatever Redis actually failed
+  with. One-line fix, unrelated to P8's scope but too cheap not to take
+  once found.
+
+### OpenSearch — investigated, deliberately left alone
+
+ROADMAP.md's P8 definition says to decide OpenSearch's fate: index it
+properly, or remove it. This session did neither, on purpose.
+`docker-compose.yml`'s own comment on the service reads "OpenSearch —
+fuzzy/partial plate search", and `.env.example` documents "When OpenSearch
+is unreachable, search falls back to Postgres pg_trgm" — both describe
+OpenSearch as the *intended primary* backend with pg_trgm as the resilience
+fallback, which is the reverse of what "decide its fate" might suggest at a
+glance. Indexing it properly needs `opensearch-py` (not installed here), a
+live OpenSearch instance, and a fuzzy query DSL — none of which this session
+could write against or test. Removing it would reverse someone else's
+already-implemented architectural intent on a guess. Since pg_trgm alone
+already satisfies this phase's gate, the honest move was to build that,
+leave OpenSearch exactly as it was (provisioned, healthy, indexing
+nothing), and say plainly that its fate is still an open decision — not a
+decision this session made by omission.
+
+### Next actual step
+
+`make demo`, sign in as any role but `api_client`, search a plate with one
+character wrong, and confirm the real vehicle appears first with a
+believable similarity score and a correct facet count — that is the gate.
+Then `make test` for `test_search.py`.
+
+---
+
+## P9 — Attribute search (search beyond plates)  🟡 half built, gate not run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p9--attribute-search-search-beyond-plates).
+
+Same no-Docker, no-live-Postgres caveat as P4/P5/P8 for the half that was
+built. The other half — vehicle-colour extraction — was **not attempted**,
+on purpose, for a reason distinct from "no Docker": this session also had no
+`numpy`/`opencv` and no real footage to extract a colour from or verify a
+result against. Writing image-processing code with no way to run it against
+a single real frame is exactly the "plausible invented number" CLAUDE.md §5
+forbids — a colour that is never actually sampled from pixels is worse than
+an honest "not available yet" label. So this phase was split, matching the
+P7 triage: build the half that is genuinely verifiable from the code and
+schema alone, say plainly what the other half needs.
+
+### What was built
+
+- **`GET /api/v1/detections`** (`routers/detections.py`) extended with
+  `vehicle_type` and `vehicle_colour` query params. A `VEHICLE_CLASSES =
+  ("car", "motorcycle", "bus", "truck")` constant defaults an
+  attribute-only search (no `plate`/`plate_prefix`) to those classes, so
+  "white SUV near CAM-17" does not surface a tracked `person` or `bicycle`
+  row as a vehicle candidate — those classes are real, intentionally
+  tracked detections (kept for a future person-detection feature), just
+  never a vehicle match. An explicit `vehicle_type=person` still returns
+  exactly that; the default only fills a gap, it never overrides a
+  caller's choice, and a plate search is untouched by any of this.
+  `vehicle_colour` filters on the column honestly — since nothing in the
+  pipeline populates it, it currently matches zero rows, documented as
+  such in the query param's own description rather than hidden.
+- **Audit extended** — an attribute-only search (no plate) now also writes
+  a `search.plate` audit row, since "who was near CAM-17 in a white car at
+  10:30" is the same kind of privacy-sensitive movement query as a plate
+  search and CLAUDE.md §5's audit rule does not carve out an exception for
+  it.
+- **`VehicleSearch.tsx`** gained a `By plate` / `By attributes` toggle. The
+  existing plate-search flow (form, "did you mean", route/hop table,
+  convoy) is unchanged, just conditionally rendered. The new
+  `AttributeSearch` component is a form (vehicle type, camera, a disabled
+  colour field labelled "Not available yet", a 1h/6h/24h window) over the
+  same `GET /api/v1/detections` endpoint, rendered as a results table.
+- **`test_detections.py`** — new; no test file existed for this endpoint
+  before this change despite it already having real filter logic. Same
+  historical-window isolation as `test_analytics.py`/`test_anomaly.py`/
+  `test_search.py`. Covers: the vehicle-class default excluding
+  person/bicycle, an explicit `vehicle_type=person` still working, a plate
+  search *not* being restricted to vehicle classes (a plate search must
+  never silently drop a real match), the always-empty colour filter,
+  camera/time narrowing, the extended audit trigger, and regression
+  coverage for the pre-existing `readable_only`/`plate_prefix`/pagination
+  behaviour that shares `_apply_filters` with the new clauses.
+
+### What was deliberately not attempted
+
+- **Vehicle-colour extraction itself.** Needs `numpy`/`opencv` (not
+  installed here) and real footage to sample pixels from and verify
+  against — a live pipeline, not a coding session. The column, the
+  index-friendly equality filter and the query contract are the part of
+  this phase that does not depend on a vision pipeline; they are built and
+  should already be correct the day a producer exists.
+- **Appearance/time/camera-adjacency ranked candidates.** ROADMAP.md's P9
+  gate describes ranking, not just filtering — that ranking is only
+  meaningful once colour (or another real visual attribute) exists to rank
+  on. Filtering by type/camera/time is real and useful today on its own;
+  calling it "ranked candidates from appearance" would not be honest.
+
+**Gate:** an attribute-only query returns plausible candidates with no
+plate supplied. **Not run**, and cannot fully pass yet even with a live
+stack — the type/camera/time half can be exercised, but "candidates from
+appearance" specifically needs the colour producer this session did not
+build.
+
+---
+
+## P10 — Predictive traffic  🟡 code complete, gate not run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p10--predictive-traffic).
+
+Same no-Docker, no-live-Postgres caveat as every prior phase this session.
+One thing genuinely different here: because the forecasting logic is pure
+Python arithmetic (no SQLAlchemy needed to run it), it could actually be
+*executed* — not just linted — against hand-built synthetic data. See
+"What was verified" below.
+
+### What "congestion" means here, and why
+
+There is no lane count, no free-flow-speed rating, no signal timing
+anywhere in this system — nothing to compute an absolute road-capacity
+occupancy from. So this phase does not claim one. `current_index_pct` is a
+relative measure: this camera's current volume ÷ its own typical volume at
+this hour of day, from its own history, ×100. 100 means "normal for this
+hour", 150 means "50% busier than normal for this hour". Same spirit as
+`TravelTime.delta_pct` (P4), applied to volume instead of duration, and
+documented as such everywhere it appears so nobody reads it as an occupancy
+percentage. `app/schemas/predictions.py`'s module docstring makes this
+argument in full.
+
+### What was built
+
+- **`GET /api/v1/predictions/congestion`** (`routers/predictions.py`), by
+  camera or corridor. For each key: the current relative-volume index; a
+  15/30-minute forecast; the contributing factors behind it; and a
+  backtest of the forecasting method's own error. RBAC:
+  `Permission.ANALYTICS_READ`, same as `/analytics/*` — a forecast
+  identifies no one, so `api_client` is the only role denied, matching
+  the existing analytics matrix.
+- **The forecast** is an ordinary-least-squares line through the last 6
+  five-minute index values (30 minutes), extrapolated to now+15 and
+  now+30. Nothing more sophisticated than that sentence — no external
+  traffic model, nothing this session could not verify by hand. `_fit_line`
+  is nine lines of arithmetic.
+- **The backtest is the same fitting procedure, run against buckets
+  already inside the requested window.** Split the 90-minute lookback into
+  an earlier 30-minute training slice and a later 30-minute test slice,
+  fit on the training slice, "forecast" forward into the test slice (which
+  has already happened), and measure the mean absolute error against what
+  was actually observed there. `BacktestResult.mae_pct` travels with every
+  live forecast for that reason — ROADMAP.md's P10 gate says explicitly
+  that a prediction with no error bar is decoration, and this is what
+  keeps that true on every response rather than as a claim about an
+  offline run nobody can re-check.
+- **Contributing factors** (the explainability rule, applied here):
+  `inflow_trend` (always, when a trend fit succeeds — rising/falling/steady
+  with the slope); `upstream_inflow` and `speed_trend` (camera grouping
+  only, when there is enough leg data) — both computed from the *same*
+  `_segment_legs` real observed-journey adjacency that P4's route-density
+  and speed endpoints already use, not a modelled road graph.
+  `speed_trend` will frequently be absent on the replayed demo fleet, for
+  the identical reason `analytics.speed` usually reports
+  `insufficient_data`: a replayed clip makes most legs read as physically
+  implausible. Documented, expected, not a bug in this module.
+- **`web/src/pages/Analytics.tsx`** gained a "Predicted congestion" panel:
+  one card per camera with now/+15/+30, the leading factor, and the
+  backtested error, worded the same way the schema documents it (a
+  relative measure, not an absolute occupancy reading).
+- **`test_predictions.py`** — new, same historical-window isolation as the
+  rest of this session's test files, engineered so every historical hour
+  has `avg_bucket_flow == 1.0` and every live sequence is exactly linear.
+  That makes the forecast, slope and near-zero backtest MAE *exact*
+  assertions rather than "a number came back" — see the module docstring.
+  Covers: a rising trend's forecast and backtest; corridor grouping
+  aggregating correctly; too few live buckets reporting
+  `insufficient_data` while `current_index_pct` still shows; zero baseline
+  reporting `insufficient_history`; the RBAC matrix.
+
+### What was verified, concretely
+
+No live Postgres to run the endpoint end to end, but the pure-arithmetic
+core (`_fit_line`, `_backtest`) does not touch the database at all, so it
+was copied into a standalone script and actually executed against
+synthetic data: a perfectly linear rising sequence recovers its exact
+slope and intercept, backtest MAE lands at 0.00 on a perfectly linear
+series and rises correctly when a deliberate deviation is planted in the
+held-out portion, a flat series yields slope 0, and forecast deltas at
++15/+30 match `slope × horizon` exactly. That is a real correctness check
+of the module's central claim — not a substitute for running the actual
+endpoint against real rows, which still needs a live fleet.
+
+### Not attempted
+
+Predictive traffic depends on P4 baselines (ROADMAP.md says so
+explicitly), and P4 itself is `insufficient_data`-heavy on the replayed
+demo fleet for the speed/travel-time side. `inflow_trend` (built on
+`detections` volume) works regardless; `speed_trend` (built on
+`vehicle_tracks` legs) inherits P4's honest limitation and will usually be
+absent until real footage exists — see P7.
+
+**Gate:** a 15/30-minute forecast per junction/corridor, with contributing
+factors and a reported backtest error. **Not run** end to end (no live
+fleet), but the forecasting method itself is verified correct by direct
+execution — see above.
+
+---
+
+## P11 — Vehicle re-identification  🟡 half built, gate not run
+
+Definition and gate: [ROADMAP.md](ROADMAP.md#p11--vehicle-re-identification).
+
+Same split as P9's vehicle-colour half: build what does not depend on a
+vision model, be explicit about what does. Confirmed by direct exploration
+before writing anything — `grep -rn "embedding|vector|reid"` across
+`services/api` and `ai-lab` found nothing; this phase starts from zero, as
+the migration ledger says.
+
+### What "re-identification" means here, and why it is a suggestion, not a merge
+
+Cross-camera linking today is plate-string equality
+(`correlator.sightings_for`), full stop. An appearance embedding is meant to
+close the gap for an unreadable plate — but this session has no way to
+verify *any* embedding's quality (no ReID model, no numpy/opencv, no real
+footage), so silently folding an appearance-based guess into a
+`vehicle_tracks` journey would be exactly the fabricated confidence
+CLAUDE.md's coding conventions forbid. The honest shape instead: rank
+candidate detections at other cameras and let an operator decide — the same
+posture P8's fuzzy search takes with "did you mean," not an auto-correct.
+
+### What was built
+
+- **Migration `0006`** — `detections.appearance_embedding`, nullable JSONB
+  float array. Not `pgvector`: that extension is not installed anywhere in
+  this stack (`infra/postgres/init/01-extensions.sql` provisions
+  postgis/timescaledb/pg_trgm/pgcrypto/btree_gist only), adding one with no
+  live database to verify it against is exactly the kind of blind
+  architectural change to be careful about, and it is not needed — a match
+  is only ever scored against a small, already time/distance-narrowed
+  candidate set, never a full-table nearest-neighbour search. See the
+  migration's own docstring for the full argument.
+- **`app/services/reid.py`** — `cosine_similarity` (plain Python, no numpy:
+  the vectors and candidate sets involved are always small); candidate
+  narrowing by a 30-minute time window at a *different* camera than the
+  query, further narrowed by `correlator.MAX_PLAUSIBLE_KMPH` reused
+  directly (not redefined) via `correlator.haversine_m`; ranking that
+  degrades gracefully — embedding-based candidates (cosine similarity, once
+  both sides have one) sort ahead of plausibility-only ones (a plain,
+  documented `1 - implied_kmph/150` ratio, not a probability), rather than
+  an invented weighted blend of the two.
+- **`GET /api/v1/reid/candidates`** (`routers/reid.py`) — `SEARCH_EXECUTE`
+  RBAC (same matrix entry as P8's fuzzy search: `auditor`/`api_client`
+  denied), audited via `audit.record_plate_search` for the same reason P9
+  extended that audit to attribute-only searches — this is the same kind of
+  privacy-sensitive movement query. `embedding_available` on the response
+  says plainly whether any candidate was actually appearance-matched, so a
+  caller cannot mistake a plausibility-only list for a real ReID match.
+- **`VehicleSearch.tsx`** — the `AttributeSearch` results table (P9) gained
+  a "Find similar" action on rows with no plate, expanding into a ranked
+  candidate list with a `plausibility only` / `appearance-matched` badge.
+  Chosen over a new page for the same reason P9's UI additions were folded
+  into existing screens: this session was told not to add pages.
+- **`test_reid.py`** — new. Every distance-dependent scenario (a plausible
+  hop, an implausibly-fast one, a same-camera exclusion) computes its
+  timestamps from the *real* great-circle distance between two seeded
+  cameras (`correlator.haversine_m`) rather than a guessed offset, and
+  skips itself if the chosen pair does not fit the scenario — true
+  regardless of which two cameras `make seed` happens to produce. Verified
+  the cosine-similarity arithmetic directly by execution (identical
+  vectors → 1.0, orthogonal → 0.0, opposite → -1.0, scale-invariance,
+  mismatched lengths → 0.0 rather than a crash) before trusting it in the
+  test file, the same "execute the pure math, don't just read it" technique
+  P10 used.
+
+### What was deliberately not attempted
+
+- **The embedding itself.** No ReID model is fetched anywhere in
+  `ai-lab/scripts/fetch_models.sh` (three ONNX models exist: two vehicle
+  detectors, one plate detector — no appearance/embedding model), and this
+  session has no numpy/opencv to run one even if it existed. `ai-lab`
+  already crops the full vehicle body per track
+  (`pipeline.py:_save_vehicle_crops`, `evidence.vehicle_crop` in the
+  consensus event) — the pipeline is one model away from feeding this, and
+  nothing about that crop path needed to change.
+- **`MIN_SIMILARITY` is an unverified placeholder (0.6).** There are no
+  real embeddings to calibrate it against. Recalibrate the day a real
+  model exists — do not treat the current value as meaningful.
+
+**Gate:** not specified numerically in ROADMAP.md beyond "links across
+cameras even when the plate is unreadable" — read as: a ranked, explained
+candidate list for an unreadable-plate detection. The plausibility-only
+half of that is real and testable today; the day an embedding producer
+exists, `embedding_available` starts flipping to `true` with no further
+change to this code. **Not run** end to end — no live fleet this session.
+
+---
+
 ## Worker CPU and the thread budget  ✅ (unplanned — 10 Sep 2026)
 
 Not a roadmap phase. Raised as "cameras are not loading properly, and if they
@@ -1657,14 +2173,14 @@ Recorded so no session mistakes these for done. Verified against the code, not t
 | Gap | Detail | Phase |
 |---|---|---|
 | **Only one camera in the registry** | `CAM-DEMO` alone. A platform about linking observations across cameras has nothing to link. Blocks PS steps 1, 3, 4, 7, 8. | P1 |
-| **No traffic analytics at all** | No analytics router, no analytics page, no heatmap layer, zero `time_bucket`/`date_trunc`/continuous aggregates. `recharts` is a dependency **imported zero times** — every "chart" on screen is a Tailwind div with a percentage width. | P4 |
+| ~~No traffic analytics at all~~ | 🟡 **Code complete (P4)**, gate not yet run — see the P4 section above. Router, page, and heatmap layer all exist now; nobody has confirmed the rendered numbers against a live fleet. | — |
 | **No route-level average speed** | The only speed figure in the system is per-leg `implied_kmph`. `Route` has no speed property. | P2 |
 | **`first_seen` / `last_seen` never rendered** | Present in the API payload and in the TS type; displayed on no screen. | P2 |
 | **No journey animation** | `RouteMap.tsx` animates only camera movement (`easeTo`/`fitBounds`). No timeline, scrubber, moving marker or `requestAnimationFrame` anywhere in `web/src`. | P2 |
-| **No anomaly detector** | The six per-leg flags are a cloned-plate/OCR **physics filter**; nothing compares a journey to a norm. `AlertType.ANOMALY`, `SPEED` and `CONVOY` have **zero producers** — the only two alert producers are watchlist match and camera-down. | P5 |
-| **`alerts` has no reasons/factors column** | So CLAUDE.md's "explainability rule (enforced, tested)" cannot be true. There is no column and no test. P5 adds the migration. | P5 |
-| **Search is exact + prefix only** | The `pg_trgm` GIN index on `plate_normalised` **exists and nothing queries it**. A misread plate suggests nothing. | P8 |
-| **OpenSearch runs and does nothing** | Health-probed only; indexes nothing, queries nothing. Costs demo-laptop memory for no function. Wire it or drop it. | P8 |
+| ~~No anomaly detector~~ | 🟡 **Code complete (P5)**, gate not yet run. `anomaly.py` now compares each new leg against 30-day transition-frequency and duration baselines from `vehicle_tracks`; `AlertType.ANOMALY` has a real producer. `SPEED` and `CONVOY` still have zero producers — out of scope for P5. | — |
+| ~~`alerts` has no reasons/factors column~~ | 🟡 **Done (P5)** — migration 0005 adds it, `raise_for_anomaly` populates it, `Alerts.tsx` renders it. Not yet verified against a real database. | — |
+| ~~Search is exact + prefix only~~ | 🟡 **Code complete (P8)**, gate not yet run. `GET /api/v1/vehicles/search` now queries the trigram index; `VehicleSearch.tsx` runs it automatically when an exact search finds nothing. | — |
+| **OpenSearch runs and does nothing** | Health-probed only; indexes nothing, queries nothing. Costs demo-laptop memory for no function. P8 investigated and deliberately left this open — see its BUILD_STATE section — rather than index it blind or remove someone else's already-built architectural intent on a guess. | P8 (open) |
 | **Attribute search impossible** | `vehicle_colour` is never computed anywhere. | P9 |
 | **No re-identification** | Intra-camera tracking is motion-only (ByteTrack, no appearance branch); cross-camera linking is plate-string equality. No embedding model anywhere. | P11 |
 

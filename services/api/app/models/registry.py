@@ -109,6 +109,17 @@ class Camera(Base):
     junction: Mapped[str | None] = mapped_column(String(128))
     address: Mapped[str | None] = mapped_column(Text)
 
+    #: The arterial this camera watches, e.g. "Ashram Road".
+    #:
+    #: Traffic analytics reports per corridor, so this is a grouping key and not
+    #: decoration. It exists as a column rather than being parsed out of
+    #: `camera_code` or `tags` because both encode it only by convention: the
+    #: code stops saying it the moment a camera is renamed (the demo fleet is
+    #: `CAM-DEMO-01..03` on Ashram Road), and in `tags` it is one unprefixed
+    #: slug among several. NULL means the camera is on no corridor we model,
+    #: which analytics reports as such rather than attributing it to a road.
+    corridor: Mapped[str | None] = mapped_column(String(64))
+
     # WGS-84. Geography (not Geometry) so distance maths is in metres on a
     # spheroid — Gujarat spans ~700 km, where planar approximations drift.
     location: Mapped[str] = mapped_column(
@@ -155,6 +166,8 @@ class Camera(Base):
         Index("ix_cameras_department_status", "department_id", "status"),
         Index("ix_cameras_district", "district"),
         Index("ix_cameras_status", "status"),
+        # Analytics groups flow, speed and hotspots by corridor.
+        Index("ix_cameras_corridor", "corridor"),
     )
 
     def __repr__(self) -> str:

@@ -10,6 +10,9 @@ export interface Camera {
   department_name: string | null
   vms_name: string | null
   vms_vendor: string | null
+  /** The road this camera sits on, for corridor-level analytics — see
+   *  migration 0004. Null for a camera on no corridor the platform models. */
+  corridor: string | null
   district: string | null
   city: string | null
   junction: string | null
@@ -44,6 +47,7 @@ export interface CameraFeatureProperties {
   id: string
   camera_code: string
   name: string
+  corridor: string | null
   district: string | null
   city: string | null
   junction: string | null
@@ -275,6 +279,13 @@ export interface WatchlistEntry {
   created_at: string
 }
 
+/** One factor behind an alert. `factor` is a machine-stable slug the UI can
+ *  branch or group on; `detail` is the sentence an operator reads. */
+export interface AlertReason {
+  factor: string
+  detail: string
+}
+
 export interface Alert {
   id: string
   created_at: string
@@ -296,6 +307,10 @@ export interface Alert {
    * hides the image rather than showing a broken one.
    */
   crop_url: string | null
+  /** Why this fired — the explainability rule in CLAUDE.md §5. Null for a
+   *  watchlist hit or camera-down alert (the match/notes already say why);
+   *  populated for `anomaly`. */
+  reasons: AlertReason[] | null
 }
 
 export interface AlertPage {
@@ -388,6 +403,7 @@ export interface LiveAlertEvent {
   detection_id: string | null
   created_at: string
   notes: string | null
+  reasons: AlertReason[] | null
   watchlist?: {
     id: string
     plate: string
@@ -492,6 +508,35 @@ export interface RoutablePlates {
   plates: { plate: string; cameras: number }[]
 }
 
+// ── Fuzzy plate search (P8) ─────────────────────────────────────────────
+
+export interface WatchlistHit {
+  category: string
+  priority: Priority
+  case_ref: string | null
+}
+
+export interface PlateSearchResult {
+  plate_normalised: string
+  /** pg_trgm trigram similarity to the query, 0-1. 1.0 means an exact match. */
+  similarity: number
+  sightings: number
+  cameras: number
+  first_seen: string
+  last_seen: string
+  /** Present when this plate is on an active watchlist entry. */
+  watchlist: WatchlistHit | null
+}
+
+export interface PlateSearchResponse {
+  query: string
+  /** The minimum trigram similarity a result had to clear. */
+  threshold: number
+  /** True when `query` itself is among the results at similarity 1.0. */
+  exact_match: boolean
+  results: PlateSearchResult[]
+}
+
 // ── User administration and audit ─────────────────────────────────────
 
 export type Role =
@@ -539,4 +584,236 @@ export interface AuditPage {
   total: number
   limit: number
   offset: number
+}
+
+// ── City traffic analytics ─────────────────────────────────────────────
+// Mirrors app/schemas/analytics.py exactly. Every figure that can be absent
+// carries a `status` rather than a substituted number — see that module's
+// docstring. `DataStatus` is a closed set so the UI can branch on it
+// exhaustively instead of pattern-matching prose.
+
+export type DataStatus = 'ok' | 'insufficient_history' | 'insufficient_data'
+
+export interface AnalyticsWindow {
+  start: string
+  end: string
+  /** Width of one time bucket, in seconds. 0 when the response is not bucketed. */
+  bucket_seconds: number
+}
+
+export interface FlowPoint {
+  ts: string
+  vehicles: number
+  with_plate: number
+}
+
+export interface FlowSeries {
+  /** Camera code, or corridor name when grouped by corridor. */
+  key: string
+  label: string
+  corridor: string | null
+  points: FlowPoint[]
+  total: number
+}
+
+export interface FlowResponse {
+  window: AnalyticsWindow
+  group_by: 'camera' | 'corridor'
+  series: FlowSeries[]
+  total_vehicles: number
+}
+
+export interface SpeedProvenance {
+  source: 'observed_journeys'
+  legs_considered: number
+  legs_excluded_implausible: number
+  note: string
+}
+
+export interface SegmentSpeed {
+  from_camera: string
+  to_camera: string
+  corridor: string | null
+  distance_km: number
+  status: DataStatus
+  samples: number
+  median_kmph: number | null
+  p85_kmph: number | null
+  median_seconds: number | null
+}
+
+export interface CorridorSpeed {
+  corridor: string
+  status: DataStatus
+  samples: number
+  median_kmph: number | null
+  segments: SegmentSpeed[]
+}
+
+export interface SpeedResponse {
+  window: AnalyticsWindow
+  provenance: SpeedProvenance
+  corridors: CorridorSpeed[]
+}
+
+export interface RoutePair {
+  from_camera: string
+  to_camera: string
+  from_corridor: string | null
+  to_corridor: string | null
+  journeys: number
+  distance_km: number
+  median_gap_seconds: number
+  same_corridor: boolean
+}
+
+export interface RouteDensityResponse {
+  window: AnalyticsWindow
+  pairs: RoutePair[]
+  total_journeys: number
+}
+
+export interface TravelTime {
+  from_camera: string
+  to_camera: string
+  corridor: string | null
+  status: DataStatus
+  current_seconds: number | null
+  current_samples: number
+  baseline_seconds: number | null
+  baseline_samples: number
+  baseline_days: number
+  /** Positive means slower than baseline. Null unless both figures exist. */
+  delta_pct: number | null
+}
+
+export interface TravelTimeResponse {
+  window: AnalyticsWindow
+  segments: TravelTime[]
+  baseline_window_days: number
+}
+
+export interface Hotspot {
+  camera_code: string
+  camera_name: string
+  corridor: string | null
+  lat: number
+  lon: number
+  vehicles: number
+  /** Share of the busiest camera's count, 0-1. */
+  intensity: number
+}
+
+export interface HotspotResponse {
+  window: AnalyticsWindow
+  by_volume: Hotspot[]
+  by_slowdown: TravelTime[]
+  slowdown_status: DataStatus
+  note: string
+}
+
+export interface HeatmapFeatureProperties {
+  camera_code: string
+  camera_name: string
+  corridor: string | null
+  vehicles: number
+  intensity: number
+}
+
+export interface HeatmapResponse {
+  type: 'FeatureCollection'
+  features: Array<{
+    type: 'Feature'
+    geometry: { type: 'Point'; coordinates: [number, number] }
+    properties: HeatmapFeatureProperties
+  }>
+  window: AnalyticsWindow
+  max_vehicles: number
+}
+
+// ── Predictive traffic (P10) ─────────────────────────────────────────────
+// Mirrors app/schemas/predictions.py exactly. `current_index_pct` is a
+// relative measure — this camera's current volume vs. its own typical
+// volume at this hour, 100 == normal — never an absolute road-capacity
+// occupancy figure. See that module's docstring for why.
+
+export interface ForecastPoint {
+  horizon_minutes: 15 | 30
+  index_pct: number | null
+}
+
+export interface ContributingFactor {
+  factor: string
+  detail: string
+}
+
+export interface BacktestResult {
+  status: DataStatus
+  /** Held-out buckets the forecast was checked against. */
+  samples: number
+  /** Mean absolute error, in index percentage points. */
+  mae_pct: number | null
+}
+
+export interface CongestionSeries {
+  /** Camera code, or corridor name when grouped by corridor. */
+  key: string
+  label: string
+  corridor: string | null
+  status: DataStatus
+  current_index_pct: number | null
+  current_bucket_vehicles: number | null
+  trend_samples: number
+  baseline_days: number
+  trend_per_minute_pct: number | null
+  forecasts: ForecastPoint[]
+  factors: ContributingFactor[]
+  backtest: BacktestResult
+}
+
+export interface CongestionResponse {
+  window: AnalyticsWindow
+  group_by: 'camera' | 'corridor'
+  baseline_window_days: number
+  horizons_minutes: Array<15 | 30>
+  series: CongestionSeries[]
+}
+
+// ── Vehicle re-identification (P11) ──────────────────────────────────────
+// Mirrors app/schemas/reid.py. `similarity` is null on every candidate in a
+// real database today — nothing in ai-lab computes an appearance embedding
+// yet. `embedding_available` says whether ranking used real appearance
+// similarity at all; when it's false every candidate below was matched by
+// being physically reachable in time, not by appearance — see that
+// schema's docstring before rendering these as "re-identified."
+
+export interface ReidMatchFactor {
+  factor: string
+  detail: string
+}
+
+export interface ReidCandidate {
+  detection_id: string
+  detection_ts: string
+  camera_code: string
+  camera_name: string
+  corridor: string | null
+  vehicle_type: string | null
+  plate: string | null
+  distance_km: number
+  elapsed_s: number
+  implied_kmph: number
+  similarity: number | null
+  plausibility_score: number
+  matched_on: ReidMatchFactor[]
+}
+
+export interface ReidMatchResponse {
+  found: boolean
+  query_detection_id: string
+  query_ts: string | null
+  query_camera_code: string | null
+  embedding_available: boolean
+  candidates: ReidCandidate[]
+  note: string
 }

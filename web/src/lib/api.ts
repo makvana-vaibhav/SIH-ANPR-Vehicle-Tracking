@@ -1,5 +1,5 @@
 /**
- * API client for the NagarNetra backend.
+ * API client for the Contrail backend.
  *
  * Holds the access token, refreshes it transparently when it expires, and
  * gives every request a bounded timeout — per the UI rule in CLAUDE.md that
@@ -15,17 +15,26 @@ import type {
   CameraGeoJSON,
   CameraHealthHistory,
   CameraPage,
+  CongestionResponse,
   Department,
   DetectionPage,
   ManagedUser,
   FleetHealth,
   FleetSummary,
+  FlowResponse,
   GapReport,
+  HeatmapResponse,
+  HotspotResponse,
+  PlateSearchResponse,
+  ReidMatchResponse,
+  RouteDensityResponse,
+  SpeedResponse,
   StreamGrant,
   ConvoyReport,
   Priority,
   Role,
   RoutablePlates,
+  TravelTimeResponse,
   UserProfile,
   UserPage,
   VehicleRoute,
@@ -36,8 +45,8 @@ import type {
 export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
-const ACCESS_KEY = 'nagarnetra.access_token'
-const REFRESH_KEY = 'nagarnetra.refresh_token'
+const ACCESS_KEY = 'contrail.access_token'
+const REFRESH_KEY = 'contrail.refresh_token'
 
 export class ApiError extends Error {
   constructor(
@@ -347,8 +356,14 @@ export interface DetectionQuery {
   plate?: string
   plate_prefix?: string
   since?: string
+  until?: string
   readable_only?: boolean
   min_confidence?: number
+  /** car | motorcycle | bus | truck | bicycle | person */
+  vehicle_type?: string
+  /** Always matches zero rows today — nothing in the pipeline populates
+   *  this column yet. See BUILD_STATE.md's P9 section. */
+  vehicle_colour?: string
   limit?: number
   offset?: number
 }
@@ -473,6 +488,25 @@ export const getRoutablePlates = (minCameras = 2, limit = 25, since?: string) =>
   return request<RoutablePlates>(`/api/v1/vehicles/routable?${params}`)
 }
 
+export interface PlateSearchQuery {
+  since?: string
+  until?: string
+  camera_id?: string
+  vehicle_type?: string
+  threshold?: number
+  limit?: number
+}
+
+/** Fuzzy/partial plate search — for the case an exact search finds nothing:
+ *  a misread character, a partial plate, one typed from memory. */
+export const searchPlates = (q: string, query: PlateSearchQuery = {}) => {
+  const params = new URLSearchParams({ q })
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return request<PlateSearchResponse>(`/api/v1/vehicles/search?${params}`)
+}
+
 // ── User administration ───────────────────────────────────────────────
 
 export const getUsers = () => request<UserPage>('/api/v1/users')
@@ -544,6 +578,68 @@ export const getAudit = (query: AuditQuery = {}) => {
   }
   return request<AuditPage>(`/api/v1/audit?${params}`)
 }
+
+// ── City traffic analytics ───────────────────────────────────────────────
+
+/** Shared by every analytics call: every endpoint takes the same reporting
+ *  window, and most take nothing else.
+ *
+ *  A `type` alias rather than an `interface`, deliberately. TypeScript gives
+ *  object *type aliases* an implicit index signature but never gives one to an
+ *  interface, so as an interface this cannot be passed to `analyticsParams`,
+ *  which takes a `Record<string, …>` — and neither can any intersection built
+ *  from it. That failed the build for all six analytics calls at once. */
+export type AnalyticsWindowQuery = {
+  since?: string
+  until?: string
+}
+
+function analyticsParams(
+  query: Record<string, string | number | undefined>,
+): URLSearchParams {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return params
+}
+
+export const getAnalyticsFlow = (
+  query: AnalyticsWindowQuery & {
+    bucket?: string
+    group_by?: 'camera' | 'corridor'
+    corridor?: string
+  } = {},
+) => request<FlowResponse>(`/api/v1/analytics/flow?${analyticsParams(query)}`)
+
+export const getAnalyticsSpeed = (
+  query: AnalyticsWindowQuery & { corridor?: string } = {},
+) => request<SpeedResponse>(`/api/v1/analytics/speed?${analyticsParams(query)}`)
+
+export const getAnalyticsRoutes = (
+  query: AnalyticsWindowQuery & { limit?: number } = {},
+) => request<RouteDensityResponse>(`/api/v1/analytics/routes?${analyticsParams(query)}`)
+
+export const getAnalyticsTravelTime = (query: AnalyticsWindowQuery = {}) =>
+  request<TravelTimeResponse>(`/api/v1/analytics/travel-time?${analyticsParams(query)}`)
+
+export const getAnalyticsHotspots = (
+  query: AnalyticsWindowQuery & { limit?: number } = {},
+) => request<HotspotResponse>(`/api/v1/analytics/hotspots?${analyticsParams(query)}`)
+
+export const getAnalyticsHeatmap = (query: AnalyticsWindowQuery = {}) =>
+  request<HeatmapResponse>(`/api/v1/analytics/heatmap?${analyticsParams(query)}`)
+
+// ── Predictive traffic (P10) ─────────────────────────────────────────────
+
+export const getCongestionForecast = (
+  query: { at?: string; group_by?: 'camera' | 'corridor'; corridor?: string } = {},
+) => request<CongestionResponse>(`/api/v1/predictions/congestion?${analyticsParams(query)}`)
+
+// ── Vehicle re-identification (P11) ──────────────────────────────────────
+
+export const getReidCandidates = (query: { detection_id: string; detection_ts: string }) =>
+  request<ReidMatchResponse>(`/api/v1/reid/candidates?${analyticsParams(query)}`)
 
 // ── Formatting ────────────────────────────────────────────────────────
 

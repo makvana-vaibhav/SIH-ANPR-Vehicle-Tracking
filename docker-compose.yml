@@ -418,7 +418,7 @@ services:
       # Per process — see the table above; 2 is the measured optimum here.
       # Leave it blank only when running ONE worker: blank means "cores − 2"
       # per process, and three of those oversubscribe the machine badly.
-      AILAB_INFERENCE_BUDGET: ${AILAB_INFERENCE_BUDGET:-2}
+      AILAB_INFERENCE_BUDGET: ${AILAB_INFERENCE_BUDGET:-6}
       # OpenCV parallelises single resize/cvtColor calls. The worker already
       # has one thread per camera, so an inner pool on top of that only
       # multiplies threads against the same cores. Empty means 1 whenever more
@@ -451,9 +451,34 @@ services:
     logging: *default-logging
     networks: [nagarnetra]
 
+  # ── The other two ANPR workers — opt in with `make ai-multi` ────────
+  #
+  # Profile `ai-multi`, not `ai`, so `make ai` starts **one** worker on one
+  # camera. That is a latency decision, not a capacity one.
+  #
+  # Every worker decodes its camera's full frame rate and runs the detector on
+  # what it keeps, so three of them share a 10-core laptop three ways. Measured
+  # on this host, same footage, only the worker count differing:
+  #
+  #   three workers   3.3 fps each   p90 507 ms   ~711% CPU
+  #   one worker      (see below)    markedly lower latency
+  #
+  # Latency is what decides whether a plate box lands on the right car: the
+  # overlay draws each box on the frame it was measured in, and a reading that
+  # arrives late describes a car that has already moved on. One camera reading
+  # promptly demonstrates the pipeline better than three reading late.
+  #
+  # Start all three when the demo needs cross-camera linking — a vehicle has to
+  # be seen by more than one camera before there is a journey to reconstruct:
+  #
+  #     make ai-multi
+  #
+  # and drop AILAB_INFERENCE_BUDGET back to 2 when you do, so the three share
+  # the machine instead of each sizing for it alone.
   ai-worker-2:
     <<: *ai-worker
     container_name: nagarnetra-ai-worker-2
+    profiles: ["ai-multi"]
     environment:
       <<: *ai-worker-env
       AI_WORKER_CAMERAS: ${AI_WORKER_CAMERAS_2:-CAM-DEMO-02}
@@ -461,6 +486,7 @@ services:
   ai-worker-3:
     <<: *ai-worker
     container_name: nagarnetra-ai-worker-3
+    profiles: ["ai-multi"]
     environment:
       <<: *ai-worker-env
       AI_WORKER_CAMERAS: ${AI_WORKER_CAMERAS_3:-CAM-DEMO-03}

@@ -196,11 +196,30 @@ def build_specs(cameras: list[Camera], videos: list[Path]) -> list[StreamSpec]:
     # of the clip count — which collided regularly, and two cameras at the same
     # phase produced a 7.7 km "hop" two seconds apart, correctly flagged
     # implausible.
+    # Clips are dealt **per corridor**, not per camera.
+    #
+    # Two cameras only ever link into a journey if they see the same vehicle,
+    # and they only see the same vehicle if they are replaying the same clip.
+    # Dealing round-robin across the whole fleet put a different clip on each
+    # camera of a corridor, so the three cameras on Naroda Road shared no
+    # vehicles at all: no journeys along it, no segment speeds, no route
+    # density — while the only links that did form jumped between corridors,
+    # which is the one thing a vehicle cannot physically do.
+    #
+    # One clip per corridor means a vehicle is seen by successive cameras along
+    # the road it is actually on, which is the situation being simulated.
+    # Cameras with no corridor fall back to their own code, so each keeps a
+    # clip to itself rather than being lumped together.
+    corridor_keys = sorted({c.corridor or c.camera_code for c in cameras})
+    corridor_clip = {
+        key: videos[index % len(videos)] for index, key in enumerate(corridor_keys)
+    } if videos else {}
+
     resolved: list[tuple[Camera, Path | None]] = []
-    for index, camera in enumerate(cameras):
+    for camera in cameras:
         source = pinned.get(camera.camera_code)
         if source is None:
-            source = videos[index % len(videos)] if videos else None
+            source = corridor_clip.get(camera.corridor or camera.camera_code)
         if source is not None:
             # Stream a keyframe-dense copy rather than the raw clip, so the
             # cheap `-c:v copy` path produces decodable video and `-ss` has

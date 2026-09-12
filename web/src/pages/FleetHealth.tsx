@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react'
 
+import { ErrorBanner, StatTile, Table, Td, Th, Thead, Tr } from '@/components/ui'
 import * as api from '@/lib/api'
 import type { FleetHealth as FleetHealthData, GapReport } from '@/lib/types'
 
@@ -37,9 +38,7 @@ export default function FleetHealthPage() {
   if (error) {
     return (
       <div className="p-6">
-        <p className="rounded border border-status-offline/40 bg-status-offline/10 px-4 py-3 text-sm text-status-offline">
-          {error}
-        </p>
+        <ErrorBanner>{error}</ErrorBanner>
       </div>
     )
   }
@@ -71,29 +70,25 @@ export default function FleetHealthPage() {
        * reading 0, explaining a state that no longer normally occurs, is how
        * a screen stops being read. */}
       <section className="grid gap-4 md:grid-cols-3">
-        <Card
+        <StatTile
           label="Availability"
           value={
             health?.availability_pct != null ? `${health.availability_pct}%` : '—'
           }
-          sub={`${health?.online ?? '—'} of ${health?.total ?? '—'} cameras reachable`}
-          tone={
-            health && health.availability_pct < 90
-              ? 'text-status-offline'
-              : 'text-status-online'
-          }
+          detail={`${health?.online ?? '—'} of ${health?.total ?? '—'} cameras reachable`}
+          tone={health ? (health.availability_pct < 90 ? 'bad' : 'good') : undefined}
         />
-        <Card
+        <StatTile
           label="Offline"
           value={health?.offline ?? '—'}
-          sub="Reachable integration, no video arriving"
-          tone={health && health.offline > 0 ? 'text-status-offline' : undefined}
+          detail="Reachable integration, no video arriving"
+          tone={health && health.offline > 0 ? 'bad' : undefined}
         />
-        <Card
+        <StatTile
           label="Degraded"
           value={health?.degraded ?? '—'}
-          sub="Video arriving, but late or dropping frames"
-          tone={health && health.degraded > 0 ? 'text-amber-400' : undefined}
+          detail="Video arriving, but late or dropping frames"
+          tone={health && health.degraded > 0 ? 'warn' : undefined}
         />
       </section>
 
@@ -188,25 +183,25 @@ export default function FleetHealthPage() {
         </p>
 
         <div className="mt-4 grid gap-4 md:grid-cols-4">
-          <Card
+          <StatTile
             label="Unavailable"
             value={gaps?.summary.unavailable_cameras ?? '—'}
-            sub="Fix the camera"
+            detail="Fix the camera"
           />
-          <Card
+          <StatTile
             label="Below ANPR target"
             value={gaps?.summary.districts_below_anpr_target ?? '—'}
-            sub="Districts needing plate readers"
+            detail="Districts needing plate readers"
           />
-          <Card
+          <StatTile
             label="No cameras at all"
             value={gaps?.summary.districts_with_no_cameras ?? '—'}
-            sub="Districts with zero coverage"
+            detail="Districts with zero coverage"
           />
-          <Card
+          <StatTile
             label="Unreliable"
             value={gaps?.summary.unreliable_cameras ?? '—'}
-            sub="Flapping in and out"
+            detail="Flapping in and out"
           />
         </div>
 
@@ -236,61 +231,31 @@ export default function FleetHealthPage() {
             <h3 className="border-b border-border px-4 py-3 text-sm font-semibold">
               Districts below the ANPR coverage target
             </h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-secondary/40 text-xs uppercase tracking-wider text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-2 text-left font-medium">District</th>
-                    <th className="px-4 py-2 text-right font-medium">Cameras</th>
-                    <th className="px-4 py-2 text-right font-medium">ANPR</th>
-                    <th className="px-4 py-2 text-right font-medium">Share</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {gaps.capability_gaps.map((g) => (
-                    <tr key={g.district}>
-                      <td className="px-4 py-2">{g.district}</td>
-                      <td className="px-4 py-2 text-right font-mono tabular-nums">
-                        {g.cameras}
-                      </td>
-                      <td className="px-4 py-2 text-right font-mono tabular-nums">
-                        {g.anpr_cameras}
-                      </td>
-                      <td className="px-4 py-2 text-right font-mono tabular-nums text-status-degraded">
-                        {Math.round(g.anpr_share * 100)}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table bare>
+              <Thead>
+                <tr>
+                  <Th>District</Th>
+                  <Th className="text-right">Cameras</Th>
+                  <Th className="text-right">ANPR</Th>
+                  <Th className="text-right">Share</Th>
+                </tr>
+              </Thead>
+              <tbody>
+                {gaps.capability_gaps.map((g) => (
+                  <Tr key={g.district}>
+                    <Td>{g.district}</Td>
+                    <Td className="text-right font-mono tabular-nums">{g.cameras}</Td>
+                    <Td className="text-right font-mono tabular-nums">{g.anpr_cameras}</Td>
+                    <Td className="text-right font-mono tabular-nums text-status-degraded">
+                      {Math.round(g.anpr_share * 100)}%
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
           </div>
         )}
       </section>
-    </div>
-  )
-}
-
-function Card({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string
-  value: number | string
-  sub?: string
-  tone?: string
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      <p className={`mt-1 text-2xl font-semibold tabular-nums ${tone ?? ''}`}>
-        {value}
-      </p>
-      {sub && <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>}
     </div>
   )
 }

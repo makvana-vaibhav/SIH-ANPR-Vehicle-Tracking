@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { useAuth } from '@/hooks/useAuth'
+import { Button, ErrorBanner, Field, Input } from '@/components/ui'
 
 /** Demo accounts, shown on the login screen so a judge can switch roles. */
 const DEMO_ACCOUNTS = [
@@ -37,11 +38,8 @@ export default function Login() {
         {/* Identity panel */}
         <div className="border-b border-border bg-gradient-to-br from-secondary/60 to-card p-8 md:border-b-0 md:border-r">
           <h1 className="text-3xl font-semibold tracking-tight text-primary">
-            Nagar<span className="text-foreground">Netra</span>
+            Con<span className="text-foreground">trail</span>
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            નગરનેત્ર — શહેરવ્યાપી વાહન ગુપ્તચર મંચ
-          </p>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
             City-wide vehicle intelligence platform. Connects observations from
             hundreds of city cameras into searchable vehicle journeys, traffic
@@ -87,42 +85,40 @@ export default function Login() {
             Every action you take is recorded in the audit trail.
           </p>
 
-          <label className="mt-6 block">
-            <span className="text-sm font-medium">Username</span>
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              required
-              className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-            />
-          </label>
+          <div className="mt-6">
+            <Field label="Username">
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                required
+                className="font-mono"
+              />
+            </Field>
+          </div>
 
-          <label className="mt-4 block">
-            <span className="text-sm font-medium">Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-              className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-            />
-          </label>
+          <div className="mt-4">
+            <Field label="Password">
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+                className="font-mono"
+              />
+            </Field>
+          </div>
 
           {error && (
-            <p className="mt-4 rounded border border-status-offline/40 bg-status-offline/10 px-3 py-2 text-sm text-status-offline">
-              {error}
-            </p>
+            <div className="mt-4">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
           )}
 
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-6 w-full rounded-md bg-primary px-4 py-2.5 font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-          >
+          <Button type="submit" disabled={busy} className="mt-6 w-full py-2.5">
             {busy ? 'Signing in…' : 'Sign in'}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

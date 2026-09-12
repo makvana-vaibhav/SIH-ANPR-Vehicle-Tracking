@@ -295,12 +295,28 @@ class TestPagination:
     """No endpoint may return the estate unbounded."""
 
     async def test_pages_do_not_overlap(self, client: AsyncClient, auth_headers) -> None:
-        headers = await auth_headers("operator")
-        first = (await client.get("/api/v1/cameras?limit=10&offset=0", headers=headers)).json()
-        second = (await client.get("/api/v1/cameras?limit=10&offset=10", headers=headers)).json()
+        """Page sizes are derived from the fleet, not hardcoded.
 
-        assert first["total"] == second["total"] >= ONBOARDED_FLEET
-        assert len(first["items"]) == len(second["items"]) == 10
+        This asserted two full pages of ten, which silently encoded "the fleet
+        has at least twenty cameras" into a test about pagination. It broke the
+        day the fleet was trimmed to twelve — reporting a pagination fault where
+        there was none.
+        """
+        headers = await auth_headers("operator")
+        limit = 5
+        first = (
+            await client.get(f"/api/v1/cameras?limit={limit}&offset=0", headers=headers)
+        ).json()
+        second = (
+            await client.get(
+                f"/api/v1/cameras?limit={limit}&offset={limit}", headers=headers
+            )
+        ).json()
+
+        total = first["total"]
+        assert total == second["total"] >= ONBOARDED_FLEET
+        assert len(first["items"]) == min(limit, total)
+        assert len(second["items"]) == min(limit, max(0, total - limit))
         assert not {c["id"] for c in first["items"]} & {c["id"] for c in second["items"]}
 
     async def test_limit_is_capped(self, client: AsyncClient, auth_headers) -> None:
