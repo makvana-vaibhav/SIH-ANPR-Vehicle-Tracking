@@ -21,7 +21,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, status
-from sqlalchemy import select, true
+from sqlalchemy import false, or_, select, true
 
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
@@ -105,22 +105,27 @@ async def select_cameras(limit: int) -> list[Camera]:
         # A camera with footage pinned to it is published first, whatever the
         # limit. Pinning a clip to a camera the simulator then declines to
         # stream would be a silent no-op.
+        # Pinned by `SIM_CAMERA_VIDEOS`, or by an operator choosing a clip in
+        # the UI. Both are somebody saying "this camera plays this footage",
+        # and the reasoning above applies to each: a camera pinned but not
+        # published is a setting that appears to work and does nothing.
         pinned_codes = list(pinned_videos())
-        pinned_cameras = (
-            list(
-                (
-                    await session.scalars(
-                        select(Camera)
-                        .where(
-                            Camera.camera_code.in_(pinned_codes),
-                            Camera.vms_id.in_(simulated_vms),
-                        )
-                        .order_by(Camera.camera_code)
+        pinned_cameras = list(
+            (
+                await session.scalars(
+                    select(Camera)
+                    .where(
+                        or_(
+                            Camera.camera_code.in_(pinned_codes)
+                            if pinned_codes
+                            else false(),
+                            Camera.source_file.is_not(None),
+                        ),
+                        Camera.vms_id.in_(simulated_vms),
                     )
-                ).all()
-            )
-            if pinned_codes
-            else []
+                    .order_by(Camera.camera_code)
+                )
+            ).all()
         )
 
         preferred = list(pinned_cameras)
@@ -185,6 +190,33 @@ def pinned_videos() -> dict[str, Path]:
     return pinned
 
 
+def db_clip(camera: Camera) -> Path | None:
+    """The clip an operator pinned to this camera in the UI, if it is readable.
+
+    `cameras.source_file` holds a bare filename — the API's `clean_source_file`
+    rejects anything with a separator, so this join cannot escape `VIDEO_DIR`.
+    The `.name` here is belt-and-braces: this process trusts the database no
+    further than it has to, and a row written by some future path that skipped
+    that validator must still not be able to reach outside the directory.
+
+    A filename that no longer resolves is a warning and a fall-through, not an
+    error. Deleting a clip from disk should degrade that camera to the normal
+    round-robin, not stop the fleet from starting.
+    """
+    name = (getattr(camera, "source_file", None) or "").strip()
+    if not name:
+        return None
+    path = VIDEO_DIR / Path(name).name
+    if not path.is_file():
+        log.warning(
+            "simulator.camera_source_file_missing",
+            camera=camera.camera_code,
+            source_file=name,
+        )
+        return None
+    return path
+
+
 def build_specs(cameras: list[Camera], videos: list[Path]) -> list[StreamSpec]:
     """Pair cameras with source clips, cycling if there are fewer clips."""
     pinned = pinned_videos()
@@ -217,7 +249,16 @@ def build_specs(cameras: list[Camera], videos: list[Path]) -> list[StreamSpec]:
 
     resolved: list[tuple[Camera, Path | None]] = []
     for camera in cameras:
-        source = pinned.get(camera.camera_code)
+        # Three ways a camera gets footage, most specific first:
+        #
+        #   1. `cameras.source_file` — an operator picked this clip for this
+        #      camera in the UI. It is the most explicit statement of intent
+        #      there is, so it outranks a variable set once at container start.
+        #   2. `SIM_CAMERA_VIDEOS` — the seeded demo fleet's pinning.
+        #   3. the per-corridor round-robin below.
+        source = db_clip(camera)
+        if source is None:
+            source = pinned.get(camera.camera_code)
         if source is None:
             source = corridor_clip.get(camera.corridor or camera.camera_code)
         if source is not None:

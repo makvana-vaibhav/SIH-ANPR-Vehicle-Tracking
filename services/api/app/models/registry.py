@@ -136,6 +136,11 @@ class Camera(Base):
     protocol: Mapped[str | None] = mapped_column(String(16))
     stream_url: Mapped[str | None] = mapped_column(Text)
     sub_stream_url: Mapped[str | None] = mapped_column(Text)
+    #: Bare filename of a recorded clip for the simulator to replay, or None to
+    #: let it deal one per corridor. Resolved against `SIM_VIDEO_DIR` by the
+    #: simulator and validated to a basename by `CameraCreate`; deliberately
+    #: not a path and deliberately not `stream_url` (see migration 0008).
+    source_file: Mapped[str | None] = mapped_column(Text)
     resolution: Mapped[str | None] = mapped_column(String(16))
     fps: Mapped[int | None] = mapped_column(SmallInteger)
 

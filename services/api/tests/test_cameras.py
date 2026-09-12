@@ -637,3 +637,122 @@ class TestBulkOnboarding:
         assert row is not None
         assert row.username == "admin"
         assert row.params["filename"] == "cameras.csv"
+
+
+class TestRecordedSourceFile:
+    """Pinning a recorded clip to a camera, from the UI rather than from .env.
+
+    `source_file` is a filename joined to the simulator's video directory, which
+    makes it the one field on a camera that is a path-traversal sink. Most of
+    these tests are about that.
+    """
+
+    def test_suffixes_match_the_simulator(self) -> None:
+        """The two services must agree on what counts as a clip.
+
+        `app.schemas.camera` duplicates the tuple rather than importing it,
+        because the API image does not carry the simulator package. A value the
+        API accepts but `find_videos` skips would be a camera pinned to a file
+        that silently never plays — so the duplication is pinned here instead.
+        """
+        from simulator.publisher import VIDEO_SUFFIXES
+
+        from app.schemas.camera import SOURCE_VIDEO_SUFFIXES
+
+        assert SOURCE_VIDEO_SUFFIXES == frozenset(VIDEO_SUFFIXES)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "../../etc/passwd",
+            "/etc/passwd",
+            "sub/dir/clip.mp4",
+            "..",
+            "clip.mp4/../../secret.mp4",
+        ],
+    )
+    async def test_a_path_is_refused(
+        self, client: AsyncClient, auth_headers, value: str
+    ) -> None:
+        """Anything that is not a bare filename is rejected at the edge.
+
+        The database must not be able to hold a value the simulator would have
+        to defend itself against.
+        """
+        response = await client.post(
+            "/api/v1/cameras",
+            json={
+                "camera_code": "CAM-TRAV-01",
+                "name": "Traversal attempt",
+                "lat": 23.04,
+                "lon": 72.59,
+                "source_file": value,
+            },
+            headers=await auth_headers("admin"),
+        )
+        assert response.status_code == 422, response.text
+
+    async def test_a_non_video_extension_is_refused(
+        self, client: AsyncClient, auth_headers
+    ) -> None:
+        response = await client.post(
+            "/api/v1/cameras",
+            json={
+                "camera_code": "CAM-TRAV-02",
+                "name": "Not a clip",
+                "lat": 23.04,
+                "lon": 72.59,
+                "source_file": "notes.txt",
+            },
+            headers=await auth_headers("admin"),
+        )
+        assert response.status_code == 422, response.text
+
+    async def test_a_filename_round_trips(
+        self, client: AsyncClient, auth_headers
+    ) -> None:
+        """A legitimate clip name is stored and returned.
+
+        Unlike `stream_url`, `source_file` comes back on the camera: it carries
+        no credentials, and the edit form cannot show the current choice
+        otherwise.
+        """
+        admin = await auth_headers("admin")
+        created = await client.post(
+            "/api/v1/cameras",
+            json={
+                "camera_code": "CAM-CLIP-01",
+                "name": "Replay camera",
+                "lat": 23.04,
+                "lon": 72.59,
+                "source_file": "highway_cam_a.mp4",
+            },
+            headers=admin,
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["source_file"] == "highway_cam_a.mp4"
+
+        # And an update can clear it, which is how the form switches a camera
+        # back to a live URL.
+        cleared = await client.patch(
+            f"/api/v1/cameras/{created.json()['id']}",
+            json={"source_file": None},
+            headers=admin,
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["source_file"] is None
+
+    async def test_the_clip_list_is_readable_and_names_only(
+        self, client: AsyncClient, auth_headers
+    ) -> None:
+        """`/cameras/source-videos` lists what is on disk, without paths."""
+        response = await client.get(
+            "/api/v1/cameras/source-videos", headers=await auth_headers("admin")
+        )
+        assert response.status_code == 200, response.text
+        for clip in response.json():
+            assert "/" not in clip["filename"]
+            assert clip["size_bytes"] >= 0
+
+    async def test_the_clip_list_needs_camera_read(self, client: AsyncClient) -> None:
+        assert (await client.get("/api/v1/cameras/source-videos")).status_code == 401

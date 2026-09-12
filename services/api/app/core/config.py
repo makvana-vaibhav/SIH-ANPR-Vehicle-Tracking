@@ -9,6 +9,7 @@ default, or the application refuses to start.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, ValidationInfo, field_validator
@@ -117,6 +118,12 @@ class Settings(BaseSettings):
     # which is why they are settings rather than constants in a function.
     # The maths they feed lives in `app/services/traffic.py`, and
     # `tests/test_traffic.py` pins where each boundary sits.
+    #: Where recorded clips live, as this container sees them. Same directory
+    #: the simulator mounts as `SIM_VIDEO_DIR`, which is what makes a filename
+    #: chosen here resolvable there. Listing it is the only thing the API does
+    #: with it — it never opens a clip.
+    video_dir: Path = Path("/data/videos")
+
     traffic_queue_min_vehicles: int = 4
     traffic_queue_dwell_seconds: float = 25.0
     traffic_queue_min_sustained_buckets: int = 2

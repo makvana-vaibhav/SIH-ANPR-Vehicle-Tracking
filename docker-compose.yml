@@ -514,7 +514,7 @@ services:
       # camera, which is what gives cross-camera linking something real to
       # link; the simulator seeks each camera to a different point in the clip
       # so they are not all showing the same instant.
-      SIM_CAMERA_VIDEOS: ${SIM_CAMERA_VIDEOS:-CAM-DEMO-01=anpr_demo.mp4,CAM-DEMO-02=anpr_demo.mp4,CAM-DEMO-03=anpr_demo.mp4}
+      SIM_CAMERA_VIDEOS: ${SIM_CAMERA_VIDEOS:-CAM-DEMO-01=highway_cam_a.mp4,CAM-DEMO-02=highway_cam_b.mp4}
       # Blank spreads cameras sharing a clip evenly across its real duration.
       SIM_OFFSET_STEP_S: ${SIM_OFFSET_STEP_S:-}
       PYTHONPATH: /app/services/simulator:/app/services/api

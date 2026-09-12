@@ -300,9 +300,22 @@ export interface CameraInput {
   sub_stream_url?: string | null
   resolution?: string | null
   fps?: number | null
+  /** Filename of a recorded clip to replay instead of pulling a live stream.
+   *  Mutually exclusive with `stream_url` in the form, though the API accepts
+   *  both — a camera can have a URL on file and still be replayed. */
+  source_file?: string | null
   anpr_enabled: boolean
   tags?: string[] | null
 }
+
+/** A clip sitting in the simulator's video directory, offered for pinning. */
+export interface SourceVideo {
+  filename: string
+  size_bytes: number
+}
+
+export const getSourceVideos = () =>
+  request<SourceVideo[]>('/api/v1/cameras/source-videos')
 
 export const createCamera = (body: CameraInput) =>
   request<Camera>('/api/v1/cameras', { method: 'POST', body: JSON.stringify(body) })
@@ -676,6 +689,20 @@ export function formatIST(iso: string, withDate = true): string {
     timeStyle: 'medium',
     hour12: false,
   }).format(new Date(iso))
+}
+
+/** File size for a human. Binary units, because that is what `ls -lh` says. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
 }
 
 export function relativeTime(iso: string): string {

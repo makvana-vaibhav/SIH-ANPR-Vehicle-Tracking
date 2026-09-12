@@ -27,6 +27,7 @@ import {
   Checkbox,
   Field,
   Input,
+  SegmentedControl,
   Select,
   StatusBadge,
   Table,
@@ -47,6 +48,15 @@ type Tab = 'fleet' | 'import'
  *  rather than as a 422 after they press the button. */
 const BOUNDS = { latMin: 20.0, latMax: 24.8, lonMin: 68.1, lonMax: 74.5 }
 
+/** The values `Protocol` in app/models/enums.py actually accepts.
+ *
+ * This list previously read `['rtsp', 'http', 'hls', 'onvif']`. Two of those
+ * are not members of the enum, so choosing either produced a 422 on save with
+ * no hint that the dropdown had offered an impossible option. `http`/`hls`
+ * describe how the *browser* is served video, which is the gateway's business
+ * and never a property of the upstream camera. */
+const PROTOCOLS = ['rtsp', 'onvif', 'vendor_api'] as const
+
 const EMPTY = {
   camera_code: '',
   name: '',
@@ -60,6 +70,10 @@ const EMPTY = {
   camera_type: 'fixed',
   protocol: 'rtsp',
   stream_url: '',
+  /** 'live' → pull an RTSP/ONVIF URL. 'recorded' → replay a clip from the
+   *  video directory. One camera, two ways to give it pictures. */
+  source_kind: 'live' as 'live' | 'recorded',
+  source_file: '',
   resolution: '1920x1080',
   fps: '15',
   anpr_enabled: true,
@@ -77,6 +91,7 @@ export default function Cameras() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [vms, setVms] = useState<VmsInstance[]>([])
   const [adapters, setAdapters] = useState<Record<string, string>>({})
+  const [sourceVideos, setSourceVideos] = useState<api.SourceVideo[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [form, setForm] = useState({ ...EMPTY })
@@ -85,16 +100,21 @@ export default function Cameras() {
 
   const load = useCallback(async () => {
     try {
-      const [fleet, depts, instances, adapterInfo] = await Promise.all([
+      const [fleet, depts, instances, adapterInfo, clips] = await Promise.all([
         api.getCameras({ limit: '500' }),
         api.getDepartments(),
         api.getVmsInstances(),
         api.getAdapters(),
+        // An empty list is a legitimate answer — no footage on this machine —
+        // so a failure here must not take the whole page down with it. The
+        // form falls back to the live-URL path, which is all it ever had.
+        api.getSourceVideos().catch(() => [] as api.SourceVideo[]),
       ])
       setCameras(Array.isArray(fleet) ? fleet : (fleet as { items: Camera[] }).items ?? [])
       setDepartments(depts)
       setVms(instances)
       setAdapters(adapterInfo.adapters)
+      setSourceVideos(clips)
     } catch (err) {
       toast.error(err)
     } finally {
@@ -138,6 +158,11 @@ export default function Cameras() {
       // so anything shown here would be an invention. Left empty it means
       // "keep whatever is configured".
       stream_url: '',
+      // `source_file` *is* returned, so unlike the URL this can be shown and
+      // edited truthfully, and a camera already replaying a clip opens on the
+      // recorded tab with that clip selected.
+      source_kind: camera.source_file ? 'recorded' : 'live',
+      source_file: camera.source_file ?? '',
       resolution: camera.resolution ?? '',
       fps: camera.fps == null ? '' : String(camera.fps),
       anpr_enabled: camera.anpr_enabled,
@@ -166,6 +191,12 @@ export default function Cameras() {
       return
     }
 
+    const recorded = form.source_kind === 'recorded'
+    if (recorded && !form.source_file) {
+      toast.error('Choose a recorded clip, or switch back to a live stream URL')
+      return
+    }
+
     const body: api.CameraInput = {
       camera_code: form.camera_code.trim().toUpperCase(),
       name: form.name.trim(),
@@ -178,7 +209,11 @@ export default function Cameras() {
       heading_deg: form.heading_deg === '' ? null : Number(form.heading_deg),
       camera_type: form.camera_type || null,
       protocol: form.protocol || null,
-      stream_url: form.stream_url.trim() || null,
+      // The two source kinds are exclusive in the form: picking a recorded
+      // clip clears the URL and vice versa, so a camera cannot end up with a
+      // live URL and a clip both claiming to be its pictures.
+      stream_url: recorded ? null : form.stream_url.trim() || null,
+      source_file: recorded ? form.source_file || null : null,
       resolution: form.resolution.trim() || null,
       fps: form.fps === '' ? null : Number(form.fps),
       anpr_enabled: form.anpr_enabled,
@@ -324,23 +359,62 @@ export default function Cameras() {
                 </Field>
               </div>
 
-              <Field
-                label="Stream URL"
-                hint={
-                  editing
-                    ? editing.has_stream
-                      ? 'A source is configured. Leave blank to keep it, or type a new one to replace it — the existing URL is never sent to the browser.'
-                      : 'This camera has no source, so it can never be watched or analysed. Add one here.'
-                    : 'RTSP or HLS. Without one the camera is a registry record that can never be watched or analysed.'
-                }
-              >
-                <Input
-                  value={form.stream_url}
-                  onChange={(e) => set('stream_url', e.target.value)}
-                  placeholder="rtsp://user:password@10.0.0.24:554/Streaming/Channels/101"
-                  className="font-mono text-xs"
+              {/* Where this camera's pictures come from. A live URL is the
+                  real-deployment path; a recorded clip is how footage shot on
+                  a phone becomes a camera without editing .env and restarting
+                  a container. */}
+              <Field label="Video source">
+                <SegmentedControl
+                  value={form.source_kind}
+                  onChange={(v) => set('source_kind', v)}
+                  options={[
+                    { value: 'live', label: 'Live stream URL' },
+                    { value: 'recorded', label: 'Recorded video' },
+                  ]}
                 />
               </Field>
+
+              {form.source_kind === 'live' ? (
+                <Field
+                  label="Stream URL"
+                  hint={
+                    editing
+                      ? editing.has_stream
+                        ? 'A source is configured. Leave blank to keep it, or type a new one to replace it — the existing URL is never sent to the browser.'
+                        : 'This camera has no source, so it can never be watched or analysed. Add one here.'
+                      : 'RTSP or ONVIF. Without one the camera is a registry record that can never be watched or analysed.'
+                  }
+                >
+                  <Input
+                    value={form.stream_url}
+                    onChange={(e) => set('stream_url', e.target.value)}
+                    placeholder="rtsp://10.0.0.24:554/Streaming/Channels/101"
+                    className="font-mono text-xs"
+                  />
+                </Field>
+              ) : (
+                <Field
+                  label="Recorded clip"
+                  hint={
+                    sourceVideos.length === 0
+                      ? 'No clips found in the video directory. Drop an .mp4 into data/videos/ and reopen this form.'
+                      : 'Replayed on a loop as this camera’s feed. Copy the file into data/videos/ and it appears here.'
+                  }
+                >
+                  <Select
+                    value={form.source_file}
+                    onChange={(e) => set('source_file', e.target.value)}
+                    disabled={sourceVideos.length === 0}
+                  >
+                    <option value="">Select a clip…</option>
+                    {sourceVideos.map((v) => (
+                      <option key={v.filename} value={v.filename}>
+                        {v.filename} ({api.formatBytes(v.size_bytes)})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="District">
@@ -403,7 +477,7 @@ export default function Cameras() {
                     value={form.protocol}
                     onChange={(e) => set('protocol', e.target.value)}
                   >
-                    {['rtsp', 'http', 'hls', 'onvif'].map((p) => (
+                    {PROTOCOLS.map((p) => (
                       <option key={p} value={p}>
                         {p}
                       </option>

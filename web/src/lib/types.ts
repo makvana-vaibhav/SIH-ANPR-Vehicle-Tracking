@@ -31,6 +31,10 @@ export interface Camera {
   /** Whether a video source is configured. The URL itself is never sent to the
    *  browser — a federated camera's carries the grid credentials. */
   has_stream: boolean
+  /** Recorded clip this camera replays, or null when it pulls a live stream.
+   *  Unlike `stream_url` this is safe to send: a filename in our own video
+   *  directory, carrying no credentials. */
+  source_file: string | null
   created_at: string
   updated_at: string
   distance_km?: number | null

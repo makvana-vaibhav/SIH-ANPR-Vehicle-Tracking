@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.rbac import Permission, require_permission
 from app.models.enums import (
@@ -36,6 +37,7 @@ from app.models.enums import (
 )
 from app.models.registry import Camera, Department, VmsInstance
 from app.schemas.camera import (
+    SOURCE_VIDEO_SUFFIXES,
     BulkUploadResult,
     CameraCreate,
     CameraOut,
@@ -44,6 +46,7 @@ from app.schemas.camera import (
     DepartmentOut,
     FleetSummary,
     GeoJSONFeatureCollection,
+    SourceVideoOut,
     VendorEnumOut,
     VmsInstanceOut,
 )
@@ -149,6 +152,50 @@ async def vocabularies(
         protocols=list(Protocol),
         statuses=list(CameraStatus),
     )
+
+
+@router.get(
+    "/cameras/source-videos",
+    response_model=list[SourceVideoOut],
+    summary="Recorded clips available to pin to a camera",
+)
+async def source_videos(
+    _user: Annotated[CurrentUser, Depends(require_permission(Permission.CAMERA_READ))],
+) -> list[SourceVideoOut]:
+    """What is actually sitting in the video directory, right now.
+
+    Serving the list rather than letting the operator type a filename is the
+    difference between a dropdown and a guess: a typo becomes a camera pinned
+    to a file that does not exist, which the simulator can only report as a
+    warning in a log nobody is reading.
+
+    Names only — no path is returned and none is accepted back. `source_file`
+    is resolved against the simulator's own directory, so the filename is the
+    entire contract between the two services.
+
+    A missing directory is an empty list, not an error: an operator who has
+    added no footage should see "no recorded clips available", not a 500.
+    """
+    directory = settings.video_dir
+    try:
+        entries = [
+            p
+            for p in directory.iterdir()
+            if p.is_file() and p.suffix.lower() in SOURCE_VIDEO_SUFFIXES
+        ]
+    except OSError:
+        # Not mounted, or not readable. Either way there is nothing to offer,
+        # and the form degrades to the live-URL path it has always had.
+        return []
+
+    videos: list[SourceVideoOut] = []
+    for path in sorted(entries, key=lambda p: p.name.lower()):
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        videos.append(SourceVideoOut(filename=path.name, size_bytes=size))
+    return videos
 
 
 # ══ Fleet views ═══════════════════════════════════════════════════════

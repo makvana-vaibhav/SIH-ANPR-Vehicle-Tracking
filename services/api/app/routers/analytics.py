@@ -1118,7 +1118,7 @@ async def traffic_history(
           AND (CAST(:key AS text) IS NULL OR {column} = :key)
         GROUP BY bucket
         ORDER BY bucket
-    """  # noqa: S608 — `column` is one of two literals chosen above, never caller input
+    """  # `column` is one of two literals chosen above, never caller input
     rows = await session.execute(text(sql), {"start": start, "end": end, "key": key})
 
     return TrafficHistoryResponse(
