@@ -54,6 +54,16 @@ class Vehicle:
     # The vehicle's box at its best sighting. Carried on the event so the
     # platform can place the vehicle in the frame without re-deriving it.
     bbox: Any = None
+    # Net image-space displacement over the vehicle's whole sighting, from
+    # `Track.net_motion()`. Carried so the platform can tell a vehicle that
+    # drove through from one that sat still — the difference between traffic
+    # flowing and a queue, and the only reason either is computable from a
+    # record that holds one row per vehicle rather than one per frame.
+    # None means it could not be measured (one sighting only), which is not
+    # the same as measuring zero movement.
+    motion_dx: float | None = None
+    motion_dy: float | None = None
+    motion_px: float | None = None
 
     @property
     def duration_s(self) -> float:
@@ -173,7 +183,12 @@ def merge(tracks: dict[int, Track], config: RunConfig) -> list[Vehicle]:
         # answer than either had alone.
         result = consensus(reads, config.consensus) if reads else None
 
+        # The fragment with the most frames saw the most of this vehicle's
+        # movement, so its displacement is the least truncated. Summing across
+        # fragments would be wrong — they overlap in time by definition of
+        # being the same vehicle.
         best_track = max(group, key=lambda t: t.frame_count)
+        motion_dx, motion_dy, motion_px = best_track.net_motion() or (None, None, None)
         confidences = [o.confidence for o in observations if o.detected]
         best_observation = max(
             (t.best_observation for t in group if t.best_observation is not None),
@@ -199,6 +214,9 @@ def merge(tracks: dict[int, Track], config: RunConfig) -> list[Vehicle]:
                 best_crop_path=best_track.best_crop_path,
                 merged_from_fragments=len(group),
                 bbox=best_observation.bbox if best_observation else None,
+                motion_dx=motion_dx,
+                motion_dy=motion_dy,
+                motion_px=motion_px,
             )
         )
     return vehicles

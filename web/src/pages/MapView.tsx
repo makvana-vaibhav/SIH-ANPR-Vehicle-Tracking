@@ -30,6 +30,7 @@ import type {
   CameraFeatureProperties,
   CameraGeoJSON,
   CameraStatus,
+  CongestionLevel,
   Department,
   FleetHealth,
   VmsInstance,
@@ -93,6 +94,34 @@ export default function MapView() {
       cancelled = true
     }
   }, [showHeatmap, heatmap])
+
+  // Corridor traffic state, on the same on-demand terms as the heatmap.
+  // Grouped by corridor because that is what the road linework is keyed on.
+  const [showTraffic, setShowTraffic] = useState(false)
+  const [corridorTraffic, setCorridorTraffic] =
+    useState<Record<string, CongestionLevel> | null>(null)
+
+  useEffect(() => {
+    if (!showTraffic) return
+    let cancelled = false
+    void api
+      .getTrafficState({ group_by: 'corridor' })
+      .then((body) => {
+        if (cancelled) return
+        // Only corridors with a level. One without is left out of the map
+        // entirely so the layer paints it as "no data" rather than as
+        // free-flowing — a road nothing was measured on must not look calm.
+        const levels: Record<string, CongestionLevel> = {}
+        for (const zone of body.zones) {
+          if (zone.congestion) levels[zone.key] = zone.congestion
+        }
+        setCorridorTraffic(levels)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [showTraffic])
 
   // District boundaries are a static asset: fetched once, cached by the
   // browser, and served from our own origin — no tile server involved.
@@ -295,6 +324,19 @@ export default function MapView() {
                 Weighted by vehicle count over the last 6 hours — the camera
                 layer stays on top so cameras are never hidden under it.
               </p>
+
+              <div className="mt-3">
+                <Checkbox
+                  checked={showTraffic}
+                  onChange={(e) => setShowTraffic(e.target.checked)}
+                  label="Corridor traffic state"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  The twelve corridors the fleet sits on, coloured by
+                  congestion. Grey means no figure for that road in this
+                  window — not free-flowing.
+                </p>
+              </div>
             </div>
           )}
 
@@ -346,6 +388,8 @@ export default function MapView() {
             onSatelliteUnavailable={handleSatelliteUnavailable}
             heatmap={heatmap}
             showHeatmap={showHeatmap}
+            corridorTraffic={corridorTraffic}
+            showTraffic={showTraffic}
           />
 
           {/* Basemap switcher */}

@@ -245,3 +245,170 @@ class HeatmapResponse(BaseModel):
     features: list[HeatmapFeature]
     window: Window
     max_vehicles: int
+
+
+# ── traffic intelligence ──────────────────────────────────────────────
+#
+# One payload per camera and per corridor, combining everything the traffic
+# dashboard shows. Deliberately one endpoint rather than eight: the panels all
+# describe the same window over the same rows, and eight round trips would let
+# them disagree with each other on screen while each one is individually
+# correct.
+
+#: Ordered free → worst. A UI sorting "most congested first" reverses this.
+CongestionLevel = Literal["free", "moderate", "heavy", "severe"]
+
+
+class TrafficFactor(BaseModel):
+    """Why a congestion level came out the way it did.
+
+    Same shape as `alerts.reasons` (migration 0005). A level with no reasons is
+    a bug, not a terse response — CLAUDE.md's explainability rule.
+    """
+
+    factor: str = Field(description="Stable slug: occupancy, speed, travel_time…")
+    detail: str = Field(description="The sentence an operator reads.")
+
+
+class VehicleTypeCounts(BaseModel):
+    """Unique vehicles by class over the window.
+
+    Counts of *vehicles*, not of frames or detections: the platform writes one
+    row when a track retires, so there is no per-frame inflation to undo.
+    Every class is present even at zero, because a panel that silently drops
+    "bus" reads as broken rather than as quiet.
+    """
+
+    car: int = 0
+    motorcycle: int = 0
+    bus: int = 0
+    truck: int = 0
+    other: int = Field(default=0, description="Classes the detector reported outside the four above.")
+
+
+class DirectionCounts(BaseModel):
+    """Which way vehicles travelled through the camera's view.
+
+    **Image space, not compass.** `approaching`/`receding` mean toward and away
+    from the camera; converting to a bearing needs `cameras.heading_deg` and is
+    only meaningful where that is set. `unmeasured` is vehicles the worker saw
+    once and could not judge — carried rather than hidden, because it is the
+    difference between "nothing was stationary" and "we could not tell".
+    """
+
+    approaching: int = 0
+    receding: int = 0
+    crossing_left: int = 0
+    crossing_right: int = 0
+    stationary: int = 0
+    unmeasured: int = 0
+
+
+class QueueState(BaseModel):
+    present: bool
+    #: Vehicles, never metres. Nothing in this system knows how long a car is.
+    length_vehicles: int
+    #: How many consecutive buckets the queue condition held for. One bucket is
+    #: a red light; several is a queue.
+    sustained_buckets: int
+    status: DataStatus
+
+
+class PossibleObstruction(BaseModel):
+    """A vehicle that has not moved for a long time.
+
+    **"Possible obstruction" and nothing stronger.** The platform can see that
+    a vehicle stopped; it cannot see a breakdown, a delivery, a police stop or
+    a driver reading a map, and all four produce this exact signal. Naming the
+    observation rather than the cause is CLAUDE.md §1's language rule, and it
+    is the difference between an operator trusting this panel and learning to
+    ignore it.
+    """
+
+    camera_code: str
+    camera_name: str
+    corridor: str | None
+    lat: float | None
+    lon: float | None
+    track_id: str
+    plate: str | None
+    vehicle_type: str | None
+    stationary_seconds: float
+    last_seen: datetime
+
+
+class TrafficZone(BaseModel):
+    """One camera's view, or one corridor, over the window.
+
+    "Zone" is the camera's field of view — there are no ROI polygons in this
+    system and inventing an uncalibrated one would make density look more
+    precise than it is.
+    """
+
+    key: str = Field(description="Camera code, or corridor name when grouped by corridor.")
+    label: str
+    corridor: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+
+    vehicles: int
+    by_type: VehicleTypeCounts
+    by_direction: DirectionCounts
+    vehicles_per_minute: float | None
+    vehicles_per_hour: float | None
+
+    #: Most vehicles in view at once — the density figure. **Vehicles in view,
+    #: not vehicles per kilometre:** no camera here is calibrated, so there is
+    #: no honest conversion between the two.
+    peak_occupancy: int
+    density_status: DataStatus
+
+    median_speed_kmph: float | None
+    speed_status: DataStatus
+    travel_time_delta_pct: float | None
+    travel_time_status: DataStatus
+
+    congestion: CongestionLevel | None
+    congestion_score: float | None
+    congestion_status: DataStatus
+    factors: list[TrafficFactor]
+
+    queue: QueueState
+
+
+class TrafficResponse(BaseModel):
+    window: Window
+    group_by: Literal["camera", "corridor"]
+    zones: list[TrafficZone]
+
+    #: Fleet-level totals, so the dashboard's headline strip does not have to
+    #: re-derive them and risk disagreeing with the table below it.
+    total_vehicles: int
+    totals_by_type: VehicleTypeCounts
+    active_cameras: int = Field(description="Cameras that produced at least one vehicle in the window.")
+    fleet_cameras: int = Field(description="Cameras enabled for ANPR, whether or not they saw anything.")
+
+    possible_obstructions: list[PossibleObstruction]
+    #: Worst-first, for the "top congested roads" panel.
+    most_congested: list[str]
+    note: str
+
+
+class TrafficHistoryPoint(BaseModel):
+    bucket: datetime
+    vehicles: int
+    stationary_vehicles: int
+    median_dwell_s: float | None
+
+
+class TrafficHistoryResponse(BaseModel):
+    """The trend chart, and the evidence behind the queue verdict.
+
+    Same buckets the queue detector runs over, so what the chart shows and what
+    the verdict was computed from cannot drift apart.
+    """
+
+    window: Window
+    key: str | None
+    group_by: Literal["camera", "corridor"]
+    points: list[TrafficHistoryPoint]

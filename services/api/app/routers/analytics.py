@@ -49,10 +49,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DbSession
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.rbac import Permission, require_permission
 from app.schemas.analytics import (
     CorridorSpeed,
+    DirectionCounts,
     FlowPoint,
     FlowResponse,
     FlowSeries,
@@ -62,15 +64,24 @@ from app.schemas.analytics import (
     HeatmapResponse,
     Hotspot,
     HotspotResponse,
+    PossibleObstruction,
+    QueueState,
     RouteDensityResponse,
     RoutePair,
     SegmentSpeed,
     SpeedProvenance,
     SpeedResponse,
+    TrafficFactor,
+    TrafficHistoryPoint,
+    TrafficHistoryResponse,
+    TrafficResponse,
+    TrafficZone,
     TravelTime,
     TravelTimeResponse,
+    VehicleTypeCounts,
     Window,
 )
+from app.services import traffic
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
 log = get_logger(__name__)
@@ -708,4 +719,419 @@ async def heatmap(
         ],
         window=Window(start=start, end=end, bucket_seconds=0),
         max_vehicles=busiest,
+    )
+
+
+# ── traffic intelligence ──────────────────────────────────────────────
+#
+# One endpoint behind the whole dashboard. The panels all describe the same
+# window over the same rows, so computing them together is what stops them
+# disagreeing on screen while each is individually correct.
+
+#: Hard cap on detection rows pulled for occupancy and queue analysis.
+#:
+#: Occupancy is a sweep over per-vehicle dwell intervals, and the sweep runs
+#: in `app/services/traffic.py` rather than in SQL so the tested function is
+#: the one actually serving traffic. That means the rows come to Python, so
+#: the window has to be bounded. At the demo fleet's scale (58 cameras, a few
+#: thousand vehicles in six hours) this is never reached; a city deployment
+#: would move the sweep into SQL, which is a known and deliberate limit
+#: rather than an oversight.
+MAX_OBSERVATION_ROWS = 20_000
+
+#: Bucket width the queue detector runs over. Fixed rather than caller-chosen:
+#: `traffic_queue_dwell_seconds` and `traffic_queue_min_sustained_buckets` are
+#: both calibrated against it, so letting a caller change the bucket would
+#: silently change what "sustained" means.
+QUEUE_BUCKET = "5 minutes"
+QUEUE_BUCKET_SECONDS = 300
+
+#: Per-vehicle observations in the window: what was seen, for how long, and
+#: whether it moved. One row per vehicle — `detections` holds one row per
+#: retired track, so there is no per-frame inflation to undo here.
+_OBSERVATIONS_SQL = """
+    SELECT c.camera_code, c.name AS camera_name, c.corridor,
+           ST_Y(c.location::geometry) AS lat,
+           ST_X(c.location::geometry) AS lon,
+           d.ts, d.track_id, d.vehicle_type, d.direction,
+           d.dwell_s, d.plate_normalised
+    FROM detections d
+    JOIN cameras c ON c.id = d.camera_id
+    WHERE d.ts >= :start AND d.ts < :end
+      AND (CAST(:corridor AS text) IS NULL OR c.corridor = :corridor)
+    ORDER BY d.ts
+    LIMIT :limit
+"""
+
+
+def _rounded(value: float | None, places: int = 2) -> float | None:
+    """Round for presentation, keeping None as None.
+
+    A missing figure must stay missing all the way to the client — rounding
+    None to 0.0 is exactly how "we could not measure this" turns into "the
+    road is empty".
+    """
+    return None if value is None else round(float(value), places)
+
+
+def _thresholds() -> traffic.TrafficThresholds:
+    """Settings → the engine's threshold object.
+
+    The engine takes these as an argument rather than importing settings,
+    which is what keeps it stdlib-only and therefore runnable without a
+    database. This function is the single place the two meet.
+    """
+    return traffic.TrafficThresholds(
+        queue_min_vehicles=settings.traffic_queue_min_vehicles,
+        queue_dwell_seconds=settings.traffic_queue_dwell_seconds,
+        queue_min_sustained_buckets=settings.traffic_queue_min_sustained_buckets,
+        obstruction_dwell_seconds=settings.traffic_obstruction_dwell_seconds,
+        occupancy_reference=settings.traffic_occupancy_reference,
+        congestion_moderate=settings.traffic_congestion_moderate,
+        congestion_heavy=settings.traffic_congestion_heavy,
+        congestion_severe=settings.traffic_congestion_severe,
+    )
+
+
+#: The direction labels the worker emits, and the only strings this router will
+#: act on. An explicit set rather than `hasattr` on the response model: the
+#: value arrives from an event, and `hasattr(counts, "model_dump")` is true, so
+#: attribute-name dispatch would let a malformed event overwrite a method
+#: instead of incrementing a counter.
+_DIRECTIONS = frozenset(
+    {"approaching", "receding", "crossing_left", "crossing_right", "stationary"}
+)
+
+
+def _direction_counts(directions: list[str | None]) -> DirectionCounts:
+    """Tally the worker's image-space direction labels.
+
+    NULL means the worker could not measure the movement — a vehicle it saw
+    exactly once. Counted as `unmeasured` rather than folded into
+    `stationary`, because the obstruction detector keys on stationary and
+    conflating the two would invent stopped vehicles out of tracker noise.
+    Anything unrecognised lands there too, rather than being dropped.
+    """
+    tally = dict.fromkeys(_DIRECTIONS, 0)
+    unmeasured = 0
+    for raw in directions:
+        if raw in tally:
+            tally[raw] += 1
+        else:
+            unmeasured += 1
+    return DirectionCounts(**tally, unmeasured=unmeasured)
+
+
+def _queue_samples(rows: list[Any], bucket_seconds: int) -> list[traffic.QueueSample]:
+    """Bucket a zone's vehicles into the evidence the queue detector needs.
+
+    A bucket's `median_dwell_s` is taken over the vehicles that were actually
+    stationary in it, not over all of them: a queue of four cars beside a lane
+    of free-flowing traffic is still a queue, and averaging the two away is
+    how it would be missed.
+    """
+    buckets: dict[int, list[float]] = {}
+    for row in rows:
+        if row["direction"] != traffic.STATIONARY or row["dwell_s"] is None:
+            continue
+        slot = int(row["ts"].timestamp() // bucket_seconds)
+        buckets.setdefault(slot, []).append(float(row["dwell_s"]))
+
+    return [
+        traffic.QueueSample(
+            at=float(slot * bucket_seconds),
+            stationary_vehicles=len(dwells),
+            median_dwell_s=traffic.median_or_none(dwells) or 0.0,
+        )
+        for slot, dwells in sorted(buckets.items())
+    ]
+
+
+def _dwell_intervals(rows: list[Any]) -> list[tuple[float, float]]:
+    """(entered, left) per vehicle, in epoch seconds.
+
+    `ts` is when the track retired — when the vehicle left the view — so the
+    interval runs back from it by the dwell. Vehicles with no dwell recorded
+    (anything written before migration 0007, or by a worker that predates the
+    motion block) are skipped rather than assumed instantaneous, which would
+    quietly report an empty road.
+    """
+    intervals: list[tuple[float, float]] = []
+    for row in rows:
+        if row["dwell_s"] is None:
+            continue
+        left = row["ts"].timestamp()
+        intervals.append((left - float(row["dwell_s"]), left))
+    return intervals
+
+
+async def _corridor_speeds(
+    session: AsyncSession, start: datetime, end: datetime
+) -> dict[str, float]:
+    """Median plausible speed per corridor, over the legs the speed endpoint uses.
+
+    Usually empty on the demo fleet: replayed clips make every implied speed
+    implausible and the correlator excludes them, which is correct and is why
+    congestion renormalises over whichever signals survive.
+    """
+    legs = await _segment_legs(session, start, end)
+    by_corridor: dict[str, list[float]] = {}
+    for leg in legs:
+        if not leg["plausible"] or leg["implied_kmph"] is None:
+            continue
+        corridor = leg["to_corridor"]
+        if corridor:
+            by_corridor.setdefault(corridor, []).append(float(leg["implied_kmph"]))
+
+    out: dict[str, float] = {}
+    for corridor, values in by_corridor.items():
+        if len(values) < MIN_SPEED_SAMPLES:
+            continue
+        median = _median(values)
+        if median is not None:
+            out[corridor] = median
+    return out
+
+
+@router.get(
+    "/traffic",
+    response_model=TrafficResponse,
+    summary="Traffic state per camera or corridor: counts, density, congestion, queues",
+)
+async def traffic_state(
+    session: DbSession,
+    _user: Annotated[object, Depends(_read)],
+    since: datetime | None = None,
+    until: datetime | None = None,
+    group_by: Annotated[str, Query(pattern="^(camera|corridor)$")] = "camera",
+    corridor: str | None = None,
+) -> TrafficResponse:
+    """Everything the traffic dashboard shows, for one window.
+
+    Counts are of **unique vehicles**: the AI worker emits one event when a
+    track retires and the consumer writes one row for it, so a vehicle in view
+    for 300 frames is one row, not 300. No `DISTINCT` is needed and none is
+    used — adding one here would hide it if that ever stopped being true.
+
+    Every figure that cannot be computed says so rather than defaulting to
+    zero. On a fresh `make demo` expect speed and travel time to report
+    `insufficient_data` on most corridors; congestion is then scored on
+    occupancy alone and labelled accordingly, which is the honest answer
+    rather than "free flowing".
+    """
+    start, end = _window(since, until)
+    window_seconds = (end - start).total_seconds()
+    thresholds = _thresholds()
+
+    result = await session.execute(
+        text(_OBSERVATIONS_SQL),
+        {
+            "start": start,
+            "end": end,
+            "corridor": corridor,
+            "limit": MAX_OBSERVATION_ROWS,
+        },
+    )
+    rows = list(result.mappings())
+
+    fleet = await session.execute(text("SELECT count(*) FROM cameras WHERE anpr_enabled"))
+    fleet_cameras = int(fleet.scalar() or 0)
+
+    speeds = await _corridor_speeds(session, start, end)
+
+    # Travel-time delta per corridor, from the existing segment comparison.
+    # Keyed on the arriving camera's corridor, which is how `_travel_times`
+    # already attributes a leg.
+    deltas: dict[str, list[float]] = {}
+    for segment in await _travel_times(session, start, end):
+        if segment.corridor and segment.delta_pct is not None:
+            deltas.setdefault(segment.corridor, []).append(segment.delta_pct)
+
+    grouped: dict[str, list[Any]] = {}
+    for row in rows:
+        key = (
+            (row["corridor"] or "unassigned")
+            if group_by == "corridor"
+            else row["camera_code"]
+        )
+        grouped.setdefault(key, []).append(row)
+
+    zones: list[TrafficZone] = []
+    for key, zone_rows in sorted(grouped.items()):
+        first = zone_rows[0]
+        zone_corridor = first["corridor"]
+
+        # Speed and travel time are corridor-level facts — both come from the
+        # distance between two cameras, which a single camera cannot know. A
+        # camera inherits its corridor's figure rather than inventing one.
+        median_speed = speeds.get(zone_corridor) if zone_corridor else None
+        corridor_deltas = deltas.get(zone_corridor or "", [])
+        travel_delta = _median(corridor_deltas) if corridor_deltas else None
+
+        intervals = _dwell_intervals(zone_rows)
+        peak = traffic.peak_occupancy(intervals)
+
+        assessment = traffic.assess_congestion(
+            peak_vehicles=peak if intervals else None,
+            # No free-flow reference is measured anywhere in this system yet,
+            # so a speed *ratio* cannot be computed honestly. The median speed
+            # is still reported beside it; it simply does not vote on the
+            # congestion score rather than voting on an invented baseline.
+            speed_ratio=None,
+            travel_time_delta_pct=travel_delta,
+            thresholds=thresholds,
+        )
+        queue = traffic.detect_queue(
+            _queue_samples(zone_rows, QUEUE_BUCKET_SECONDS), thresholds
+        )
+
+        zones.append(
+            TrafficZone(
+                key=key,
+                label=(
+                    (zone_corridor or key)
+                    if group_by == "corridor"
+                    else first["camera_name"]
+                ),
+                corridor=zone_corridor,
+                lat=first["lat"] if group_by == "camera" else None,
+                lon=first["lon"] if group_by == "camera" else None,
+                vehicles=len(zone_rows),
+                by_type=VehicleTypeCounts(
+                    **traffic.counts_by_type([r["vehicle_type"] for r in zone_rows])
+                ),
+                by_direction=_direction_counts([r["direction"] for r in zone_rows]),
+                vehicles_per_minute=_rounded(
+                    traffic.rate_per_minute(len(zone_rows), window_seconds)
+                ),
+                vehicles_per_hour=_rounded(
+                    traffic.rate_per_hour(len(zone_rows), window_seconds)
+                ),
+                peak_occupancy=peak,
+                density_status="ok" if intervals else "insufficient_data",
+                median_speed_kmph=_rounded(median_speed),
+                speed_status="ok" if median_speed is not None else "insufficient_data",
+                travel_time_delta_pct=_rounded(travel_delta),
+                travel_time_status=(
+                    "ok" if travel_delta is not None else "insufficient_history"
+                ),
+                congestion=assessment.level,
+                congestion_score=assessment.score,
+                congestion_status=assessment.status,
+                factors=[
+                    TrafficFactor(factor=f.factor, detail=f.detail)
+                    for f in assessment.factors
+                ],
+                queue=QueueState(
+                    present=queue.present,
+                    length_vehicles=queue.length_vehicles,
+                    sustained_buckets=queue.sustained_buckets,
+                    status=queue.status,
+                ),
+            )
+        )
+
+    obstructions = [
+        PossibleObstruction(
+            camera_code=row["camera_code"],
+            camera_name=row["camera_name"],
+            corridor=row["corridor"],
+            lat=row["lat"],
+            lon=row["lon"],
+            track_id=row["track_id"],
+            plate=row["plate_normalised"],
+            vehicle_type=row["vehicle_type"],
+            stationary_seconds=round(float(row["dwell_s"]), 1),
+            last_seen=row["ts"],
+        )
+        for row in rows
+        if traffic.is_possible_obstruction(
+            direction=row["direction"], dwell_s=row["dwell_s"], thresholds=thresholds
+        )
+    ]
+    obstructions.sort(key=lambda o: o.stationary_seconds, reverse=True)
+
+    ranked = sorted(
+        (z for z in zones if z.congestion_score is not None),
+        key=lambda z: z.congestion_score or 0.0,
+        reverse=True,
+    )
+
+    return TrafficResponse(
+        window=Window(start=start, end=end, bucket_seconds=QUEUE_BUCKET_SECONDS),
+        group_by=group_by,  # type: ignore[arg-type]
+        zones=zones,
+        total_vehicles=len(rows),
+        totals_by_type=VehicleTypeCounts(
+            **traffic.counts_by_type([r["vehicle_type"] for r in rows])
+        ),
+        active_cameras=len({r["camera_code"] for r in rows}),
+        fleet_cameras=fleet_cameras,
+        possible_obstructions=obstructions[:MAX_ROWS],
+        most_congested=[z.key for z in ranked[:10]],
+        note=(
+            "Density is vehicles in a camera's view, not vehicles per kilometre "
+            "— no camera here is calibrated. Speed is estimated from "
+            "multi-camera timing and is absent where no plausible leg exists."
+        ),
+    )
+
+
+@router.get(
+    "/traffic/history",
+    response_model=TrafficHistoryResponse,
+    summary="Bucketed traffic volume and dwell, for the trend chart",
+)
+async def traffic_history(
+    session: DbSession,
+    _user: Annotated[object, Depends(_read)],
+    since: datetime | None = None,
+    until: datetime | None = None,
+    group_by: Annotated[str, Query(pattern="^(camera|corridor)$")] = "corridor",
+    key: str | None = None,
+) -> TrafficHistoryResponse:
+    """Volume and stationary-vehicle counts per bucket over the window.
+
+    Deliberately the same buckets the queue detector runs over, so the chart
+    an operator reads and the verdict shown beside it cannot disagree.
+    """
+    start, end = _window(since, until)
+    # Interpolated, not bound: a column name cannot be a bind parameter. Safe
+    # because `group_by` is constrained to two literals by the route's own
+    # `pattern`, so nothing caller-supplied reaches the SQL text.
+    column = "c.corridor" if group_by == "corridor" else "c.camera_code"
+
+    # `CAST(:key AS text)` rather than `:key::text`, and the key comparison
+    # written the long way: see the note above the flow endpoint's SQL for
+    # both traps. Bare `:key IS NULL` leaves the parameter untyped, which
+    # asyncpg rejects outright rather than treating as NULL.
+    sql = f"""
+        SELECT time_bucket(INTERVAL '{QUEUE_BUCKET}', d.ts) AS bucket,
+               count(*) AS vehicles,
+               count(*) FILTER (WHERE d.direction = 'stationary') AS stationary,
+               percentile_cont(0.5) WITHIN GROUP (
+                   ORDER BY d.dwell_s
+               ) FILTER (WHERE d.direction = 'stationary') AS median_dwell
+        FROM detections d
+        JOIN cameras c ON c.id = d.camera_id
+        WHERE d.ts >= :start AND d.ts < :end
+          AND (CAST(:key AS text) IS NULL OR {column} = :key)
+        GROUP BY bucket
+        ORDER BY bucket
+    """  # noqa: S608 — `column` is one of two literals chosen above, never caller input
+    rows = await session.execute(text(sql), {"start": start, "end": end, "key": key})
+
+    return TrafficHistoryResponse(
+        window=Window(start=start, end=end, bucket_seconds=QUEUE_BUCKET_SECONDS),
+        key=key,
+        group_by=group_by,  # type: ignore[arg-type]
+        points=[
+            TrafficHistoryPoint(
+                bucket=row["bucket"],
+                vehicles=int(row["vehicles"]),
+                stationary_vehicles=int(row["stationary"] or 0),
+                median_dwell_s=_rounded(row["median_dwell"]),
+            )
+            for row in rows.mappings()
+        ],
     )

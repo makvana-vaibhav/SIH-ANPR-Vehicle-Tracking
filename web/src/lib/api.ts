@@ -34,6 +34,8 @@ import type {
   Priority,
   Role,
   RoutablePlates,
+  TrafficHistoryResponse,
+  TrafficResponse,
   TravelTimeResponse,
   UserProfile,
   UserPage,
@@ -629,6 +631,29 @@ export const getAnalyticsHotspots = (
 
 export const getAnalyticsHeatmap = (query: AnalyticsWindowQuery = {}) =>
   request<HeatmapResponse>(`/api/v1/analytics/heatmap?${analyticsParams(query)}`)
+
+// ── Traffic intelligence ─────────────────────────────────────────────────
+//
+// One request behind the whole dashboard rather than one per panel: every
+// figure describes the same window over the same rows, and fetching them
+// separately would let them disagree on screen while each was correct.
+
+export const getTrafficState = (
+  query: AnalyticsWindowQuery & {
+    group_by?: 'camera' | 'corridor'
+    corridor?: string
+  } = {},
+) => request<TrafficResponse>(`/api/v1/analytics/traffic?${analyticsParams(query)}`)
+
+export const getTrafficHistory = (
+  query: AnalyticsWindowQuery & {
+    group_by?: 'camera' | 'corridor'
+    key?: string
+  } = {},
+) =>
+  request<TrafficHistoryResponse>(
+    `/api/v1/analytics/traffic/history?${analyticsParams(query)}`,
+  )
 
 // ── Predictive traffic (P10) ─────────────────────────────────────────────
 

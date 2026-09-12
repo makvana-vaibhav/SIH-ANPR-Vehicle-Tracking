@@ -9,6 +9,7 @@ on.
 from __future__ import annotations
 
 import json
+import math
 import time
 from datetime import UTC, datetime
 from itertools import pairwise
@@ -203,6 +204,65 @@ def test_event_carries_the_vehicle_bounding_box() -> None:
     event = vehicle_event(vehicle, SourceIdentity(camera_id="C1"))
     assert event["vehicle"]["bbox"] is not None
     assert event["vehicle"]["bbox"]["w"] == 400.0
+
+
+class TestMotionOnTheEvent:
+    """Which way the vehicle went, and whether it went anywhere at all.
+
+    This is what makes density, queues and stopped vehicles computable from a
+    record that holds one row per vehicle rather than one per frame. It is
+    image-space only — turning it into a compass direction needs
+    `cameras.heading_deg`, which the platform owns.
+    """
+
+    FRAME = (1920, 1080)  # stationary below 0.03 * 1080 = 32.4 px
+
+    def _vehicle(self, dx: float | None, dy: float | None) -> Vehicle:
+        vehicle = make_vehicle()
+        vehicle.motion_dx = dx
+        vehicle.motion_dy = dy
+        vehicle.motion_px = None if dx is None or dy is None else math.hypot(dx, dy)
+        return vehicle
+
+    def _direction(self, dx: float | None, dy: float | None) -> str:
+        event = vehicle_event(
+            self._vehicle(dx, dy), SourceIdentity(camera_id="C1"), frame_size=self.FRAME
+        )
+        return str(event["vehicle"]["motion"]["direction"])
+
+    def test_downward_travel_is_approaching(self) -> None:
+        assert self._direction(20.0, 400.0) == "approaching"
+
+    def test_upward_travel_is_receding(self) -> None:
+        assert self._direction(-10.0, -350.0) == "receding"
+
+    def test_lateral_travel_is_crossing(self) -> None:
+        assert self._direction(500.0, 30.0) == "crossing_right"
+        assert self._direction(-420.0, -12.0) == "crossing_left"
+
+    def test_a_vehicle_that_barely_moved_is_stationary(self) -> None:
+        """Box jitter over a long dwell is what a queue looks like."""
+        assert self._direction(8.0, 11.0) == "stationary"
+
+    def test_unmeasurable_motion_is_unknown_not_stationary(self) -> None:
+        """A one-sighting detector flicker must not read as a parked car.
+
+        The obstruction detector keys on `stationary`, so collapsing "we could
+        not measure" into "it did not move" would invent stopped vehicles out
+        of tracker noise.
+        """
+        assert self._direction(None, None) == "unknown"
+
+    def test_no_frame_size_means_unknown(self) -> None:
+        """Without the frame, 'barely moved' has no scale to be judged against.
+
+        This fleet mixes 720p and 1080p, so the threshold is a fraction of the
+        frame rather than a pixel count — and with no frame there is no
+        honest answer.
+        """
+        event = vehicle_event(self._vehicle(0.0, 400.0), SourceIdentity(camera_id="C1"))
+        assert event["vehicle"]["motion"]["direction"] == "unknown"
+        assert event["vehicle"]["motion"]["distance_px"] is None
 
 
 class TestBoxesAnOverlayCanDraw:

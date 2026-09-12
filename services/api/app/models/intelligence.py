@@ -77,7 +77,27 @@ class Detection(Base):
     crop_key: Mapped[str | None] = mapped_column(Text)
     frame_key: Mapped[str | None] = mapped_column(Text)
 
+    # How the vehicle moved through this camera's view, from the worker's
+    # `vehicle.motion` block. `direction` is image-space
+    # (approaching/receding/crossing_left/crossing_right/stationary/unknown),
+    # *not* a compass bearing — the worker does not know where the camera
+    # points. `cameras.heading_deg` is what turns it into one, and that
+    # conversion belongs here rather than at the edge.
     direction: Mapped[str | None] = mapped_column(String(16))
+    # Net displacement across the frame, in pixels. Net rather than total path
+    # length on purpose: a vehicle stopped at a light still accumulates path
+    # length from box jitter, and only net displacement tells "queued" from
+    # "drove through".
+    motion_px: Mapped[float | None] = mapped_column(Float)
+    # Seconds the vehicle was in view. The basis of density (how many vehicles
+    # were present at once) and of queue detection (several vehicles dwelling
+    # long together). Computed by the worker as `duration_s`; the consumer
+    # used to discard it.
+    dwell_s: Mapped[float | None] = mapped_column(Float)
+    # Still never populated: no single camera is calibrated, so a per-sighting
+    # speed would be invented. Speed comes from multi-camera timing instead
+    # (`GET /analytics/speed`), where the distance between two cameras is a
+    # fact rather than a guess.
     speed_kmph: Mapped[float | None] = mapped_column(Float)
 
     # A ReID-model appearance vector, for linking a vehicle across cameras
@@ -100,6 +120,10 @@ class Detection(Base):
         Index("ix_detections_plate_ts", "plate_normalised", ts.desc()),
         Index("ix_detections_camera_ts", "camera_id", ts.desc()),
         Index("ix_detections_ts", ts.desc()),
+        # The traffic dashboard's headline panel: cars/motorcycles/buses/trucks
+        # per camera over a window. Adding vehicle_type to the existing
+        # (camera_id, ts) index is what keeps that a single index scan.
+        Index("ix_detections_camera_type_ts", "camera_id", "vehicle_type", ts.desc()),
         # Trigram index for partial-plate search when OpenSearch is unavailable.
         Index(
             "ix_detections_plate_trgm",

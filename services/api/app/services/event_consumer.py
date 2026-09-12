@@ -346,6 +346,10 @@ class EventConsumer:
         plate = event.get("plate", {})
         evidence = event.get("evidence", {})
         camera_code = str(event.get("source", {}).get("camera_id", ""))
+        # Absent on events from a worker that predates the motion block; the
+        # columns then stay NULL, which is the honest record of "not measured"
+        # and is exactly how the traffic engine treats them.
+        motion = vehicle.get("motion") or {}
 
         return Detection(
             ts=_parse_time(event.get("event_time")),
@@ -360,6 +364,19 @@ class EventConsumer:
             detection_confidence=vehicle.get("confidence"),
             bbox=vehicle.get("bbox"),
             plate_bbox=plate.get("bbox"),
+            # What makes traffic intelligence possible from a one-row-per-
+            # vehicle record. `direction` is image-space, not compass — see
+            # the column comments on the model. "unknown" is stored as NULL
+            # rather than as a string, so "we could not measure" reads the same
+            # here as it does on every row written before this existed.
+            direction=(str(motion.get("direction") or "")[:16] or None)
+            if motion.get("direction") != "unknown"
+            else None,
+            motion_px=motion.get("distance_px"),
+            # The worker has always computed this and the consumer has always
+            # discarded it. Density and queue detection are both occupancy over
+            # these intervals.
+            dwell_s=vehicle.get("duration_s"),
             # The object key the worker uploaded the crop under. The worker
             # returns the key synchronously and uploads on a background thread,
             # so for a moment after a detection this names an object that does

@@ -61,6 +61,67 @@ class SourceIdentity:
 #: computed under the same rules that accepted the plate in the first place.
 _REGIONS_BY_FORMAT = {"uk_current": ("IN", "GB")}
 
+#: Net displacement below this fraction of the frame's shorter side counts as
+#: not having moved. Expressed as a fraction rather than in pixels because this
+#: fleet mixes 720p and 1080p cameras, and a pixel threshold that is right for
+#: one is wrong for the other by 50%. Judged here, where the frame size is
+#: known, rather than left to a consumer that only receives the raw distance.
+STATIONARY_FRACTION = 0.03
+
+
+def _motion_block(vehicle: Vehicle, frame_size: tuple[int, int] | None) -> dict[str, Any]:
+    """Which way the vehicle went, in image space, and how far.
+
+    **This is not a compass bearing and must not be read as one.** The worker
+    has no idea where the camera points; it knows only that the box moved down
+    and right across the picture. Turning that into a direction on a map needs
+    `cameras.heading_deg`, which the platform owns — so this reports what was
+    actually observed and leaves the interpretation to the tier that can do it
+    honestly.
+
+    `direction` is the dominant axis of travel:
+
+      approaching     moved down the frame — toward a forward-facing camera
+      receding        moved up the frame — away from it
+      crossing_left   moved left across the frame
+      crossing_right  moved right across the frame
+      stationary      did not materially move at all
+
+    `stationary` is the one that earns its place for traffic work: a vehicle
+    tracked for forty seconds that never moved is a queue or an obstruction,
+    and that is invisible in a record holding one row per vehicle unless this
+    is carried.
+
+    `unknown` is reported rather than guessed when the movement could not be
+    measured at all — a single sighting, or a frame size we were never told.
+    A detector flicker must not arrive at the platform looking like a parked
+    car, because the obstruction detector keys on exactly that.
+    """
+    dx, dy, distance = vehicle.motion_dx, vehicle.motion_dy, vehicle.motion_px
+    reference = min(frame_size) if frame_size else 0
+
+    if distance is None or dx is None or dy is None or reference <= 0:
+        return {
+            "direction": "unknown",
+            "dx_px": None,
+            "dy_px": None,
+            "distance_px": None,
+        }
+
+    if distance < STATIONARY_FRACTION * reference:
+        direction = "stationary"
+    elif abs(dy) >= abs(dx):
+        direction = "approaching" if dy > 0 else "receding"
+    else:
+        direction = "crossing_right" if dx > 0 else "crossing_left"
+
+    return {
+        "direction": direction,
+        "dx_px": round(dx, 1),
+        "dy_px": round(dy, 1),
+        "distance_px": round(distance, 1),
+    }
+
 
 def _plate_block(vehicle: Vehicle | Track) -> dict[str, Any]:
     result = vehicle.result
@@ -167,6 +228,9 @@ def vehicle_event(
             "duration_s": round(vehicle.duration_s, 3),
             "frames_tracked": vehicle.frames_tracked,
             "merged_from_fragments": vehicle.merged_from_fragments,
+            # How the vehicle moved through the frame. Image space, not
+            # compass — see `_motion_block`.
+            "motion": _motion_block(vehicle, frame_size),
         },
         "plate": _plate_block(vehicle),
         "evidence": {
