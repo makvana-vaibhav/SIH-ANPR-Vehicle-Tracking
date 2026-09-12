@@ -461,20 +461,12 @@ export default function AnprOverlay({ events, enabled = true, videoClock }: Prop
               }}
             />
 
-            {/* Layer 2 — the plate itself, drawn firmly because it is the
-                thing that was actually read. */}
-            {plate && plate.width >= 3 && (
-              <div
-                className="absolute rounded-[2px] border-2"
-                style={{
-                  left: plate.left,
-                  top: plate.top,
-                  width: plate.width,
-                  height: plate.height,
-                  borderColor: colour,
-                }}
-              />
-            )}
+            {/* No rectangle over the plate itself — the reading below is the
+                thing that was actually read, and a box drawn on top of the
+                characters is exactly what a viewer would want to read
+                themselves. `plate` (from `item.plateBox`) is still computed
+                above and used to anchor the label near the plate rather than
+                the vehicle. */}
 
             {/* The reading, only once it has settled. An unconfirmed plate is
                 still in the feed beside the video with its full evidence; it
