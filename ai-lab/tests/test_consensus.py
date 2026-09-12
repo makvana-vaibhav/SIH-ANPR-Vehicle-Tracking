@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ailab.aggregate.consensus import consensus
+from ailab.aggregate.consensus import consensus, is_confirmed
 from ailab.config import ConsensusConfig
 
 
@@ -61,6 +61,55 @@ def test_single_read_is_scored_on_its_own_confidence(make_read) -> None:
     assert result.method == "single_read"
     assert result.confidence == 0.83
     assert result.agreement == 1.0
+
+
+class TestIsConfirmed:
+    """The predicate that decides "reading" vs "confirmed" on the wire.
+
+    Must mirror `AnprOverlay.tsx`'s `isConfirmed()` exactly: this is the
+    function the frontend's own `plate.status` field is derived from, and the
+    whole point of sending it is that the two cannot disagree.
+    """
+
+    def test_no_result_is_not_confirmed(self) -> None:
+        assert is_confirmed(None) is False
+
+    def test_empty_text_is_not_confirmed(self) -> None:
+        result = consensus([], ConsensusConfig())
+        assert result.text == ""
+        assert is_confirmed(result) is False
+
+    def test_a_single_high_confidence_read_is_confirmed_immediately(
+        self, make_read
+    ) -> None:
+        """The fast path: one clean read is enough, no need to wait for a
+        second frame's worth of evidence."""
+        result = consensus([make_read("GJ03AB1234", 0.92)], ConsensusConfig())
+        assert is_confirmed(result) is True
+
+    def test_a_read_below_the_confidence_bar_is_only_reading(self, make_read) -> None:
+        result = consensus([make_read("GJ03AB1234", 0.42)], ConsensusConfig())
+        assert result.text == "GJ03AB1234"  # usable — a fast-path consumer
+        # can still show it — just not with a checkmark yet.
+        assert is_confirmed(result) is False
+
+    def test_grammar_invalid_never_confirms_however_confident(self, make_read) -> None:
+        result = consensus(
+            [make_read("NOTAPLATE1", 0.99, grammar_valid=False)], ConsensusConfig()
+        )
+        assert is_confirmed(result) is False
+
+    def test_ambiguous_never_confirms_however_confident(self, make_read) -> None:
+        # Two genuinely rival candidates — not a classic same-class confusion
+        # like 3/8, which `grammar.confusable` would suppress the flag for —
+        # at equal weight, so neither wins clearly.
+        reads = [
+            make_read("GJ03AB1234", 0.90, frame_index=1),
+            make_read("GJ05CD5678", 0.90, frame_index=2),
+        ]
+        result = consensus(reads, ConsensusConfig())
+        assert result.ambiguous is True
+        assert is_confirmed(result) is False
 
 
 def test_no_reads_yields_no_answer() -> None:
