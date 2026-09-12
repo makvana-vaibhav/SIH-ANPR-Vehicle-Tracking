@@ -20,9 +20,18 @@ description: Live RTSP worker — inference and events only, no diagnostic artif
 
 plate:
   schedule:
-    min_interval: 4
+    # Lower than default.yaml's 3/90: a live camera has a fixed transit time
+    # per vehicle, and the vehicle-width gate in particular used to withhold
+    # the *first* search until a car was already close to/leaving frame on a
+    # wide-angle view. `ocr.min_crop_width` (52px, default.yaml) and
+    # `is_legible()` already reject a crop too small to read, so opening this
+    # gate earlier costs a cheap failed legibility check on a still-distant
+    # vehicle rather than nothing — it does not spend an OCR call. Sweep with
+    # `ailab compare` against `time_to_first_read_s`/`time_to_confirmed_s`
+    # (see Track.first_read_latency_s) before moving these further.
+    min_interval: 2
     max_interval: 16
-    min_vehicle_width: 100
+    min_vehicle_width: 60
 
 ocr:
   max_reads_per_track: 20
