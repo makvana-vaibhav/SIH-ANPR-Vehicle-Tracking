@@ -489,9 +489,13 @@ def cmd_compare(args: argparse.Namespace) -> int:
     table.add_column("run", style="dim")
     for column in (
         "detector", "tracker", "ocr", "fps", "tracks", "vehicles",
-        "resolved", "valid", "ambiguous", "accuracy",
+        "resolved", "valid", "ambiguous", "1st read", "confirmed", "accuracy",
     ):
         table.add_column(column, justify="right")
+
+    def _median_s(value: dict[str, Any]) -> str:
+        median = value.get("median")
+        return f"{median:.2f}s" if isinstance(median, (int, float)) else "—"
 
     for run in runs:
         components = run.manifest.get("components", {})
@@ -499,6 +503,7 @@ def cmd_compare(args: argparse.Namespace) -> int:
         processing = summary.get("processing", {})
         results = summary.get("results", {})
         tracking = summary.get("tracking", {})
+        latency = summary.get("latency", {})
 
         evaluation_path = run.path / "evaluation.json"
         accuracy = "—"
@@ -517,6 +522,8 @@ def cmd_compare(args: argparse.Namespace) -> int:
             str(results.get("plates_resolved", 0)),
             str(results.get("plates_grammar_valid", 0)),
             str(results.get("plates_ambiguous", 0)),
+            _median_s(latency.get("time_to_first_read_s", {})),
+            _median_s(latency.get("time_to_confirmed_s", {})),
             accuracy,
         )
     console.print(table)

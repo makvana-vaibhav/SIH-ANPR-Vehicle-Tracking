@@ -52,18 +52,39 @@ class StreamStats:
     plates_read: int = 0
     discontinuities: int = 0
     latencies_ms: list[float] = field(default_factory=list)
+    # Seconds from a vehicle's first observation to its first plate read, and
+    # to the first read confident enough for the overlay to show — one sample
+    # per vehicle, the first time each becomes true. See `Track.first_read_
+    # latency_s`/`confirmed_latency_s` for why this differs from
+    # `latencies_ms` above (that is capture-to-event for one frame; this is
+    # how much of a vehicle's time on screen passed before it had a reading).
+    first_read_latencies_s: list[float] = field(default_factory=list)
+    confirmed_latencies_s: list[float] = field(default_factory=list)
     started_at: float = field(default_factory=time.perf_counter)
 
     @property
     def elapsed_s(self) -> float:
         return max(1e-6, time.perf_counter() - self.started_at)
 
-    def percentile(self, p: float) -> float:
-        if not self.latencies_ms:
+    def percentile(self, p: float, values: list[float] | None = None) -> float:
+        source = self.latencies_ms if values is None else values
+        if not source:
             return 0.0
-        ordered = sorted(self.latencies_ms)
+        ordered = sorted(source)
         index = min(len(ordered) - 1, max(0, int(round(p * (len(ordered) - 1)))))
         return ordered[index]
+
+    def _distribution_s(self, values: list[float]) -> dict[str, Any]:
+        """Same shape as the `latency_ms` block below, but seconds and
+        per-vehicle rather than per-frame — see the field docstring."""
+        if not values:
+            return {"count": 0}
+        return {
+            "count": len(values),
+            "median": round(self.percentile(0.5, values), 3),
+            "p90": round(self.percentile(0.9, values), 3),
+            "max": round(max(values), 3),
+        }
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,6 +97,14 @@ class StreamStats:
             "plates_read": self.plates_read,
             "events_observed": self.events_observed,
             "events_completed": self.events_completed,
+            # How much of a vehicle's time on screen passes before it has a
+            # plate reading, and before that reading is confident enough for
+            # the live overlay to show it. This is the number that decides
+            # whether a label can appear before the car leaves frame — the
+            # `latency_ms` block below times one frame's trip to the bus, not
+            # this.
+            "time_to_first_read_s": self._distribution_s(self.first_read_latencies_s),
+            "time_to_confirmed_s": self._distribution_s(self.confirmed_latencies_s),
             # Capture-to-event: the number that decides whether an alert is
             # actionable. Throughput without this says nothing about latency.
             "latency_ms": {
@@ -263,16 +292,28 @@ class StreamRunner:
             frame.image, tracked, frame.index, frame.t_s, tracks_view
         )
         for plate in plates:
-            before = len(tracks_view.get(plate.track_id, Track(0, "", 0)).plate_reads) \
-                if plate.track_id in tracks_view else 0
+            before_track = tracks_view.get(plate.track_id)
+            reads_before = len(before_track.plate_reads) if before_track else 0
+            first_read_before = before_track.first_read_latency_s if before_track else None
+            confirmed_before = before_track.confirmed_latency_s if before_track else None
+
             pipeline._read_plate(
                 frame.image, plate, tracks_view, self.run_dir or _NullRunDir(),
                 self._reads_by_track, self._crops_saved, self._labels, self._orphans,
             )
-            if plate.track_id in tracks_view:
-                after = len(tracks_view[plate.track_id].plate_reads)
-                if after > before:
+
+            after_track = tracks_view.get(plate.track_id)
+            if after_track is not None:
+                if len(after_track.plate_reads) > reads_before:
                     self.stats.plates_read += 1
+                # First time each milestone is reached for this vehicle —
+                # `Track.first_read_latency_s`/`confirmed_latency_s` are set
+                # once and never overwritten, so "was None, now isn't" is
+                # exactly the event to sample.
+                if first_read_before is None and after_track.first_read_latency_s is not None:
+                    self.stats.first_read_latencies_s.append(after_track.first_read_latency_s)
+                if confirmed_before is None and after_track.confirmed_latency_s is not None:
+                    self.stats.confirmed_latencies_s.append(after_track.confirmed_latency_s)
 
         self._emit_observed(tracks_view, captured)
         self._retire_stale(captured)
@@ -506,11 +547,14 @@ class StreamRunner:
         log.info(
             "stream ended: %d frames at %.2f fps, %d events "
             "(%d observed, %d completed), dropped %.0f%% of %d decoded, "
-            "median latency %.0f ms",
+            "median latency %.0f ms · median time-to-first-read %.2fs, "
+            "time-to-confirmed %.2fs",
             stream["frames_processed"], stream["processing_fps"],
             report["events"]["written"], stream["events_observed"],
             stream["events_completed"], 100.0 * reader["drop_rate"],
             reader["frames_decoded"], stream["latency_ms"]["median"],
+            stream["time_to_first_read_s"].get("median", 0.0),
+            stream["time_to_confirmed_s"].get("median", 0.0),
         )
 
 

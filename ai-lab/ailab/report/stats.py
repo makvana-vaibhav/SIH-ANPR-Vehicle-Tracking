@@ -246,6 +246,21 @@ def build_summary(result: RunResult, config: RunConfig) -> dict[str, Any]:
             "confidence_histogram": _histogram(detection_confidences),
             "low_confidence_count": sum(1 for c in detection_confidences if c < 0.5),
         },
+        # How much of a vehicle's time on screen passes before it has a plate
+        # reading at all, and before that reading is confident enough for the
+        # live overlay to show it. Distinct from `stages`/`invocations` above,
+        # which time individual model calls, and from the worker's own
+        # capture-to-event latency, which times one frame's trip to the bus —
+        # this is the number that decides whether a label can appear before
+        # the car leaves frame.
+        "latency": {
+            "time_to_first_read_s": _distribution(
+                [t.first_read_latency_s for t in vehicles if t.first_read_latency_s is not None]
+            ),
+            "time_to_confirmed_s": _distribution(
+                [t.confirmed_latency_s for t in vehicles if t.confirmed_latency_s is not None]
+            ),
+        },
         "tracking": {
             "unique_tracks": len(tracks),
             "vehicle_tracks": len(vehicles),

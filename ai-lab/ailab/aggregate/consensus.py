@@ -30,6 +30,28 @@ from ailab.aggregate import grammar
 from ailab.config import ConsensusConfig
 from ailab.types import PlateCandidate, PlateConsensus, PlateRead
 
+#: Confidence floor for a reading to be worth putting on a live screen.
+#: Mirrors `web/src/components/AnprOverlay.tsx`'s `CONFIRM_CONFIDENCE` exactly
+#: — the two must not drift, because this value is what the latency
+#: instrumentation (`Track.confirmed_latency_s`) uses to measure "time until
+#: the overlay would show this", and that is only honest if the threshold
+#: matches what the overlay actually gates on.
+CONFIRM_CONFIDENCE = 0.80
+
+
+def is_confirmed(result: PlateConsensus | None) -> bool:
+    """Has this consensus settled enough that the overlay would label it?
+
+    Grammar validity and the ambiguity flag are decisive rather than
+    confidence alone: a well-formed-looking but ambiguous or grammar-invalid
+    string is exactly the case a viewer should not be shown as fact.
+    """
+    if result is None or not result.text:
+        return False
+    if not result.grammar_valid or result.ambiguous:
+        return False
+    return result.confidence >= CONFIRM_CONFIDENCE
+
 
 def consensus(reads: list[PlateRead], config: ConsensusConfig) -> PlateConsensus:
     """Reduce every read of one vehicle to a single answer plus its evidence."""

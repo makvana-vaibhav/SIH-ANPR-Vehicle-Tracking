@@ -178,6 +178,18 @@ class Track:
     # long track, and invisible in a profile that only times model inference.
     _best_obs: TrackObservation | None = None
     _best_score: float = -1.0
+    # Seconds from this vehicle's first observation to a plate-reading
+    # milestone, set once and never overwritten. Distinct from the worker's
+    # capture-to-event latency (how fast one frame's event reaches the bus):
+    # this is how much of the vehicle's time on screen is spent before it has
+    # a reading at all, which is what decides whether a label can appear
+    # before the car leaves frame. Populated in `Pipeline._read_plate`, which
+    # both the batch pipeline and the live `StreamRunner` call, so both paths
+    # measure it identically.
+    first_read_latency_s: float | None = None
+    # Same, but for the first read whose running consensus would pass the
+    # live overlay's display gate — see `aggregate.consensus.is_confirmed`.
+    confirmed_latency_s: float | None = None
 
     # ── lifetime ──
     @property

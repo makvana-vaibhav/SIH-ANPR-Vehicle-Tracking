@@ -23,7 +23,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from ailab.aggregate.consensus import consensus
+from ailab.aggregate.consensus import consensus, is_confirmed
 from ailab.aggregate.grammar import normalise, validate
 from ailab.annotate import Annotator, TrackLabel, VideoWriter, transcode_to_h264
 from ailab.artifacts import RunDirectory, runs_root
@@ -657,6 +657,18 @@ class Pipeline:
         current = consensus(track.plate_reads, cfg.consensus)
         self.timer.add("consensus_incremental", time.perf_counter() - t0)
         track.result = current
+
+        # Latency milestones, set once. This is what answers "how much of the
+        # vehicle's time in frame passed before it had a reading at all" —
+        # see the field docstrings on `Track`. `best_read.t_s` is the source
+        # clock of the frame this read came from, the same clock
+        # `track.first_seen_s` is measured in, so the difference is real
+        # elapsed time regardless of how many frames were dropped between them.
+        if track.first_read_latency_s is None:
+            track.first_read_latency_s = best_read.t_s - track.first_seen_s
+        if track.confirmed_latency_s is None and is_confirmed(current):
+            track.confirmed_latency_s = best_read.t_s - track.first_seen_s
+
         # Keep the sharpest crop seen for this vehicle rather than the latest:
         # the inset should show the best evidence the pipeline had, which is
         # also the frame consensus weighted most heavily.
