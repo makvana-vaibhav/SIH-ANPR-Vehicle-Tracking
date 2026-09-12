@@ -779,6 +779,134 @@ export interface CongestionResponse {
   series: CongestionSeries[]
 }
 
+// ── Traffic intelligence ─────────────────────────────────────────────────
+//
+// One payload behind the whole dashboard. The panels all describe the same
+// window over the same rows, so they are fetched together rather than one per
+// panel — eight round trips would let them disagree on screen while each was
+// individually correct.
+
+/** Ordered free → worst. Sorting "most congested first" reverses this. */
+export type CongestionLevel = 'free' | 'moderate' | 'heavy' | 'severe'
+
+/** Why a congestion level came out the way it did. Same shape as AlertReason:
+ *  a level with no reasons is a bug, not a terse response. */
+export interface TrafficFactor {
+  factor: string
+  detail: string
+}
+
+/** Unique vehicles by class. Counts of *vehicles*, not frames — the platform
+ *  writes one row when a track retires. Every class is present even at zero. */
+export interface VehicleTypeCounts {
+  car: number
+  motorcycle: number
+  bus: number
+  truck: number
+  other: number
+}
+
+/**
+ * Which way vehicles travelled through a camera's view.
+ *
+ * **Image space, not compass.** `approaching`/`receding` mean toward and away
+ * from the camera. `unmeasured` is vehicles seen once, where movement could
+ * not be judged — carried rather than hidden, because it is the difference
+ * between "nothing was stationary" and "we could not tell".
+ */
+export interface DirectionCounts {
+  approaching: number
+  receding: number
+  crossing_left: number
+  crossing_right: number
+  stationary: number
+  unmeasured: number
+}
+
+export interface QueueState {
+  present: boolean
+  /** Vehicles, never metres — nothing here knows how long a car is. */
+  length_vehicles: number
+  sustained_buckets: number
+  status: DataStatus
+}
+
+/** A vehicle that has not moved for a long time. "Possible obstruction" and
+ *  nothing stronger: the system sees that it stopped, never why. */
+export interface PossibleObstruction {
+  camera_code: string
+  camera_name: string
+  corridor: string | null
+  lat: number | null
+  lon: number | null
+  track_id: string
+  plate: string | null
+  vehicle_type: string | null
+  stationary_seconds: number
+  last_seen: string
+}
+
+/** One camera's view, or one corridor. "Zone" is the field of view — there are
+ *  no ROI polygons, and an uncalibrated one would make density look more
+ *  precise than it is. */
+export interface TrafficZone {
+  key: string
+  label: string
+  corridor: string | null
+  lat: number | null
+  lon: number | null
+
+  vehicles: number
+  by_type: VehicleTypeCounts
+  by_direction: DirectionCounts
+  vehicles_per_minute: number | null
+  vehicles_per_hour: number | null
+
+  /** Most vehicles in view at once. **Vehicles in view, not per kilometre.** */
+  peak_occupancy: number
+  density_status: DataStatus
+
+  median_speed_kmph: number | null
+  speed_status: DataStatus
+  travel_time_delta_pct: number | null
+  travel_time_status: DataStatus
+
+  congestion: CongestionLevel | null
+  congestion_score: number | null
+  congestion_status: DataStatus
+  factors: TrafficFactor[]
+
+  queue: QueueState
+}
+
+export interface TrafficResponse {
+  window: AnalyticsWindow
+  group_by: 'camera' | 'corridor'
+  zones: TrafficZone[]
+  total_vehicles: number
+  totals_by_type: VehicleTypeCounts
+  active_cameras: number
+  fleet_cameras: number
+  possible_obstructions: PossibleObstruction[]
+  /** Worst-first, for the "top congested roads" panel. */
+  most_congested: string[]
+  note: string
+}
+
+export interface TrafficHistoryPoint {
+  bucket: string
+  vehicles: number
+  stationary_vehicles: number
+  median_dwell_s: number | null
+}
+
+export interface TrafficHistoryResponse {
+  window: AnalyticsWindow
+  key: string | null
+  group_by: 'camera' | 'corridor'
+  points: TrafficHistoryPoint[]
+}
+
 // ── Vehicle re-identification (P11) ──────────────────────────────────────
 // Mirrors app/schemas/reid.py. `similarity` is null on every candidate in a
 // real database today — nothing in ai-lab computes an appearance embedding

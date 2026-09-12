@@ -5,7 +5,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { ToastProvider } from '@/components/Toast'
 import { Button, Spinner } from '@/components/ui'
 import Alerts from '@/pages/Alerts'
-import Analytics from '@/pages/Analytics'
+import TrafficIntelligence from '@/pages/TrafficIntelligence'
 import AuditLog from '@/pages/AuditLog'
 import ChangePassword from '@/pages/ChangePassword'
 import Dashboard from '@/pages/Dashboard'
@@ -39,7 +39,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', needs: PERMISSIONS.cameraRead },
   { to: '/map', label: 'GIS Map', needs: PERMISSIONS.cameraRead },
-  { to: '/analytics', label: 'Analytics', needs: PERMISSIONS.analyticsRead },
+  { to: '/traffic', label: 'Traffic', needs: PERMISSIONS.analyticsRead },
   { to: '/anpr', label: 'Live ANPR', needs: PERMISSIONS.streamView },
   { to: '/alerts', label: 'Alerts', needs: PERMISSIONS.alertRead },
   {
@@ -179,10 +179,10 @@ function Shell() {
             }
           />
           <Route
-            path="/analytics"
+            path="/traffic"
             element={
-              <RequirePermission anyOf={[PERMISSIONS.analyticsRead]} label="Traffic analytics">
-                <Analytics />
+              <RequirePermission anyOf={[PERMISSIONS.analyticsRead]} label="Traffic intelligence">
+                <TrafficIntelligence />
               </RequirePermission>
             }
           />
@@ -243,6 +243,9 @@ function Shell() {
           {/* The screen was called Integration until it grew the ability to
               actually onboard something. Old links should still land. */}
           <Route path="/integration" element={<Navigate to="/cameras" replace />} />
+          {/* Analytics absorbed the traffic feature rather than sitting beside
+              it — the two described the same roads. Same reasoning. */}
+          <Route path="/analytics" element={<Navigate to="/traffic" replace />} />
           <Route
             path="/users"
             element={

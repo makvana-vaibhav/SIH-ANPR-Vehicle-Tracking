@@ -34,7 +34,11 @@ import {
   type Basemap,
 } from '@/lib/basemap'
 
-import type { CameraFeatureProperties, CameraGeoJSON } from '@/lib/types'
+import type {
+  CameraFeatureProperties,
+  CameraGeoJSON,
+  CongestionLevel,
+} from '@/lib/types'
 
 /** Gujarat, framed to fit the whole state. */
 const INITIAL_ZOOM = 6.6
@@ -67,6 +71,11 @@ interface Props {
    *  by an `intensity` property (0-1), so MapLibre can take it directly. */
   heatmap?: GeoJSON.FeatureCollection | null
   showHeatmap?: boolean
+  /** Congestion level per corridor name, from `/analytics/traffic`. Drives
+   *  the colour of the road linework; a corridor absent from this map is
+   *  drawn in the "no data" grey rather than as free-flowing. */
+  corridorTraffic?: Record<string, CongestionLevel> | null
+  showTraffic?: boolean
 }
 
 export default function CameraMap({
@@ -78,6 +87,8 @@ export default function CameraMap({
   onSatelliteUnavailable,
   heatmap = null,
   showHeatmap = false,
+  corridorTraffic = null,
+  showTraffic = false,
 }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
@@ -229,6 +240,104 @@ export default function CameraMap({
     if (!m || !ready || !m.getLayer('analytics-heatmap-layer')) return
     m.setLayoutProperty('analytics-heatmap-layer', 'visibility', showHeatmap ? 'visible' : 'none')
   }, [ready, showHeatmap])
+
+  // ── Corridor traffic state ──────────────────────────────────────────
+  //
+  // The twelve corridors the fleet actually sits on, coloured by congestion.
+  // Linework comes from `web/public/data/ahmedabad_corridors.geojson`
+  // (`scripts/filter_corridor_roads.py`, filtered from the OSM arterial
+  // network); the colour comes from `/analytics/traffic`, joined on the OSM
+  // road name, which is exactly what `cameras.corridor` holds.
+  //
+  // Loaded from a local file like the district basemap, so the offline
+  // guarantee holds — no tile server, no network.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    if (m.getSource('corridor-traffic')) return
+
+    let cancelled = false
+    void fetch('/data/ahmedabad_corridors.geojson')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: GeoJSON.FeatureCollection | null) => {
+        if (cancelled || !data || !map.current) return
+        const mm = map.current
+        if (mm.getSource('corridor-traffic')) return
+
+        mm.addSource('corridor-traffic', { type: 'geojson', data })
+        // Below the cameras for the same reason the heatmap is: a road drawn
+        // over its own camera markers hides the thing the operator clicks.
+        const beforeId = mm.getLayer('camera-halo')
+          ? 'camera-halo'
+          : mm.getLayer('clusters')
+            ? 'clusters'
+            : undefined
+        mm.addLayer(
+          {
+            id: 'corridor-traffic-layer',
+            type: 'line',
+            source: 'corridor-traffic',
+            layout: {
+              visibility: showTraffic ? 'visible' : 'none',
+              'line-cap': 'round',
+              'line-join': 'round',
+            },
+            paint: {
+              // Set from `corridorTraffic` by the effect below. Grey until
+              // then, and grey for any corridor with no figure — never the
+              // free-flowing green, which would read as "measured, and fine"
+              // on a road nothing has been measured on.
+              'line-color': 'hsl(215, 16%, 47%)',
+              'line-width': ['interpolate', ['linear'], ['zoom'], 9, 2, 14, 6],
+              'line-opacity': 0.85,
+            },
+          },
+          beforeId,
+        )
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [ready, showTraffic])
+
+  // Recolour without rebuilding: a `match` expression over the corridor name
+  // carried on each line feature. Rebuilding the source on every poll would
+  // re-parse 315 features for a colour change.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !m.getLayer('corridor-traffic-layer')) return
+
+    const NO_DATA = 'hsl(215, 16%, 47%)'
+    const COLOUR: Record<CongestionLevel, string> = {
+      free: 'hsl(142, 71%, 45%)',
+      moderate: 'hsl(38, 92%, 50%)',
+      heavy: 'hsl(24, 95%, 53%)',
+      severe: 'hsl(0, 72%, 51%)',
+    }
+
+    const pairs = Object.entries(corridorTraffic ?? {}).flatMap(([corridor, level]) => [
+      corridor,
+      COLOUR[level] ?? NO_DATA,
+    ])
+
+    // `match` needs at least one case; with nothing measured yet the whole
+    // network stays the no-data grey. Passed untyped, exactly as the district
+    // hover filter above passes its expression — maplibre's own typings take
+    // an expression array here.
+    m.setPaintProperty(
+      'corridor-traffic-layer',
+      'line-color',
+      pairs.length > 0 ? ['match', ['get', 'corridor'], ...pairs, NO_DATA] : NO_DATA,
+    )
+  }, [ready, corridorTraffic])
+
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !m.getLayer('corridor-traffic-layer')) return
+    m.setLayoutProperty('corridor-traffic-layer', 'visibility', showTraffic ? 'visible' : 'none')
+  }, [ready, showTraffic])
 
   // ── Basemap switching ───────────────────────────────────────────────
   useEffect(() => {

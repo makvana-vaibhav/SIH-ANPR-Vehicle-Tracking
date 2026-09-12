@@ -1,7 +1,11 @@
 /**
- * City traffic analytics — Judge Moment 8, and until this phase the one PS
- * demo step with nothing behind it at all: no router, no page, no heatmap,
- * `recharts` imported zero times. See docs/ROADMAP.md#p4.
+ * Traffic Intelligence — Judge Moment 8, and the city-wide half of the PS.
+ *
+ * This page was `Analytics.tsx` and absorbed the traffic feature rather than
+ * sitting beside it. Flow, speed, route density, travel time, hotspots and
+ * the congestion forecast all describe the same roads as the counts, density,
+ * queues and obstructions added here; two pages would have shown the same
+ * corridor twice and let the two disagree.
  *
  * ## The rule this page cannot break
  *
@@ -16,6 +20,12 @@
  *   excludes every leg as implausible (a clip loop makes the gap between two
  *   cameras seconds, not minutes, which is hundreds of km/h over real
  *   distance). That is shown as the provenance note explains it, not hidden.
+ * - Density is **vehicles in a camera's view**, not vehicles per kilometre,
+ *   and the panel says so. No camera here is calibrated, so there is no
+ *   honest conversion between the two.
+ * - A stopped vehicle is a **possible obstruction** and never an accident.
+ *   The system sees that a vehicle has not moved; it cannot see whether that
+ *   is a breakdown, a delivery or a driver reading a map.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -32,6 +42,7 @@ import {
 } from 'recharts'
 
 import { SkeletonRows, SkeletonStat } from '@/components/Skeleton'
+import type { BadgeTone } from '@/components/ui'
 import {
   Badge,
   EmptyState,
@@ -49,11 +60,15 @@ import {
 } from '@/components/ui'
 import * as api from '@/lib/api'
 import type {
+  CongestionLevel,
   CongestionResponse,
   FlowResponse,
   HotspotResponse,
   RouteDensityResponse,
   SpeedResponse,
+  TrafficHistoryResponse,
+  TrafficResponse,
+  TrafficZone,
   TravelTimeResponse,
 } from '@/lib/types'
 
@@ -104,7 +119,40 @@ function seconds(value: number | null): string {
   return `${Math.round(value / 60)} min`
 }
 
-export default function Analytics() {
+/** Congestion level → the app's own semantic tokens. Never an invented
+ *  palette: green/amber/red mean the same here as everywhere else on screen. */
+const CONGESTION_TONE: Record<CongestionLevel, BadgeTone> = {
+  free: 'success',
+  moderate: 'warning',
+  heavy: 'warning',
+  severe: 'danger',
+}
+
+/** The one place a missing figure becomes text. Everything that can be absent
+ *  goes through here, so "not measured" can never render as a zero. */
+function orDash(value: number | null | undefined, suffix = ''): string {
+  return value === null || value === undefined ? '—' : `${value}${suffix}`
+}
+
+function CongestionBadge({ zone }: { zone: TrafficZone }) {
+  if (!zone.congestion) {
+    return (
+      <Badge tone="neutral" title="No occupancy, speed or travel-time figure for this window">
+        no data
+      </Badge>
+    )
+  }
+  return (
+    <Badge
+      tone={CONGESTION_TONE[zone.congestion]}
+      title={zone.factors.map((f) => f.detail).join(' · ')}
+    >
+      {zone.congestion}
+    </Badge>
+  )
+}
+
+export default function TrafficIntelligence() {
   const [hours, setHours] = useState(24)
   const [corridor, setCorridor] = useState('')
   const [corridors, setCorridors] = useState<string[]>([])
@@ -115,6 +163,8 @@ export default function Analytics() {
   const [travelTime, setTravelTime] = useState<TravelTimeResponse | null>(null)
   const [hotspots, setHotspots] = useState<HotspotResponse | null>(null)
   const [congestion, setCongestion] = useState<CongestionResponse | null>(null)
+  const [traffic, setTraffic] = useState<TrafficResponse | null>(null)
+  const [history, setHistory] = useState<TrafficHistoryResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -140,21 +190,40 @@ export default function Analytics() {
     setLoading(true)
     try {
       const windowSince = since(hours)
-      const [flowBody, speedBody, routesBody, travelBody, hotspotsBody, congestionBody] =
-        await Promise.all([
-          api.getAnalyticsFlow({ since: windowSince, bucket, group_by: 'corridor', corridor }),
-          api.getAnalyticsSpeed({ since: windowSince, corridor }),
-          api.getAnalyticsRoutes({ since: windowSince, limit: 15 }),
-          api.getAnalyticsTravelTime({ since: windowSince }),
-          api.getAnalyticsHotspots({ since: windowSince, limit: 8 }),
-          api.getCongestionForecast({ group_by: 'camera', corridor }),
-        ])
+      const [
+        flowBody,
+        speedBody,
+        routesBody,
+        travelBody,
+        hotspotsBody,
+        congestionBody,
+        trafficBody,
+        historyBody,
+      ] = await Promise.all([
+        api.getAnalyticsFlow({ since: windowSince, bucket, group_by: 'corridor', corridor }),
+        api.getAnalyticsSpeed({ since: windowSince, corridor }),
+        api.getAnalyticsRoutes({ since: windowSince, limit: 15 }),
+        api.getAnalyticsTravelTime({ since: windowSince }),
+        api.getAnalyticsHotspots({ since: windowSince, limit: 8 }),
+        api.getCongestionForecast({ group_by: 'camera', corridor }),
+        // Grouped by corridor: a road is what an operator acts on, and it is
+        // also the only grouping for which speed and travel time exist at all
+        // — both come from the distance between two cameras.
+        api.getTrafficState({ since: windowSince, group_by: 'corridor', corridor }),
+        api.getTrafficHistory({
+          since: windowSince,
+          group_by: 'corridor',
+          key: corridor || undefined,
+        }),
+      ])
       setFlow(flowBody)
       setSpeed(speedBody)
       setRoutes(routesBody)
       setTravelTime(travelBody)
       setHotspots(hotspotsBody)
       setCongestion(congestionBody)
+      setTraffic(trafficBody)
+      setHistory(historyBody)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -202,10 +271,11 @@ export default function Analytics() {
     <div className="space-y-6 overflow-y-auto p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Traffic analytics</h1>
+          <h1 className="text-xl font-semibold">Traffic intelligence</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            City-wide flow, speed, route density and travel time — computed from
-            observed detections and journeys, not estimated.
+            City-wide volume, density, speed, congestion and queues — computed
+            from observed vehicles and journeys. Figures that cannot be
+            computed say so rather than showing a zero.
           </p>
         </div>
 
@@ -259,36 +329,303 @@ export default function Analytics() {
           <>
             <StatTile
               label="Vehicles observed"
-              value={flow?.total_vehicles.toLocaleString('en-IN') ?? '—'}
-              detail={`over the last ${WINDOWS.find((w) => w.hours === hours)?.label}`}
+              value={traffic?.total_vehicles.toLocaleString('en-IN') ?? '—'}
+              detail={`unique vehicles over the last ${
+                WINDOWS.find((w) => w.hours === hours)?.label
+              }`}
             />
             <StatTile
-              label="Journeys reconstructed"
-              value={routes?.total_journeys.toLocaleString('en-IN') ?? '—'}
-              detail={`across ${routes?.pairs.length ?? 0} distinct routes`}
+              label="Active cameras"
+              value={
+                traffic ? `${traffic.active_cameras} / ${traffic.fleet_cameras}` : '—'
+              }
+              tone={traffic && traffic.active_cameras === 0 ? 'warn' : undefined}
+              detail="saw at least one vehicle in this window"
             />
             <StatTile
-              label="Corridors with a speed figure"
-              value={speed ? `${okCorridors.length} / ${speed.corridors.length}` : '—'}
-              tone={speed && okCorridors.length === 0 ? 'warn' : undefined}
-              detail={
-                speed
-                  ? `${speed.provenance.legs_excluded_implausible} of ${speed.provenance.legs_considered} legs excluded as implausible`
+              label="Roads congested"
+              value={
+                traffic
+                  ? String(
+                      traffic.zones.filter(
+                        (z) => z.congestion === 'heavy' || z.congestion === 'severe',
+                      ).length,
+                    )
+                  : '—'
+              }
+              tone={
+                traffic &&
+                traffic.zones.some((z) => z.congestion === 'severe')
+                  ? 'bad'
                   : undefined
               }
+              detail={`of ${traffic?.zones.length ?? 0} with traffic in this window`}
             />
             <StatTile
-              label="Busiest camera"
-              value={hotspots?.by_volume[0]?.camera_code ?? '—'}
-              detail={
-                hotspots?.by_volume[0]
-                  ? `${hotspots.by_volume[0].vehicles} vehicles · ${hotspots.by_volume[0].corridor ?? 'no corridor'}`
-                  : 'no detections in this window'
+              label="Possible obstructions"
+              value={traffic ? String(traffic.possible_obstructions.length) : '—'}
+              tone={
+                traffic && traffic.possible_obstructions.length > 0 ? 'warn' : undefined
               }
+              detail="vehicles stopped far longer than a queue explains"
             />
           </>
         )}
       </section>
+
+      {/* ── Vehicle mix ───────────────────────────────────────────────── */}
+      <Panel>
+        <PanelHeader title="Vehicles by type" />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Unique vehicles, counted once when their track retires — never once
+          per frame.
+        </p>
+        {loading && !traffic ? (
+          <div className="mt-3">
+            <SkeletonRows rows={1} height="h-20" />
+          </div>
+        ) : !traffic || traffic.total_vehicles === 0 ? (
+          <div className="mt-3">
+            <EmptyState title="No vehicles in this window." />
+          </div>
+        ) : (
+          <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {(
+              [
+                ['Car', traffic.totals_by_type.car],
+                ['Motorcycle', traffic.totals_by_type.motorcycle],
+                ['Bus', traffic.totals_by_type.bus],
+                ['Truck', traffic.totals_by_type.truck],
+                ['Other', traffic.totals_by_type.other],
+              ] as const
+            ).map(([label, count]) => (
+              <div key={label} className="rounded-md border border-border px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  {label}
+                </p>
+                <p className="mt-0.5 font-mono text-lg font-semibold">
+                  {count.toLocaleString('en-IN')}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {traffic.total_vehicles > 0
+                    ? `${Math.round((count / traffic.total_vehicles) * 100)}% of traffic`
+                    : '—'}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+
+      {/* ── Road state ────────────────────────────────────────────────── */}
+      <Panel>
+        <PanelHeader title="Road state" />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Density is vehicles in view at once, not vehicles per kilometre — no
+          camera here is calibrated, so there is no honest conversion between
+          the two.
+        </p>
+        {loading && !traffic ? (
+          <div className="mt-3">
+            <SkeletonRows rows={5} />
+          </div>
+        ) : !traffic || traffic.zones.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState title="No traffic observed in this window." />
+          </div>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <Table>
+              <Thead>
+                <tr>
+                  <Th>Road</Th>
+                  <Th>Congestion</Th>
+                  <Th className="text-right">Vehicles</Th>
+                  <Th className="text-right">Per hour</Th>
+                  <Th className="text-right">Density</Th>
+                  <Th className="text-right">Speed</Th>
+                  <Th className="text-right">Travel time</Th>
+                  <Th>Queue</Th>
+                </tr>
+              </Thead>
+              <tbody>
+                {[...traffic.zones]
+                  .sort((a, b) => (b.congestion_score ?? -1) - (a.congestion_score ?? -1))
+                  .map((zone) => (
+                    <Tr key={zone.key}>
+                      <Td>
+                        <span className="font-medium">{zone.label}</span>
+                      </Td>
+                      <Td>
+                        <CongestionBadge zone={zone} />
+                      </Td>
+                      <Td className="text-right font-mono">
+                        {zone.vehicles.toLocaleString('en-IN')}
+                      </Td>
+                      <Td className="text-right font-mono">
+                        {orDash(zone.vehicles_per_hour)}
+                      </Td>
+                      <Td className="text-right font-mono">
+                        {zone.density_status === 'ok' ? (
+                          zone.peak_occupancy
+                        ) : (
+                          <span
+                            className="text-muted-foreground"
+                            title="No dwell times recorded for these vehicles"
+                          >
+                            —
+                          </span>
+                        )}
+                      </Td>
+                      <Td className="text-right font-mono">
+                        {zone.speed_status === 'ok' ? (
+                          `${zone.median_speed_kmph} km/h`
+                        ) : (
+                          <span
+                            className="text-muted-foreground"
+                            title="No physically plausible leg — expected on replayed demo footage"
+                          >
+                            —
+                          </span>
+                        )}
+                      </Td>
+                      <Td className="text-right font-mono">
+                        {zone.travel_time_status === 'ok' &&
+                        zone.travel_time_delta_pct !== null ? (
+                          <span
+                            className={
+                              zone.travel_time_delta_pct > 15
+                                ? 'text-priority-high'
+                                : undefined
+                            }
+                          >
+                            {zone.travel_time_delta_pct > 0 ? '+' : ''}
+                            {zone.travel_time_delta_pct}%
+                          </span>
+                        ) : (
+                          <span
+                            className="text-muted-foreground"
+                            title="No baseline yet for this time of day"
+                          >
+                            —
+                          </span>
+                        )}
+                      </Td>
+                      <Td>
+                        {zone.queue.present ? (
+                          <Badge tone="warning">
+                            {zone.queue.length_vehicles} vehicles
+                          </Badge>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">none</span>
+                        )}
+                      </Td>
+                    </Tr>
+                  ))}
+              </tbody>
+            </Table>
+            <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+              {traffic.note}
+            </p>
+          </div>
+        )}
+      </Panel>
+
+      {/* ── Trend ─────────────────────────────────────────────────────── */}
+      <Panel>
+        <PanelHeader title="Traffic over time" />
+        <p className="mt-1 text-xs text-muted-foreground">
+          The same five-minute buckets the queue detector runs over, so the
+          chart and the verdict beside it cannot disagree.
+        </p>
+        {loading && !history ? (
+          <div className="mt-3">
+            <SkeletonRows rows={1} height="h-56" />
+          </div>
+        ) : !history || history.points.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState title="No history in this window." />
+          </div>
+        ) : (
+          <div className="mt-3 h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={history.points} margin={{ left: -20, right: 8, top: 8 }}>
+                <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
+                <XAxis
+                  dataKey="bucket"
+                  tickFormatter={(v: string) => clockLabel(v, hours)}
+                  tick={AXIS_STYLE}
+                  axisLine={{ stroke: 'hsl(var(--border))' }}
+                  tickLine={false}
+                />
+                <YAxis tick={AXIS_STYLE} axisLine={false} tickLine={false} width={36} />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  labelFormatter={(v: string) => clockLabel(v, hours)}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="vehicles"
+                  name="vehicles"
+                  stroke="hsl(var(--primary))"
+                  fill="hsl(var(--primary))"
+                  fillOpacity={0.2}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="stationary_vehicles"
+                  name="stationary"
+                  stroke="hsl(var(--priority-high))"
+                  fill="hsl(var(--priority-high))"
+                  fillOpacity={0.35}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Panel>
+
+      {/* ── Possible obstructions ─────────────────────────────────────── */}
+      {traffic && traffic.possible_obstructions.length > 0 && (
+        <Panel>
+          <PanelHeader title="Possible obstructions" />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Vehicles that stopped and stayed stopped. The system can see that
+            they did not move, not why — a breakdown, a delivery and a police
+            stop all look identical from here.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <Table>
+              <Thead>
+                <tr>
+                  <Th>Camera</Th>
+                  <Th>Road</Th>
+                  <Th>Vehicle</Th>
+                  <Th>Plate</Th>
+                  <Th className="text-right">Stationary for</Th>
+                  <Th className="text-right">Last seen</Th>
+                </tr>
+              </Thead>
+              <tbody>
+                {traffic.possible_obstructions.slice(0, 12).map((row) => (
+                  <Tr key={`${row.camera_code}:${row.track_id}`}>
+                    <Td className="font-mono text-xs">{row.camera_code}</Td>
+                    <Td>{row.corridor ?? '—'}</Td>
+                    <Td>{row.vehicle_type ?? '—'}</Td>
+                    <Td className="font-mono text-xs">{row.plate ?? '—'}</Td>
+                    <Td className="text-right font-mono">
+                      {seconds(row.stationary_seconds)}
+                    </Td>
+                    <Td className="text-right text-[11px] text-muted-foreground">
+                      {api.formatIST(row.last_seen, false)}
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </Panel>
+      )}
 
       {/* ── Flow ──────────────────────────────────────────────────────── */}
       <Panel>
