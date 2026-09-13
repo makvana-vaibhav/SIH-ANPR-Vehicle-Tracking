@@ -16,7 +16,7 @@ searchable vehicle journeys, traffic intelligence, and real-time alerts.
 
 ## The idea
 
-Cameras tell us what they see. NagarNetra connects those observations to
+Cameras tell us what they see. Contrail connects those observations to
 understand how vehicles move across the entire city.
 
 A city can run hundreds of ANPR cameras, and normally each one works alone:
@@ -28,7 +28,7 @@ Camera 15 → GJ03AB1234 at 10:47
 ```
 
 Three rows in three databases. The vehicle travelled a route, took a time, and
-covered a distance — and none of that is recorded anywhere. NagarNetra links
+covered a distance — and none of that is recorded anywhere. Contrail links
 them.
 
 So the question this platform answers is not *"which vehicle did this camera
@@ -410,11 +410,12 @@ README is the part that says what is *not* finished.
 | 5 | **Vehicle search** | 🟡 fuzzy search code complete (P8), gate not yet run |
 | 6 | **Blacklist alerts** — with plate crop | ✅ fires by itself, with the crop |
 | 7 | **Trajectory anomalies** — flagged *with reasons* | 🟡 code complete (P5), gate not yet run |
-| 8 | **City traffic analytics** | 🟡 code complete (P4), gate not yet run |
+| 8 | **City traffic analytics** | ✅ Traffic Intelligence dashboard, corridor traffic on the map, `/analytics/traffic` + history |
 
 Beyond the eight: **predictive traffic** (P10) is code-complete and ungated;
 **attribute search** (P9) and **re-identification** (P11) are half built — both need
-a vision pipeline for their remaining half.
+a vision pipeline for their remaining half. Direction of travel is now emitted by
+the pipeline and tallied per corridor, so `detections.direction` has a producer.
 
 **[docs/ROADMAP.md](docs/ROADMAP.md) is the plan of record**;
 [PROGRESS.md](docs/PROGRESS.md) is the one-page current state. Nothing in this README
