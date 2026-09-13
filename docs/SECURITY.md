@@ -29,7 +29,8 @@ document, because it stops anyone looking.
 | Security headers + CSP | ✅ | `web/nginx.conf` |
 | Scrape endpoint carries no personal data | ✅ | `app/routers/health.py` |
 | **TLS** | ❌ **not implemented** | see §8 |
-| **Encryption at rest** | ❌ **not implemented** | see §8 |
+| **Encryption at rest — application level** | ✅ | AES-256-GCM, `app/core/crypto.py`; sealed `enc://` credentials, 44 tests |
+| **Encryption at rest — volumes / objects** | ❌ **not implemented** | see §8 |
 | **Backups / DR** | ❌ **not implemented** | see §8 |
 
 ---
@@ -262,7 +263,7 @@ Stated plainly, because a security document that omits its gaps is misleading.
 | Gap | Consequence | Notes |
 |---|---|---|
 | **No TLS** | All traffic — credentials, plate reads, video URLs — is cleartext | Disqualifying for deployment. Terminate at nginx or an ingress; the app is already single-origin, so this is configuration, not redesign |
-| **No encryption at rest** | Database and object storage are unencrypted | Postgres TDE or encrypted volumes; MinIO SSE |
+| **No volume/object encryption at rest** | The database volume and object storage are unencrypted, so anyone with the disk has the plate history | Postgres TDE or encrypted volumes; MinIO SSE. Application-level AES-256-GCM now exists (`app/core/crypto.py`) and covers sealed credential values only — it is not a substitute for either |
 | **No backups, no tested restore** | An RPO/RTO cannot be claimed | No `pg_dump` schedule, no restore drill |
 | **Media retention unwired** | The 90-day media rule deletes nothing | Evidence crops are not yet uploaded to MinIO at all |
 | **Plate detector weights are AGPL-3.0** | Licence obligation on the deployed artifact | Must be replaced or the obligation accepted before shipping |

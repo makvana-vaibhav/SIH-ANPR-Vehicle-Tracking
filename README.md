@@ -382,6 +382,46 @@ reads the whole table still has to separately compromise the secret store.
 the API refuses to start rather than sign tokens with a key readable in this
 repository.
 
+### Encryption at rest
+
+`app/core/crypto.py` — **AES-256-GCM** envelope encryption for values that must
+survive in a row while staying unreadable to anyone who obtains that row without
+the key.
+
+| Property | Choice |
+|---|---|
+| Cipher | AES-256-GCM (authenticated — decryption returns the sealed bytes or raises) |
+| Key size | 256-bit, **rejected at load** if any other length, so a 16-byte key cannot silently downgrade to AES-128 |
+| Nonce | 96-bit, fresh from `os.urandom` per message, never derived or counted |
+| Associated data | **Mandatory.** A ciphertext is bound to its context, so it cannot be lifted from one column and opened in another |
+| Rotation | A key ring, and every token names the key that sealed it — add a key, move the active id, re-encrypt at leisure, drop the old key |
+| Token | `v1.<key_id>.<nonce>.<ciphertext‖tag>`, base64url, safe in a URL, header or CSV cell |
+
+The first caller is the `enc://` credential pointer:
+
+```bash
+python3 scripts/generate_encryption_key.py --key-id 2025a --seal vmsuser:s3cr3t
+```
+
+This is the case where there is no Vault to point at — an air-gapped pilot, or a
+single-node install — and the honest alternative is a plaintext column, not a
+secret store. The pointer discipline above is otherwise unchanged.
+
+**With no keys configured, `encrypt` raises rather than storing plaintext.** A
+function named `encrypt` that silently degrades is the failure the module exists
+to prevent, so the demo path (which uses `env://`) simply needs no key.
+
+**Scope, stated plainly:** this is application-level encryption of specific
+values. The database volume and MinIO objects are still unencrypted at rest —
+that is deployment configuration (Postgres TDE, encrypted volumes, MinIO SSE),
+not something application code can provide, and `docs/SECURITY.md` §8 still
+lists it as a gap.
+
+Covered by 44 tests in `services/api/tests/test_crypto.py`, most of which assert
+*refusal*: wrong key, wrong context, flipped bit, spliced nonce, retired key,
+malformed token, short key. A suite that only proves round-tripping proves the
+encryption runs and says nothing about whether it protects anything.
+
 ### Transport
 
 TLS terminates at the edge (`deploy/nginx/`). `X-Forwarded-For` is trusted for
@@ -477,6 +517,7 @@ trusting the tool.
 | Media gateway | MediaMTX — RTSP in, WebRTC/HLS out |
 | AI | YOLO → ONNX (vehicle + plate), ByteTrack, ONNX CRNN OCR, ONNX Runtime |
 | Auth | JWT access + refresh, argon2id, RBAC |
+| Encryption | AES-256-GCM at rest (`cryptography`), TLS at the edge |
 | Orchestration | **Docker Compose profiles** (`base`, `ai`, `scale`) + Makefile. No Kubernetes |
 | Frontend | React 18 + Vite + TypeScript + Tailwind + shadcn/ui |
 | Map | MapLibre GL, offline GeoJSON basemap — no tile server, no downloads |
