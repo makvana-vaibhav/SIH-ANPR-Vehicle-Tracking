@@ -283,6 +283,114 @@ these docs is labelled *extrapolated*. See [docs/GPU.md](docs/GPU.md).
 
 ---
 
+## Security
+
+This platform tracks the movement of private vehicles. That makes the security
+posture part of the product, not paperwork around it.
+
+### Authentication
+
+| Control | Implementation |
+|---|---|
+| Password hashing | **argon2id**, OWASP-recommended parameters (19 MiB, 2 iterations) — not bcrypt, because it resists GPU cracking far better |
+| Access token | JWT, **15 minutes** |
+| Refresh token | JWT, **7 days**, revocable — every token carries a `jti`, and logout adds it to a denylist |
+| Issuer / audience | Asserted on decode, so a token minted by another system or for another audience cannot be replayed against this API |
+| Stream token | **Separate token type, ~2 minute life, scoped to one camera.** A viewing URL that leaks from browser history is useless within minutes and cannot be replayed against a different camera |
+
+`app/core/security.py` is pure crypto — no database, no network. Anything needing
+storage (denylists, attempt counters) lives in `app/services/`, which keeps the
+security-critical logic in one readable, trivially testable place.
+
+### Authorization and audit
+
+RBAC in `app/core/rbac.py`. Above it, an **audit trail that is enforced and
+tested**: every plate search, every camera stream open, and every
+watchlist/blacklist mutation writes an `audit_log` row. Middleware covers all
+mutating requests; the three named actions also get explicit calls. There is a test
+asserting the rows appear.
+
+Traceability of *who looked at what* is both a feature to point at and the right
+thing to build into a system like this.
+
+### Rate limiting
+
+`app/core/ratelimit.py` — a fixed-window counter in **Redis**, not in-process.
+
+- **Why Redis:** the scale profile runs multiple API replicas. A per-process counter
+  gives each replica its own allowance, so the real limit becomes
+  `configured × replicas` and moves whenever you scale. A limit that changes when
+  you add capacity is not a limit.
+- **Why fixed-window:** a sliding-window log costs a sorted set and a trim per
+  request. Against credential guessing and runaway client loops, a fixed window is
+  sufficient, and its worst case (2× allowance across a boundary) is not a
+  meaningful weakness at these thresholds.
+
+| Scope | Budget |
+|---|---|
+| General API | **300 requests / 60 s** |
+| `/auth/login`, `/auth/refresh`, `/auth/password` | **10 / 300 s** |
+| `/health`, `/ready`, `/metrics` | Exempt |
+
+Two decisions worth knowing:
+
+- **On auth paths, only failures are counted.** Counting every attempt looked right
+  and was wrong: a control room sits behind one NAT, so ten operators signing in at
+  shift change would lock each other out. A successful login is not an attack. What
+  is limited is *guessing*, and guessing is failure by definition.
+- **It fails open.** If Redis is unreachable the request is allowed, and the failure
+  is logged. An operator locked out of the alert screen during an incident because a
+  cache is down is a worse outcome than an unthrottled minute.
+
+Health paths are exempt because a throttled container probe reports the service
+unhealthy and restarts it — turning a rate limit into an outage.
+
+### Middleware ordering
+
+Starlette runs middleware in reverse registration order. The intended order,
+outermost first:
+
+```
+CORS  →  rate limit  →  audit  →  route
+```
+
+CORS outermost, so a 429 still carries the headers a browser needs to read it. The
+rate limiter **outside** the audit middleware, so a flood is rejected before it can
+write a row per request — an attacker who can make the platform fill its own audit
+table has found a way to destroy the record of what they did.
+
+### Secrets
+
+`vms_instances.credentials_ref` stores a **pointer, never a secret**:
+
+```
+vault://nagarnetra/vms/rajkot-milestone
+env://RAJKOT_VMS_USERNAME:RAJKOT_VMS_PASSWORD
+file:///run/secrets/rajkot_vms
+```
+
+The registry is the most valuable table in the system — it lists every camera and
+how to reach it. Putting VMS passwords in it would mean one SQL injection
+compromises live video across every department. A pointer means an attacker who
+reads the whole table still has to separately compromise the secret store.
+
+`.env.example` is committed, `.env` is not. Secrets have **no in-code defaults** —
+the API refuses to start rather than sign tokens with a key readable in this
+repository.
+
+### Transport
+
+TLS terminates at the edge (`deploy/nginx/`). `X-Forwarded-For` is trusted for
+rate-limit keying **only because nginx sets it and nothing else can reach the
+service**; exposed directly to the internet that header is caller-controlled and
+this would need revisiting. That caveat lives in the code, at the line that trusts
+it.
+
+Full model, including retention and lawful-use safeguards:
+[docs/SECURITY.md](docs/SECURITY.md).
+
+---
+
 ## What it does
 
 The PS defines eight things a city command centre must do. This is where each one honestly stands —
