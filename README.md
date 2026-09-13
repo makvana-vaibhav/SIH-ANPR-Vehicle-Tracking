@@ -66,6 +66,9 @@ the command centre at **http://localhost:8080**.
 |---|---|
 | `make up` | Build and start the platform, wait for every container to be healthy |
 | `make demo` | `up` + seed data + open the browser |
+| `make ai` | Start the AI worker (the `ai` compose profile — **required** for ANPR) |
+| `make scale` | Bring up the horizontally-scaled ingest profile |
+| `make load` | Run the k6 load test against it |
 | `make down` | Stop (data volumes are preserved) |
 | `make status` | Show which dependencies are up, degraded, or down |
 | `make help` | Everything else |
@@ -117,7 +120,8 @@ For a city of ~1,000 cameras:
 
 A **~7,000× reduction**, plus on-demand pull for the handful of feeds an
 operator is actually watching. It is what lets a city deployment run on
-commodity hardware. Full derivation is in [docs/HLD.md](docs/HLD.md).
+commodity hardware and a metro deployment run at all. Full derivation is in
+[docs/HLD.md](docs/HLD.md).
 
 ---
 
@@ -393,43 +397,55 @@ Full model, including retention and lawful-use safeguards:
 
 ## What it does
 
-The PS defines eight things a city command centre must do. This is where each one honestly stands —
-status is per-item, because the interesting part of a hackathon README is the part that says what is
-*not* finished.
+The PS defines eight things a city command centre must do. This is where each one
+honestly stands — status is per-item, because the interesting part of a hackathon
+README is the part that says what is *not* finished.
 
 | # | Capability | State |
 |---|---|---|
-| 1 | **Live multi-camera detection** — several feeds, vehicles found automatically | 🟡 pipeline works; the registry currently holds one camera |
+| 1 | **Live multi-camera detection** | ✅ **51 cameras live** on 12 real Ahmedabad corridors |
 | 2 | **ANPR** — plate, confidence, camera, timestamp | ✅ 9 fps, p90 266 ms, 0.70–0.94 confidence |
-| 3 | **Multi-camera linking** — the same vehicle on a second camera joined to the first | 🟡 engine built and tested; needs a fleet to link across |
-| 4 | **Vehicle journey** — cameras, distance, duration, route on the map | 🟡 route draws; no average speed, no animation yet |
-| 5 | **Vehicle search** — a plate in, every sighting and the route out | 🟡 exact and prefix match; fuzzy not yet |
-| 6 | **Blacklist alerts** — automatic red alert with camera, time, confidence, map location | 🟡 the alert fires by itself; the plate crop cannot be shown yet |
-| 7 | **Trajectory anomalies** — an unusual route flagged *with its reasons* | 🟡 physical-plausibility flags only; no learned-norm detector |
-| 8 | **City traffic analytics** — density, average speed, route density, travel time, hotspots | 🔴 not built |
+| 3 | **Multi-camera linking** | 🟡 engine linking real sightings; hop timing not yet plausible |
+| 4 | **Vehicle journey** — distance, duration, animated route | ✅ profile + timeline playback on the map |
+| 5 | **Vehicle search** | 🟡 fuzzy search code complete (P8), gate not yet run |
+| 6 | **Blacklist alerts** — with plate crop | ✅ fires by itself, with the crop |
+| 7 | **Trajectory anomalies** — flagged *with reasons* | 🟡 code complete (P5), gate not yet run |
+| 8 | **City traffic analytics** | 🟡 code complete (P4), gate not yet run |
 
-Beyond the eight, the differentiators — **predictive traffic**, **attribute search** (find a white
-SUV when the plate is unreadable) and **vehicle re-identification** — are not built.
+Beyond the eight: **predictive traffic** (P10) is code-complete and ungated;
+**attribute search** (P9) and **re-identification** (P11) are half built — both need
+a vision pipeline for their remaining half.
 
-**[docs/ROADMAP.md](docs/ROADMAP.md) is the plan of record** for all of it; [PROGRESS.md](docs/PROGRESS.md)
-is the one-page current state. Nothing in this README describes a screen that does not exist.
+**[docs/ROADMAP.md](docs/ROADMAP.md) is the plan of record**;
+[PROGRESS.md](docs/PROGRESS.md) is the one-page current state. Nothing in this README
+describes a screen that does not exist.
 
-### Accuracy
+### Accuracy — the claim we do not yet make
 
-The PS sets a hard target of **>90% plate recognition accuracy under real-world conditions** —
+The PS sets a hard target of **>90% plate recognition under real-world conditions** —
 motion blur, night, angle, occlusion, damaged plates.
 
-**We cannot make that claim yet, and we do not.** Accuracy has only been measured on *synthetic*
-footage — 62.5–87.5% end to end, with 100% exact-match on the plates the pipeline chooses to attempt
-and a character error rate of 0.000. Those numbers are optimistic by construction: the plates are
-rendered from a clean font, with no embossing, dirt or real motion blur.
+**We cannot make that claim yet, and we do not.** Accuracy has been measured only on
+*synthetic* footage: **62.5–87.5% end to end**, with 100% exact-match on plates the
+pipeline chooses to attempt and a character error rate of 0.000. Those numbers are
+optimistic by construction — the plates are rendered from a clean font, with no
+embossing, dirt or real motion blur.
 
-The interesting part is *where* it falls short. When the pipeline commits to a read, it is almost
-always right; it simply declines to read roughly a third of plates. **The bottleneck is recall, not
-recognition** — which means a better recogniser is the wrong fix.
+The interesting part is *where* it falls short. When the pipeline commits to a read
+it is almost always right; it declines to read roughly a third of plates. **The
+bottleneck is recall, not recognition** — which means a better recogniser is the
+wrong fix.
 
-Measurement lives in [`ai-lab/`](ai-lab/), a harness with a hard-case mining and labelling loop. The
-figure we publish will be the figure the harness printed, with its conditions attached.
+Measurement lives in [`ai-lab/`](ai-lab/), a harness with hard-case mining and a
+labelling loop. The figure we publish will be the figure the harness printed, with
+its conditions attached.
+
+### Language discipline
+
+The system reports a **trajectory anomaly** — never a "suspicious", "criminal" or
+"wanted" vehicle, plate or driver. It reports movement that differs from the norm; a
+human decides what that means. An operator shown "SUSPECT" for a lane change stops
+trusting the tool.
 
 ---
 
@@ -439,12 +455,12 @@ figure we publish will be the figure the harness printed, with its conditions at
 |---|---|
 | **One laptop** | `docker compose up`. No cluster, no cloud account, no manual data entry. |
 | **Fully offline** | Local models, local database, local map data. No Google Maps, no hosted inference, no paid API anywhere. |
-| **CPU must work** | GPU is an accelerator, never a requirement. Device is auto-detected with a clean CPU fallback. |
-| **Degrades, never dies** | Lose WebRTC and video falls back to HLS. Lose a dependency and the readiness endpoint names it rather than failing opaquely. *(The documented OpenSearch→trigram search fallback is not built yet — see [docs/ROADMAP.md](docs/ROADMAP.md) P8.)* |
-| **Computed, never invented** | Every congestion figure, delay and score is derived from observed data. Where there is not enough data to compute one, the UI says so rather than showing a plausible number. |
-| **Explainable** | Intended: an alert carries the factors that raised it, because `Risk: 87%` on its own is a bug. *(Not yet true — `alerts` has no reasons column; P5 adds it.)* |
-| **Auditable** | Every plate search, every stream open, and every blacklist change writes an `audit_log` row. This platform tracks the movement of private vehicles; traceability of who looked at what is a feature. |
-| **No secrets in git** | `.env.example` is committed, `.env` is not. Secrets have no in-code defaults — the API refuses to start rather than sign tokens with a key that is readable in this repository. |
+| **CPU must work** | GPU is an accelerator, never a requirement. Device auto-detected, clean CPU fallback. |
+| **Degrades, never dies** | Lose WebRTC and video falls back to HLS. Lose a dependency and the readiness endpoint names it rather than failing opaquely. |
+| **Computed, never invented** | Every congestion figure, delay and score derives from observed data. Where there is not enough data to compute one, the UI says so rather than showing a plausible number. |
+| **Explainable** | Intended: an alert carries the factors that raised it, because `Risk: 87%` alone is a bug. *(P5 adds the `reasons` column — code complete, gate not yet run.)* |
+| **Auditable** | Enforced and tested — see [Security](#security). |
+| **No secrets in git** | `.env.example` committed, `.env` not. No in-code secret defaults. |
 
 ---
 
@@ -455,12 +471,15 @@ figure we publish will be the figure the harness printed, with its conditions at
 | API | FastAPI (Python 3.11), SQLAlchemy 2.0 async, Alembic, Pydantic v2 |
 | Database | PostgreSQL 16 + PostGIS 3.4 + TimescaleDB |
 | Search | OpenSearch 2.19 (Apache-2.0), Postgres `pg_trgm` fallback |
-| Event bus | Redis 7 Streams (dev) · Redpanda (scale) behind one `EventBus` interface |
+| Event bus | **Redis 7 Streams with consumer groups.** A `kafka` backend is declared in config but not implemented |
 | Object store | MinIO (S3 API) |
 | Media gateway | MediaMTX — RTSP in, WebRTC/HLS out |
 | AI | YOLO → ONNX (vehicle + plate), ByteTrack, ONNX CRNN OCR, ONNX Runtime |
+| Auth | JWT access + refresh, argon2id, RBAC |
+| Orchestration | **Docker Compose profiles** (`base`, `ai`, `scale`) + Makefile. No Kubernetes |
 | Frontend | React 18 + Vite + TypeScript + Tailwind + shadcn/ui |
 | Map | MapLibre GL, offline GeoJSON basemap — no tile server, no downloads |
+| Tests | pytest + httpx, vitest + RTL, k6 — **546 tests** |
 
 Everything is pinned to an exact version, and every image runs natively on both
 `linux/amd64` and `linux/arm64`.
@@ -483,18 +502,19 @@ Everything is pinned to an exact version, and every image runs natively on both
 | Document | Contents |
 |---|---|
 | [ai-lab/README.md](ai-lab/README.md) | The accuracy harness — how the >90% claim gets measured |
-| [docs/API.md](docs/API.md) | Every endpoint, generated from the live OpenAPI document |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Thread budget, slot sizing, the CPU-starvation fix |
+| [docs/GPU.md](docs/GPU.md) | Why there is no accelerator in Docker on Apple Silicon |
 | [docs/SECURITY.md](docs/SECURITY.md) | RBAC, encryption, audit, retention, lawful-use safeguards |
+| [docs/API.md](docs/API.md) | Every endpoint, generated from the live OpenAPI document |
 | [docs/HLD.md](docs/HLD.md) | High-level design, scaling, measured performance |
-| [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md) | Bandwidth, GPU sizing, storage tiering, DR |
+| [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md) | Bandwidth, storage tiering, DR *(sizing ~4× optimistic — use `scripts/capacity_model.py`)* |
 | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Minute-by-minute walkthrough, with fallbacks |
 
-> **Note:** this codebase was renamed and re-aimed from an earlier *statewide* CCTV project.
-> `docs/HLD.md`, `docs/INFRASTRUCTURE.md`, `docs/BRIEFING.md`, `docs/REQUIREMENTS.md`,
-> `docs/STATUS.md`, `docs/submission/*` and the build history in `docs/BUILD_STATE.md` still argue that
-> older brief in places, and `docs/INFRASTRUCTURE.md`'s compute sizing is known to be ~4×
-> optimistic — use `scripts/capacity_model.py` instead. [CLAUDE.md §10](CLAUDE.md#10-migration-ledger)
-> tracks every site; fixing them is P12.
+> **Note:** this codebase was renamed and re-aimed from an earlier *statewide* CCTV
+> project. `docs/HLD.md`, `docs/INFRASTRUCTURE.md`, `docs/BRIEFING.md`,
+> `docs/REQUIREMENTS.md`, `docs/STATUS.md`, `docs/submission/*` and the build history
+> in `docs/BUILD_STATE.md` still argue that older brief in places.
+> [CLAUDE.md §10](CLAUDE.md#10-migration-ledger) tracks every site; fixing them is P12.
 
 ---
 
@@ -502,12 +522,16 @@ Everything is pinned to an exact version, and every image runs natively on both
 
 ```bash
 make up          # start the platform
+make ai          # start the AI worker (required for ANPR)
 make test        # backend (pytest) + frontend (vitest)
 make lint        # ruff + format check + tsc
 make logs S=api  # tail one service
 make status      # dependency readiness
 make clean       # stop and delete all data volumes
 ```
+
+**Known:** `mypy` does not currently pass (17 errors across 8 files) and `make lint`
+does not run it. P12.
 
 ---
 
