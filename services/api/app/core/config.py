@@ -98,6 +98,14 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str = Field(..., min_length=8)
     cors_origins: str = "http://localhost:5173,http://localhost:8080"
 
+    # ── Encryption at rest (application level) ────────────────────────
+    # A ring, not a single key, so rotation does not require re-encrypting
+    # everything in one step: "id:base64_32_bytes,id:base64_32_bytes".
+    # Empty is a valid state — enc:// pointers are then unresolvable and say
+    # so, rather than silently falling back to plaintext. See core/crypto.py.
+    encryption_keys: str = ""
+    encryption_active_key_id: str = ""
+
     # ── Detection / alerting thresholds ───────────────────────────────
     detection_emit_confidence: float = 0.55
     alert_auto_confidence: float = 0.80

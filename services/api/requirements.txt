@@ -25,6 +25,7 @@ psycopg2-binary==2.9.10         # Alembic autogenerate / sync tooling only
 # ── Auth ──────────────────────────────────────────────────────
 pyjwt==2.10.1
 argon2-cffi==23.1.0
+cryptography==50.0.1            # AES-256-GCM at rest (core/crypto.py)
 
 # ── Infrastructure clients ────────────────────────────────────
 redis==5.2.1                    # asyncio Streams + consumer groups
