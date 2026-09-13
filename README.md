@@ -121,6 +121,79 @@ commodity hardware. Full derivation is in [docs/HLD.md](docs/HLD.md).
 
 ---
 
+## Scaling
+
+Scale here is three separate problems, solved in three separate places. Every
+number below was printed by a run on the development host (macOS arm64, 10 cores
+/ 16 GB). Nothing in this section is extrapolated, and where a figure *is* a
+projection it says so.
+
+### 1. The event tier scales sideways
+
+The AI workers publish detections to a Redis Stream. Two different consumers read
+it, and keeping them separate is what makes replication correct:
+
+| Class | Delivery | Why |
+|---|---|---|
+| `EventTailer` | **Every replica** sees every event | The live operator picture must be identical on every API process |
+| `EventConsumer` | **Exactly one** replica per event (consumer group) | Durable persistence must happen once, not once per replica |
+
+One consumer group cannot do both, and until they were split the platform was
+correct only while exactly one API process ran. With them split, adding a
+consumer replica adds throughput — with no configuration naming which cameras
+belong to which worker, and no coordination between workers.
+
+```bash
+make scale    # api stops persisting; 3 consumer replicas share the stream
+make load     # k6 against it
+```
+
+**Measured** (`docs/BUILD_STATE.md` § Phase 10):
+
+| Metric | Result |
+|---|---|
+| Sustained ingest | **2,774 events/s** (median) |
+| Distinct vehicle identities | 80,000 |
+| Failed requests | **0** |
+| p95 capture-to-persisted | 5.7 s — **missed its 3 s gate** |
+
+That last row stays in the table. The throughput gate passed and the latency gate
+did not; the cause is queue wait rather than processing time. It is reported
+rather than tuned away — and the load test found three real bugs on the way.
+
+### 2. The inference tier scales by thread budget
+
+See [Model optimization](#model-optimization). The short version: one process-wide
+thread budget divided across concurrent cameras, because the worker runs one
+pipeline **per camera** and each pipeline builds five ONNX sessions.
+
+### 3. Fleet sizing is computed, not tabulated
+
+A static sizing table answers one fleet size and drifts out of date. This is a
+script instead:
+
+```bash
+python3 scripts/capacity_model.py --cameras 100000 --provenance
+```
+
+Every figure derives from a declared constant, and every constant carries its
+provenance — **MEASURED** ones name the run that produced them, **ASSUMED** ones
+name the reasoning. `docs/INFRASTRUCTURE.md` §2 carries an older sizing table
+known to be **~4× optimistic** (it treats a 4-thread worker as one core); the
+script supersedes it.
+
+### What is *not* built
+
+Honest seams, so nobody is surprised at a demo:
+
+| Item | State |
+|---|---|
+| **Kafka / Redpanda backend** | `Settings.event_bus_backend` accepts `"kafka"`, and `kafka_bootstrap_servers` / `kafka_topic_detections` are defined — but **only the Redis implementation exists**. Selecting `kafka` today does nothing. The interface seam is real; the driver behind it is not written. |
+| **Kubernetes** | **Nothing.** Orchestration is Docker Compose profiles (`base`, `ai`, `scale`). Horizontal scale is proven with compose `replicas`, not with a scheduler. |
+| **Multi-node** | Every measurement above is single-host. Cross-node behaviour is unproven. |
+
+---
+
 ## What it does
 
 The PS defines eight things a city command centre must do. This is where each one honestly stands —
