@@ -194,6 +194,95 @@ Honest seams, so nobody is surprised at a demo:
 
 ---
 
+## Model optimization
+
+The pipeline was, at one point, the reason the demo did not work — and the fix was
+not a smaller model. It was arithmetic about threads.
+
+### The bug
+
+Every inference session sized its own thread pool as if it owned the machine, and
+nothing divided that by the number of cameras. One `Pipeline` runs per camera on
+its own thread; each builds **five** ONNX sessions (vehicle detector, plate
+detector, and OCR's detect/classify/recognise trio). On a 10-core host at three
+cameras:
+
+```
+3 cameras × 3 OCR sessions × 10 threads  = 90
+3 cameras × 2 YOLO sessions ×  4 threads = 24
+OpenCV's own pool, per camera thread     = 10
+                                          ---
+                                          124+ threads on 10 cores
+```
+
+**Measured: 168 OS threads, 866% CPU, load average 18.8.** The AI worker alone took
+~8.7 of 10 cores, starving MediaMTX, the browser and the compositor. The symptom
+presented as "camera tiles won't load".
+
+### Why oversubscription was not even a trade
+
+It was not latency-for-throughput. Measured on this host, OCR recognition on one
+plate crop:
+
+| Threads | Wall/call | CPU/call | Cores used |
+|---|---|---|---|
+| `intra_op=2` | 11.8 ms | 23.6 ms | 2.0× |
+| `intra_op=4` | **8.0 ms** | 32.0 ms | 4.0× |
+| ONNX Runtime default (all cores) | 14.3 ms | 132.6 ms | 9.3× |
+
+The default burns **5.6× the CPU of two threads to return a slower answer**. These
+are small models — past a handful of threads the convolutions spend longer
+synchronising than computing. The detector shows the same shape: YOLOv8n at 640px
+runs 275 ms at 1 thread, **126 ms at 4**, 194 ms at 6, 331 ms at 8.
+
+### The rule
+
+`ai-lab/ailab/runtime.py` owns one budget for the whole process and divides it by
+the number of pipelines sharing it:
+
+```
+budget       = cores(affinity-aware) − 2 reserved
+per-pipeline = clamp(budget ÷ concurrent_pipelines, 1, 4)
+```
+
+- **Affinity-aware.** `sched_getaffinity`, not `cpu_count` — a container pinned to
+  a CPU subset still reports the host's total, and sizing a pool to cores you may
+  not use is how oversubscription starts.
+- **Two threads reserved** for RTSP decode, the media gateway, the event sink and
+  the browser. Inference that consumes every core makes the product it serves
+  unusable.
+- **Capped at 4 per model** regardless of free budget, per the table above.
+- **The divisor is the camera count, not the session count** — the five sessions in
+  one pipeline run *sequentially* on that camera's thread, so they never contend
+  with each other. Contention is strictly between cameras.
+
+### Result
+
+| | Before | After |
+|---|---|---|
+| Worker CPU | 866% | **~570%** |
+| Detections/min | 79 | **~150** |
+| Camera slots | 3 (CPU-bound) | **4** (now memory-bound, ~1.4 GB/slot) |
+
+**Never construct an inference session outside `ailab.runtime`,** and never set
+`AILAB_ORT_THREADS` in compose — it bypasses the division. See
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+### Runtime footprint
+
+Ultralytics (AGPL-3.0) + PyTorch is ~2.5 GB and is used **only at build time**, in a
+throwaway tools image, to export ONNX. The shipped `ai-worker` carries
+`onnxruntime` + OpenCV only — **~400 MB**. This protects the 5-minute demo
+constraint and keeps AGPL code out of the deployed artifact.
+
+**On GPUs:** both CUDA and CoreML paths are wired (`device: auto|cpu|cuda|coreml`)
+and **neither is measured here**. There is no accelerator of any kind inside Docker
+on Apple Silicon — onnxruntime reports exactly
+`['AzureExecutionProvider', 'CPUExecutionProvider']`, verified. Any GPU figure in
+these docs is labelled *extrapolated*. See [docs/GPU.md](docs/GPU.md).
+
+---
+
 ## What it does
 
 The PS defines eight things a city command centre must do. This is where each one honestly stands —
