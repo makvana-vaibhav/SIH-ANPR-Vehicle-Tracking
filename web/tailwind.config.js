@@ -68,6 +68,18 @@ export default {
           medium: 'hsl(var(--priority-medium))',
           low: 'hsl(var(--priority-low))',
         },
+
+        // ── Chart series ─────────────────────────────────────────────
+        // Categorical identity for chart marks, and nothing else. Kept apart
+        // from `status` and `priority` on purpose: see the note in index.css.
+        // Assigned in fixed slot order, never cycled.
+        chart: {
+          1: 'hsl(var(--chart-1))',
+          2: 'hsl(var(--chart-2))',
+          3: 'hsl(var(--chart-3))',
+          4: 'hsl(var(--chart-4))',
+          other: 'hsl(var(--chart-other))',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -75,10 +87,29 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
+        // Both faces are self-hosted and imported in src/styles/index.css.
+        // The names here must match the `font-family` those @font-face rules
+        // declare — until recently this named Inter and JetBrains Mono while
+        // loading neither, so every screen quietly fell through to system-ui.
+        //
+        // Geist for the interface: a grotesque with unambiguous digits and
+        // real tabular figures, which is what a screen made almost entirely
+        // of counts and timestamps needs.
+        sans: [
+          'Geist Variable',
+          'system-ui',
+          '-apple-system',
+          'Segoe UI',
+          'sans-serif',
+        ],
         // Plates, timestamps, camera codes and coordinates are all read
         // character-by-character — they belong in a monospace face.
-        sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
-        mono: ['JetBrains Mono', 'SFMono-Regular', 'Menlo', 'monospace'],
+        mono: [
+          'JetBrains Mono Variable',
+          'SFMono-Regular',
+          'Menlo',
+          'monospace',
+        ],
       },
       keyframes: {
         'pulse-alert': {

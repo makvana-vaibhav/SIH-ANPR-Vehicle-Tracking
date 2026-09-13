@@ -1,9 +1,9 @@
 /**
- * GIS map screen — Judge Moment 1 and challenge FAQ Q15's "interactive GIS map
- * with layered filters".
+ * GIS map screen — the city camera network, with layered filters.
  *
- * 250 cameras on a Gujarat map, filterable by department, status, district,
- * vendor and ANPR capability, with a detail panel on click.
+ * Every camera on one map, filterable by department, status, vendor and ANPR
+ * capability, with a detail panel on click. Two optional layers sit on top:
+ * detection density and corridor traffic state.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -16,6 +16,7 @@ import {
   Checkbox,
   ErrorBanner,
   Field,
+  InfoHint,
   Input,
   SegmentedControl,
   Select,
@@ -244,7 +245,7 @@ export default function MapView() {
       <div className="flex min-h-0 flex-1">
         {/* Filter rail */}
         <aside className="w-64 shrink-0 overflow-y-auto border-r border-border bg-card/40 p-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Filters
           </h2>
 
@@ -315,27 +316,34 @@ export default function MapView() {
 
           {mayReadAnalytics && (
             <div className="mt-4 border-t border-border pt-4">
-              <Checkbox
-                checked={showHeatmap}
-                onChange={(e) => setShowHeatmap(e.target.checked)}
-                label="Detection density heatmap"
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Weighted by vehicle count over the last 6 hours — the camera
-                layer stays on top so cameras are never hidden under it.
-              </p>
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                Layers
+              </h2>
+              <div className="mt-2 flex items-center gap-1.5">
+                <Checkbox
+                  checked={showHeatmap}
+                  onChange={(e) => setShowHeatmap(e.target.checked)}
+                  label="Detection density"
+                  labelClassName="gap-2 text-sm"
+                />
+                <InfoHint>
+                  Weighted by vehicle count over the last 6 hours. The camera
+                  layer stays on top, so a camera is never hidden underneath it.
+                </InfoHint>
+              </div>
 
-              <div className="mt-3">
+              <div className="mt-2 flex items-center gap-1.5">
                 <Checkbox
                   checked={showTraffic}
                   onChange={(e) => setShowTraffic(e.target.checked)}
-                  label="Corridor traffic state"
+                  label="Corridor traffic"
+                  labelClassName="gap-2 text-sm"
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  The twelve corridors the fleet sits on, coloured by
-                  congestion. Grey means no figure for that road in this
-                  window — not free-flowing.
-                </p>
+                <InfoHint>
+                  The corridors the fleet sits on, coloured by congestion. Grey
+                  means no figure for that road in this window — not
+                  free-flowing.
+                </InfoHint>
               </div>
             </div>
           )}
@@ -356,14 +364,6 @@ export default function MapView() {
             </Button>
           )}
 
-          <div className="mt-6 border-t border-border pt-4">
-            <p className="text-xs text-muted-foreground">
-              Basemap renders Gujarat district boundaries from local GeoJSON.
-              <strong className="block pt-1 text-foreground/70">
-                No tile server — works fully offline.
-              </strong>
-            </p>
-          </div>
         </aside>
 
         {/* Map */}
@@ -417,7 +417,7 @@ export default function MapView() {
             </div>
 
             {basemap === 'offline' && (
-              <span className="rounded bg-card/90 px-2 py-1 text-[10px] leading-tight text-muted-foreground shadow backdrop-blur">
+              <span className="rounded bg-card/90 px-2 py-1 text-[11px] leading-tight text-muted-foreground shadow backdrop-blur">
                 {satelliteDown
                   ? 'Imagery unreachable — offline basemap'
                   : 'Offline basemap · no external requests'}
@@ -427,7 +427,7 @@ export default function MapView() {
 
           {/* Legend */}
           <div className="absolute bottom-8 right-3 z-10 rounded-lg border border-border bg-card/90 p-3 shadow-lg backdrop-blur">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Camera status
             </p>
             <ul className="mt-2 space-y-1.5">
@@ -441,7 +441,7 @@ export default function MapView() {
                 </li>
               ))}
             </ul>
-            <p className="mt-2 border-t border-border pt-2 text-[10px] text-muted-foreground">
+            <p className="mt-2 border-t border-border pt-2 text-[11px] text-muted-foreground">
               {shownCount} of {health?.total ?? '—'} shown
             </p>
           </div>

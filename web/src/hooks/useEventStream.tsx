@@ -23,15 +23,28 @@ import {
 } from 'react'
 
 import { API_BASE_URL, getAccessToken } from '@/lib/api'
-import { isPositionRefresh } from '@/lib/events'
-import type { LiveAlertEvent, LiveEvent, LiveVehicleEvent } from '@/lib/types'
+import { isPositionRefresh, isTrackBatch } from '@/lib/events'
+import type {
+  LiveAlertEvent,
+  LiveEvent,
+  LiveTrackBatchEvent,
+  LiveVehicleEvent,
+} from '@/lib/types'
 
 export type StreamStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
 
 /** How many recent items each buffer holds. Bounded: this runs for hours. */
 const MAX_DETECTIONS = 200
 const MAX_ALERTS = 50
-/** Per-camera buffer, which carries position refreshes as well as readings. */
+/**
+ * Per-camera buffer of *readings*.
+ *
+ * Deeper than a plate feed needs, because it was sized when this buffer also
+ * carried the position refreshes that moved boxes. Boxes now come from
+ * `camera.tracks` instead, so this holds readings alone — and the depth is
+ * still earned: a camera reading steadily should not evict a plate before
+ * anyone beside the video has had a chance to read it.
+ */
 const CAMERA_BUFFER = 120
 
 const BACKOFF_START_MS = 1_000
@@ -224,4 +237,42 @@ export function useCameraEvents(cameraCode: string | null): LiveVehicleEvent[] {
   }, [cameraCode, subscribe])
 
   return events
+}
+
+/**
+ * The newest batch of live boxes for one camera.
+ *
+ * Only the newest, because a batch is **authoritative**: it describes every
+ * vehicle currently drawable on that camera, so an older one is not history
+ * worth keeping — it is a strictly worse answer to the same question. A
+ * vehicle absent from the batch in hand is no longer on the camera.
+ *
+ * One state update per batch rather than one per vehicle, which is the whole
+ * point of the channel: at five batches a second this re-renders five times a
+ * second whether there is one car in frame or twenty.
+ *
+ * Ordering needs no handling here. Redis Streams and the WebSocket both
+ * preserve it, so the last batch to arrive is the last one sent.
+ */
+export function useCameraBoxes(cameraCode: string | null): LiveTrackBatchEvent | null {
+  const { subscribe } = useEventStream()
+  const [batch, setBatch] = useState<LiveTrackBatchEvent | null>(null)
+
+  useEffect(() => {
+    // Cleared on every change of camera, for the same reason `useCameraEvents`
+    // clears its buffer: boxes from the camera we just left drawn over the one
+    // we just opened would invent results for a feed that may be reading
+    // nothing at all.
+    setBatch(null)
+    if (!cameraCode) return
+
+    const wanted = cameraCode.toLowerCase()
+    return subscribe((event) => {
+      if (!isTrackBatch(event)) return
+      if ((event.source?.camera_id ?? '').toLowerCase() !== wanted) return
+      setBatch(event)
+    })
+  }, [cameraCode, subscribe])
+
+  return batch
 }

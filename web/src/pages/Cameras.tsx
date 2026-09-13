@@ -23,10 +23,16 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { SkeletonRows } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
 import {
+  Badge,
   Button,
   Checkbox,
+  Drawer,
   Field,
+  Icon,
+  InfoHint,
   Input,
+  PageHeader,
+  SegmentedControl,
   Select,
   StatusBadge,
   Table,
@@ -40,12 +46,29 @@ import * as api from '@/lib/api'
 import { PERMISSIONS } from '@/lib/permissions'
 import type { Camera, Department, VmsInstance } from '@/lib/types'
 
-type Tab = 'fleet' | 'import'
+/**
+ * Which slide-over is open, if any.
+ *
+ * These were two tabs above a permanently-expanded form, so the screen called
+ * "Cameras" opened on a twenty-field onboarding form with the fleet pushed
+ * entirely below the fold. Onboarding is the rare act and looking at the fleet
+ * is the common one; the common one is what the page opens on now.
+ */
+type Drawered = 'none' | 'camera' | 'import'
 
 /** Gujarat's bounding box, mirroring the server-side validator. Checked here
  *  too so a typo is caught while the operator is still looking at the field,
  *  rather than as a 422 after they press the button. */
 const BOUNDS = { latMin: 20.0, latMax: 24.8, lonMin: 68.1, lonMax: 74.5 }
+
+/** The values `Protocol` in app/models/enums.py actually accepts.
+ *
+ * This list previously read `['rtsp', 'http', 'hls', 'onvif']`. Two of those
+ * are not members of the enum, so choosing either produced a 422 on save with
+ * no hint that the dropdown had offered an impossible option. `http`/`hls`
+ * describe how the *browser* is served video, which is the gateway's business
+ * and never a property of the upstream camera. */
+const PROTOCOLS = ['rtsp', 'onvif', 'vendor_api'] as const
 
 const EMPTY = {
   camera_code: '',
@@ -60,6 +83,10 @@ const EMPTY = {
   camera_type: 'fixed',
   protocol: 'rtsp',
   stream_url: '',
+  /** 'live' → pull an RTSP/ONVIF URL. 'recorded' → replay a clip from the
+   *  video directory. One camera, two ways to give it pictures. */
+  source_kind: 'live' as 'live' | 'recorded',
+  source_file: '',
   resolution: '1920x1080',
   fps: '15',
   anpr_enabled: true,
@@ -72,11 +99,12 @@ export default function Cameras() {
   const mayUpdate = can(PERMISSIONS.cameraUpdate)
   const mayDelete = can(PERMISSIONS.cameraDelete)
 
-  const [tab, setTab] = useState<Tab>('fleet')
+  const [drawer, setDrawer] = useState<Drawered>('none')
   const [cameras, setCameras] = useState<Camera[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [vms, setVms] = useState<VmsInstance[]>([])
   const [adapters, setAdapters] = useState<Record<string, string>>({})
+  const [sourceVideos, setSourceVideos] = useState<api.SourceVideo[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [form, setForm] = useState({ ...EMPTY })
@@ -85,16 +113,21 @@ export default function Cameras() {
 
   const load = useCallback(async () => {
     try {
-      const [fleet, depts, instances, adapterInfo] = await Promise.all([
+      const [fleet, depts, instances, adapterInfo, clips] = await Promise.all([
         api.getCameras({ limit: '500' }),
         api.getDepartments(),
         api.getVmsInstances(),
         api.getAdapters(),
+        // An empty list is a legitimate answer — no footage on this machine —
+        // so a failure here must not take the whole page down with it. The
+        // form falls back to the live-URL path, which is all it ever had.
+        api.getSourceVideos().catch(() => [] as api.SourceVideo[]),
       ])
       setCameras(Array.isArray(fleet) ? fleet : (fleet as { items: Camera[] }).items ?? [])
       setDepartments(depts)
       setVms(instances)
       setAdapters(adapterInfo.adapters)
+      setSourceVideos(clips)
     } catch (err) {
       toast.error(err)
     } finally {
@@ -138,17 +171,22 @@ export default function Cameras() {
       // so anything shown here would be an invention. Left empty it means
       // "keep whatever is configured".
       stream_url: '',
+      // `source_file` *is* returned, so unlike the URL this can be shown and
+      // edited truthfully, and a camera already replaying a clip opens on the
+      // recorded tab with that clip selected.
+      source_kind: camera.source_file ? 'recorded' : 'live',
+      source_file: camera.source_file ?? '',
       resolution: camera.resolution ?? '',
       fps: camera.fps == null ? '' : String(camera.fps),
       anpr_enabled: camera.anpr_enabled,
     })
-    setTab('fleet')
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    setDrawer('camera')
   }
 
   function cancelEdit() {
     setEditing(null)
     setForm({ ...EMPTY })
+    setDrawer('none')
   }
 
   async function submit(event: FormEvent) {
@@ -166,6 +204,12 @@ export default function Cameras() {
       return
     }
 
+    const recorded = form.source_kind === 'recorded'
+    if (recorded && !form.source_file) {
+      toast.error('Choose a recorded clip, or switch back to a live stream URL')
+      return
+    }
+
     const body: api.CameraInput = {
       camera_code: form.camera_code.trim().toUpperCase(),
       name: form.name.trim(),
@@ -178,7 +222,11 @@ export default function Cameras() {
       heading_deg: form.heading_deg === '' ? null : Number(form.heading_deg),
       camera_type: form.camera_type || null,
       protocol: form.protocol || null,
-      stream_url: form.stream_url.trim() || null,
+      // The two source kinds are exclusive in the form: picking a recorded
+      // clip clears the URL and vice versa, so a camera cannot end up with a
+      // live URL and a clip both claiming to be its pictures.
+      stream_url: recorded ? null : form.stream_url.trim() || null,
+      source_file: recorded ? form.source_file || null : null,
       resolution: form.resolution.trim() || null,
       fps: form.fps === '' ? null : Number(form.fps),
       anpr_enabled: form.anpr_enabled,
@@ -232,59 +280,155 @@ export default function Cameras() {
   }
 
   return (
-    <div className="space-y-6 overflow-y-auto p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Cameras</h1>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Every camera here has a video source behind it. Onboard one with the
-          form, or a whole estate from CSV — either way it appears on the map,
-          starts being health-probed, and joins the ANPR fleet if it has a
-          stream and analysis is enabled.
-        </p>
-      </header>
+    <div className="flex h-full flex-col gap-4 overflow-hidden p-6">
+      <PageHeader
+        title="Cameras"
+        subtitle={
+          <>
+            <span>{cameras.length} registered</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span>{cameras.filter((c) => c.anpr_enabled).length} analysed for plates</span>
+            <InfoHint label="What onboarding a camera does">
+              A camera appears on the map, starts being health-probed, and joins
+              the ANPR fleet if it has a stream and analysis is enabled. Every
+              camera here has a video source behind it — a registry record
+              without one can never be watched or analysed, which is a
+              legitimate thing to record but should be a decision rather than an
+              accident.
+            </InfoHint>
+          </>
+        }
+        actions={
+          <div className="flex items-end gap-2">
+            <Input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter by code, name or district"
+              aria-label="Filter cameras"
+              className="h-8 w-64 py-0"
+            />
+            {mayCreate && (
+              <>
+                <Button variant="outline" className="h-8" onClick={() => setDrawer('import')}>
+                  Import CSV
+                </Button>
+                <Button
+                  className="flex h-8 items-center gap-1.5"
+                  onClick={() => {
+                    setEditing(null)
+                    setForm({ ...EMPTY })
+                    setDrawer('camera')
+                  }}
+                >
+                  <Icon name="camera" size={14} />
+                  Onboard camera
+                </Button>
+              </>
+            )}
+          </div>
+        }
+      />
 
-      <nav className="flex gap-1 border-b border-border" role="tablist">
-        {(
-          [
-            ['fleet', `Fleet (${cameras.length})`],
-            ['import', 'Import CSV'],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            role="tab"
-            aria-selected={tab === key}
-            onClick={() => setTab(key)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm transition ${
-              tab === key
-                ? 'border-primary font-medium text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+      {/* ── The fleet ─────────────────────────────────────────────────
+          What the page is for, and what it now opens on. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {loading ? (
+          <SkeletonRows rows={8} />
+        ) : (
+          <Table>
+            <Thead>
+              <tr>
+                <Th>Code</Th>
+                <Th>Name</Th>
+                <Th>District</Th>
+                <Th>Status</Th>
+                <Th>ANPR</Th>
+                <Th>Source</Th>
+                <Th />
+              </tr>
+            </Thead>
+            <tbody>
+              {shown.map((camera) => (
+                <Tr key={camera.id}>
+                  <Td className="font-mono text-xs">{camera.camera_code}</Td>
+                  <Td>{camera.name}</Td>
+                  <Td className="text-muted-foreground">{camera.district ?? '—'}</Td>
+                  <Td>
+                    <StatusBadge status={camera.status} />
+                  </Td>
+                  <Td className="text-xs">
+                    {camera.anpr_enabled ? (
+                      <span className="text-status-online">on</span>
+                    ) : (
+                      <span className="text-muted-foreground">off</span>
+                    )}
+                  </Td>
+                  <Td className="text-xs text-muted-foreground">
+                    {camera.has_stream ? (
+                      // A boolean, never the URL: it carries credentials
+                      // for every federated camera on the grid.
+                      <span title="Stream configured">configured</span>
+                    ) : (camera.tags ?? []).includes('demo') ? (
+                      // Read from the registry's own tags rather than
+                      // matched against one hardcoded camera code: the
+                      // demonstration fleet is three cameras now, and a
+                      // code match silently mislabelled the other two as
+                      // having no stream at all.
+                      <Badge tone="warning">recorded clip</Badge>
+                    ) : (
+                      <span className="text-priority-high">no stream</span>
+                    )}
+                  </Td>
+                  <Td className="text-right">
+                    <span className="flex justify-end gap-3">
+                      {mayUpdate && (
+                        <button
+                          onClick={() => startEdit(camera)}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Edit
+                        </button>
+                      )}
+                      {mayDelete && (
+                        <button
+                          onClick={() => void remove(camera)}
+                          className="text-xs text-status-offline hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </span>
+                  </Td>
+                </Tr>
+              ))}
+              {shown.length === 0 && (
+                <tr>
+                  <Td colSpan={7} className="py-8 text-center text-muted-foreground">
+                    {filter ? `No cameras match “${filter}”.` : 'No cameras registered.'}
+                  </Td>
+                </tr>
+              )}
+            </tbody>
+          </Table>
+        )}
 
-      {tab === 'fleet' && (
-        <>
-          {mayCreate && (
-            <form
-              onSubmit={submit}
-              className="space-y-4 rounded-lg border border-border bg-card p-4"
-            >
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-sm font-semibold">
-                  {editing ? `Amend ${editing.camera_code}` : 'Onboard a camera'}
-                </h2>
-                {editing && (
-                  <Button variant="ghost" size="sm" onClick={cancelEdit}>
-                    Cancel
-                  </Button>
-                )}
-              </div>
+        <FederationStrip vms={vms} adapters={adapters} />
+      </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ── Onboarding / amendment ────────────────────────────────── */}
+      <Drawer
+        open={drawer === 'camera'}
+        onClose={cancelEdit}
+        title={editing ? `Amend ${editing.camera_code}` : 'Onboard a camera'}
+        description={
+          editing
+            ? 'The camera code is the estate-wide identity and cannot be changed.'
+            : 'A code, a name, a position and a video source.'
+        }
+      >
+        {mayCreate && (
+          <form onSubmit={submit} className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Camera code" hint="Unique, estate-wide">
                   <Input
                     required
@@ -324,25 +468,64 @@ export default function Cameras() {
                 </Field>
               </div>
 
-              <Field
-                label="Stream URL"
-                hint={
-                  editing
-                    ? editing.has_stream
-                      ? 'A source is configured. Leave blank to keep it, or type a new one to replace it — the existing URL is never sent to the browser.'
-                      : 'This camera has no source, so it can never be watched or analysed. Add one here.'
-                    : 'RTSP or HLS. Without one the camera is a registry record that can never be watched or analysed.'
-                }
-              >
-                <Input
-                  value={form.stream_url}
-                  onChange={(e) => set('stream_url', e.target.value)}
-                  placeholder="rtsp://user:password@10.0.0.24:554/Streaming/Channels/101"
-                  className="font-mono text-xs"
+              {/* Where this camera's pictures come from. A live URL is the
+                  real-deployment path; a recorded clip is how footage shot on
+                  a phone becomes a camera without editing .env and restarting
+                  a container. */}
+              <Field label="Video source">
+                <SegmentedControl
+                  value={form.source_kind}
+                  onChange={(v) => set('source_kind', v)}
+                  options={[
+                    { value: 'live', label: 'Live stream URL' },
+                    { value: 'recorded', label: 'Recorded video' },
+                  ]}
                 />
               </Field>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {form.source_kind === 'live' ? (
+                <Field
+                  label="Stream URL"
+                  hint={
+                    editing
+                      ? editing.has_stream
+                        ? 'A source is configured. Leave blank to keep it, or type a new one to replace it — the existing URL is never sent to the browser.'
+                        : 'This camera has no source, so it can never be watched or analysed. Add one here.'
+                      : 'RTSP or ONVIF. Without one the camera is a registry record that can never be watched or analysed.'
+                  }
+                >
+                  <Input
+                    value={form.stream_url}
+                    onChange={(e) => set('stream_url', e.target.value)}
+                    placeholder="rtsp://10.0.0.24:554/Streaming/Channels/101"
+                    className="font-mono text-xs"
+                  />
+                </Field>
+              ) : (
+                <Field
+                  label="Recorded clip"
+                  hint={
+                    sourceVideos.length === 0
+                      ? 'No clips found in the video directory. Drop an .mp4 into data/videos/ and reopen this form.'
+                      : 'Replayed on a loop as this camera’s feed. Copy the file into data/videos/ and it appears here.'
+                  }
+                >
+                  <Select
+                    value={form.source_file}
+                    onChange={(e) => set('source_file', e.target.value)}
+                    disabled={sourceVideos.length === 0}
+                  >
+                    <option value="">Select a clip…</option>
+                    {sourceVideos.map((v) => (
+                      <option key={v.filename} value={v.filename}>
+                        {v.filename} ({api.formatBytes(v.size_bytes)})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="District">
                   <Input
                     value={form.district}
@@ -385,7 +568,7 @@ export default function Cameras() {
                 </Field>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Type">
                   <Select
                     value={form.camera_type}
@@ -403,7 +586,7 @@ export default function Cameras() {
                     value={form.protocol}
                     onChange={(e) => set('protocol', e.target.value)}
                   >
-                    {['rtsp', 'http', 'hls', 'onvif'].map((p) => (
+                    {PROTOCOLS.map((p) => (
                       <option key={p} value={p}>
                         {p}
                       </option>
@@ -442,104 +625,35 @@ export default function Cameras() {
                 }
               />
 
-              <Button type="submit" disabled={busy}>
+              <div className="flex items-center pt-1">
+                <Button type="submit" disabled={busy}>
                 {busy ? 'Saving…' : editing ? 'Save changes' : 'Onboard camera'}
               </Button>
-            </form>
-          )}
+              {editing && (
+                <Button variant="ghost" className="ml-2" onClick={cancelEdit}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </form>
+        )}
+      </Drawer>
 
-          <div className="space-y-3">
-            <Input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter by code, name or district"
-              className="max-w-sm"
-            />
-
-            {loading ? (
-              <SkeletonRows rows={6} />
-            ) : (
-              <Table>
-                <Thead>
-                  <tr>
-                    <Th>Code</Th>
-                    <Th>Name</Th>
-                    <Th>District</Th>
-                    <Th>Status</Th>
-                    <Th>ANPR</Th>
-                    <Th>Source</Th>
-                    <Th />
-                  </tr>
-                </Thead>
-                <tbody>
-                  {shown.map((camera) => (
-                    <Tr key={camera.id}>
-                      <Td className="font-mono text-xs">{camera.camera_code}</Td>
-                      <Td>{camera.name}</Td>
-                      <Td className="text-muted-foreground">{camera.district ?? '—'}</Td>
-                      <Td>
-                        <StatusBadge status={camera.status} />
-                      </Td>
-                      <Td className="text-xs">
-                        {camera.anpr_enabled ? (
-                          <span className="text-status-online">on</span>
-                        ) : (
-                          <span className="text-muted-foreground">off</span>
-                        )}
-                      </Td>
-                      <Td className="text-xs text-muted-foreground">
-                        {camera.has_stream ? (
-                          // A boolean, never the URL: it carries credentials
-                          // for every federated camera on the grid.
-                          <span title="Stream configured">configured</span>
-                        ) : (camera.tags ?? []).includes('demo') ? (
-                          // Read from the registry's own tags rather than
-                          // matched against one hardcoded camera code: the
-                          // demonstration fleet is three cameras now, and a
-                          // code match silently mislabelled the other two as
-                          // having no stream at all.
-                          <span>recorded clip</span>
-                        ) : (
-                          <span className="text-priority-high">no stream</span>
-                        )}
-                      </Td>
-                      <Td className="text-right">
-                        {mayUpdate && (
-                          <button
-                            onClick={() => startEdit(camera)}
-                            className="text-xs text-primary hover:underline"
-                          >
-                            Edit
-                          </button>
-                        )}
-                        {mayDelete && (
-                          <button
-                            onClick={() => void remove(camera)}
-                            className="ml-3 text-xs text-status-offline hover:underline"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </Td>
-                    </Tr>
-                  ))}
-                  {shown.length === 0 && (
-                    <tr>
-                      <Td colSpan={7} className="py-8 text-center text-muted-foreground">
-                        No cameras match “{filter}”.
-                      </Td>
-                    </tr>
-                  )}
-                </tbody>
-              </Table>
-            )}
-          </div>
-        </>
-      )}
-
-      {tab === 'import' && <CsvImport onDone={load} allowed={mayCreate} />}
-
-      <FederationStrip vms={vms} adapters={adapters} />
+      {/* ── Bulk onboarding ──────────────────────────────────────── */}
+      <Drawer
+        open={drawer === 'import'}
+        onClose={() => setDrawer('none')}
+        title="Onboard an estate from CSV"
+        description="Validated first. Nothing is written until you say so."
+      >
+        <CsvImport
+          allowed={mayCreate}
+          onDone={async () => {
+            await load()
+            setDrawer('none')
+          }}
+        />
+      </Drawer>
     </div>
   )
 }
@@ -685,14 +799,16 @@ function FederationStrip({
   adapters: Record<string, string>
 }) {
   return (
-    <section className="rounded-lg border border-border bg-card/50 p-4">
-      <h2 className="text-sm font-semibold">Federation</h2>
-      <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
-        Departmental VMS platforms stay authoritative for their own video. This
-        platform holds their metadata and resolves streams on demand, so the
-        central tier carries{' '}
-        <strong className="text-foreground">events, not video</strong>.
-      </p>
+    <section className="mt-4 rounded-md border border-border bg-card/50 p-4">
+      <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+        Federation
+        <InfoHint>
+          Departmental VMS platforms stay authoritative for their own video.
+          This platform holds their metadata and resolves streams on demand, so
+          the central tier carries events, not video — which is what lets a city
+          deployment run on commodity hardware.
+        </InfoHint>
+      </h2>
 
       <div className="mt-3 grid gap-4 md:grid-cols-2">
         <div>

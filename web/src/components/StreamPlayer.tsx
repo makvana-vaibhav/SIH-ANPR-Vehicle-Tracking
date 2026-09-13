@@ -47,15 +47,29 @@
  *
  * ## The capture clock
  *
- * MediaMTX stamps its HLS playlists with `EXT-X-PROGRAM-DATE-TIME`, so hls.js
- * can say what wall-clock moment the frame on screen was captured at. That is
- * handed to the overlay, which uses it to place plate boxes on the frame they
- * were actually measured in instead of wherever the vehicle has got to since.
- * WebRTC carries no such clock; the overlay is told so and falls back.
+ * Anything drawn over live video needs to know *which* moment the picture is
+ * showing, or it can only guess where a vehicle has got to. Both transports can
+ * answer, by different means, and `videoClock` gives the overlay one number
+ * either way:
  *
- * Aligning only works if the picture is running far enough behind live to
- * cover the pipeline, which is what `syncDelayMs` buys — a deliberate delay,
- * traded for boxes that land on the vehicle.
+ * **HLS** is stamped. MediaMTX writes `EXT-X-PROGRAM-DATE-TIME` into the
+ * playlist and hls.js reads it, so the answer is exact. The native HLS players
+ * in Safari and Edge expose no such clock, which is why hls.js is preferred
+ * over them whenever an overlay is present rather than only when a delay is
+ * asked for.
+ *
+ * **WebRTC** is measured. The connection reports how long it has been holding
+ * frames (`jitterBufferDelay` over `jitterBufferEmittedCount`) and the round
+ * trip to the gateway, and now minus those is the same quantity the HLS tag
+ * gives directly. It used to report "no clock" here, so the overlay fell back
+ * to drawing boxes on arrival with no idea how far behind the picture was.
+ *
+ * `syncDelayMs` is a separate and now largely unnecessary thing: it holds the
+ * picture deliberately far behind live so every event arrives before the frame
+ * it describes is shown. With the gateway's low-latency HLS the hold-back is
+ * already longer than the pipeline, so alignment does not need buying — the
+ * delay is worth spending only when the worker is heavily loaded and its
+ * capture-to-event latency runs into seconds.
  */
 
 import Hls from 'hls.js'
@@ -75,6 +89,20 @@ const STALL_AFTER_MS = 6_000
 
 /** How long to keep retrying a manifest that is not being published yet. */
 const MANIFEST_RETRY_MS = 20_000
+
+/** How often to ask WebRTC how far behind the picture is. */
+const RTC_STATS_INTERVAL_MS = 1_000
+
+/**
+ * Ignore a WebRTC lag estimate above this, in milliseconds.
+ *
+ * `jitterBufferDelay` is cumulative over the life of the track, and the first
+ * sample after a join includes the decoder settling, so an early reading can
+ * be wildly high. A local gateway is tens of milliseconds away; anything past
+ * two seconds is a measurement artefact, and reporting no clock is better than
+ * reporting a wrong one.
+ */
+const RTC_MAX_PLAUSIBLE_LAG_MS = 2_000
 
 interface Props {
   whepUrl: string | null
@@ -147,6 +175,16 @@ export default function StreamPlayer({
   const generationRef = useRef(0)
   const timersRef = useRef<number[]>([])
   const cleanupsRef = useRef<Array<() => void>>([])
+  // How far behind the source the WebRTC picture is, in milliseconds, measured
+  // from the connection's own statistics. Null until it has been measured, and
+  // reset on every teardown so a stale figure never describes a new stream.
+  const rtcLagRef = useRef<number | null>(null)
+
+  // Whether anything is drawn over the video, as a *stable* value. `overlay`
+  // itself is a fresh closure on every render of the parent, so naming it in a
+  // dependency array would tear the stream down and renegotiate it on every
+  // event that arrives. This changes only when the caller stops passing one.
+  const hasOverlay = overlay !== undefined
 
   const [state, setState] = useState<PlayerState>('idle')
   const [transport, setTransport] = useState<Transport>(
@@ -160,14 +198,101 @@ export default function StreamPlayer({
   /**
    * Capture time of the frame on screen, epoch ms, or null.
    *
-   * Identity-stable: the overlay reads it on every animation frame and would
-   * restart its loop on each render if this were a fresh closure each time.
+   * Two transports, two ways of knowing:
+   *
+   * **HLS** stamps it outright. MediaMTX writes `EXT-X-PROGRAM-DATE-TIME` into
+   * the playlist, so hls.js can name the wall-clock moment the displayed frame
+   * was captured at. Nothing is estimated.
+   *
+   * **WebRTC** has no such tag, but it does know how long the picture has been
+   * held: `jitterBufferDelay / jitterBufferEmittedCount` is the mean time a
+   * frame waited in the receiver, and half the reported round trip covers
+   * getting it here. That is a measurement, not a guess, and subtracting it
+   * from now gives the same quantity the HLS tag gives directly. Before it has
+   * been measured this returns null and the overlay falls back — which is the
+   * honest answer rather than a plausible one.
+   *
+   * Identity-stable: the overlay reads it on every update and would restart
+   * its loop on each render if this were a fresh closure each time.
    */
   const videoClock = useCallback((): number | null => {
     const hls = hlsRef.current
-    if (!hls) return null
-    const playing = hls.playingDate
-    return playing ? playing.getTime() : null
+    if (hls) {
+      const playing = hls.playingDate
+      if (playing) return playing.getTime()
+      // A live ladder with no programme-date tags can still say how far behind
+      // the playlist's live edge it is playing. That is a lower bound on the
+      // real distance from capture — the gateway spends time segmenting before
+      // anything reaches the edge — so it under-corrects rather than over-, and
+      // it is still far better than the alternative of assuming the picture is
+      // showing this instant.
+      const latency = hls.latency
+      return Number.isFinite(latency) && latency > 0 ? Date.now() - latency * 1000 : null
+    }
+    const lag = rtcLagRef.current
+    return lag === null ? null : Date.now() - lag
+  }, [])
+
+  /**
+   * Sample the peer connection for how far behind the picture is.
+   *
+   * The jitter-buffer figures are cumulative counters, so the *interval* mean
+   * is the difference between two samples rather than the ratio of the latest
+   * pair — the lifetime ratio would keep reporting a join's worth of buffering
+   * long after it had drained.
+   */
+  const watchRtcLag = useCallback((pc: RTCPeerConnection, gen: number) => {
+    let lastDelay = 0
+    let lastCount = 0
+
+    const sample = async () => {
+      if (generationRef.current !== gen) return
+      let report: RTCStatsReport | null = null
+      try {
+        report = await pc.getStats()
+      } catch {
+        return // a closing connection; the generation check catches the rest
+      }
+      if (report === null || generationRef.current !== gen) return
+
+      // NaN rather than null as the "not reported" value, so every figure here
+      // stays a number and one `Number.isFinite` guard covers the lot.
+      let rttMs = 0
+      let delayS = Number.NaN
+      let count = Number.NaN
+
+      report.forEach((raw) => {
+        const entry = raw as Record<string, unknown>
+        if (entry.type === 'inbound-rtp' && entry.kind === 'video') {
+          const delay = entry.jitterBufferDelay
+          const emitted = entry.jitterBufferEmittedCount
+          if (typeof delay === 'number') delayS = delay
+          if (typeof emitted === 'number') count = emitted
+        }
+        // The only RTT WebRTC reports for a receive-only stream comes from the
+        // candidate pair, and it is a round trip, so half of it is the one-way
+        // delay this picture actually paid.
+        const rtt = entry.currentRoundTripTime
+        if (entry.type === 'candidate-pair' && entry.nominated === true) {
+          if (typeof rtt === 'number') rttMs = (rtt * 1000) / 2
+        }
+      })
+
+      if (!Number.isFinite(delayS) || !Number.isFinite(count)) return
+      const frames = count - lastCount
+      const buffered = delayS - lastDelay
+      lastDelay = delayS
+      lastCount = count
+      if (frames <= 0) return
+
+      const lag = (buffered / frames) * 1000 + rttMs
+      rtcLagRef.current =
+        Number.isFinite(lag) && lag >= 0 && lag < RTC_MAX_PLAUSIBLE_LAG_MS ? lag : null
+    }
+
+    const timer = window.setInterval(() => void sample(), RTC_STATS_INTERVAL_MS)
+    cleanupsRef.current.push(() => window.clearInterval(timer))
+    void sample()
   }, [])
 
   const teardown = useCallback(() => {
@@ -181,6 +306,7 @@ export default function StreamPlayer({
     pcRef.current = null
     hlsRef.current?.destroy()
     hlsRef.current = null
+    rtcLagRef.current = null
     setClockLive(false)
     if (videoRef.current) {
       videoRef.current.srcObject = null
@@ -279,11 +405,18 @@ export default function StreamPlayer({
 
     // Safari, iOS and Edge play HLS natively, and left to themselves that is
     // the better path: hardware decoding, no JavaScript in the loop. But the
-    // native player exposes no programme-date clock, and the clock is the
-    // whole point of a synced overlay — so when sync is asked for and hls.js
-    // can run, hls.js runs. Measured in Edge: the native path played fine and
-    // the badge never said "synced", because there was nothing to sync to.
-    const wantsClock = syncSeconds > 0 && Hls.isSupported()
+    // native player exposes no programme-date clock, and the clock is what lets
+    // an overlay put a box on the frame it was measured in — so whenever
+    // something is being drawn over this video and hls.js can run, hls.js
+    // runs. Measured in Edge: the native path played fine and the badge never
+    // said "synced", because there was nothing to sync to.
+    //
+    // This is gated on `overlay`, not on `syncDelayMs`, and the difference
+    // matters. With the native player and no clock the overlay has to schedule
+    // boxes from their arrival and guess how far behind the picture is, and on
+    // HLS that guess is wrong by seconds — which is precisely how a prompt
+    // reading ends up drawn over the wrong car.
+    const wantsClock = (syncSeconds > 0 || hasOverlay) && Hls.isSupported()
     if (!wantsClock && video.canPlayType('application/vnd.apple.mpegurl')) {
       const onError = () => {
         if (generationRef.current !== gen) return
@@ -343,10 +476,19 @@ export default function StreamPlayer({
           }
         : {
             // A live wall wants the newest picture, not a smooth buffered one.
-            // These keep the player near the live edge and let it catch up
-            // after a stall rather than drifting further behind each hiccup.
+            //
+            // Deliberately **no** `liveSyncDuration*` here. The gateway is
+            // configured for low-latency HLS — 1 s segments cut into 200 ms
+            // parts — and publishes a `PART-HOLD-BACK` of about 600 ms, which
+            // is hls.js's target distance from the live edge when it is left
+            // to read it. Setting `liveSyncDurationCount: 2` overrode that
+            // with two *target durations*, so the player sat a full two
+            // seconds behind live for no reason anybody had asked for. On a
+            // screen that draws plate boxes over the picture, that delay is
+            // indistinguishable from the AI being slow: the reading is
+            // already in the browser while the frame it describes is still
+            // two seconds from being shown.
             lowLatencyMode: true,
-            liveSyncDurationCount: 2,
             backBufferLength: 10,
             manifestLoadingMaxRetry: 6,
             fragLoadingMaxRetry: 6,
@@ -377,7 +519,10 @@ export default function StreamPlayer({
           window.clearInterval(clockProbe)
           return
         }
-        setClockLive(hls.playingDate !== null)
+        // Asked through `videoClock` rather than by reading `playingDate`
+        // directly, so the badge tells the truth on a ladder that is aligned
+        // through the latency fallback instead of a programme-date tag.
+        setClockLive(videoClock() !== null)
       }, 1_000)
       cleanupsRef.current.push(() => window.clearInterval(clockProbe))
 
@@ -448,7 +593,16 @@ export default function StreamPlayer({
 
     hls.loadSource(source)
     hls.attachMedia(video)
-  }, [hlsUrl, syncDelayMs, teardown, after, onFirstFrame, watchForStalls])
+  }, [
+    hlsUrl,
+    syncDelayMs,
+    hasOverlay,
+    teardown,
+    after,
+    onFirstFrame,
+    watchForStalls,
+    videoClock,
+  ])
 
   // Assigned in an effect rather than during render: effects run before any
   // timer or media callback can fire, so the ref is always current by the time
@@ -523,8 +677,19 @@ export default function StreamPlayer({
       onFirstFrame(video, gen, () => {
         setState('playing')
         setLatencyNote(`WebRTC in ${Math.round(performance.now() - started)} ms`)
-        // WebRTC carries no programme-date clock, so the overlay cannot sync.
+        // WebRTC carries no programme-date tag, but it can be *asked* how long
+        // it has been holding frames, which answers the same question. Until
+        // the first sample lands there is no clock and the overlay is told so.
         setClockLive(false)
+        watchRtcLag(pc, gen)
+        const clockProbe = window.setInterval(() => {
+          if (generationRef.current !== gen) {
+            window.clearInterval(clockProbe)
+            return
+          }
+          setClockLive(rtcLagRef.current !== null)
+        }, RTC_STATS_INTERVAL_MS)
+        cleanupsRef.current.push(() => window.clearInterval(clockProbe))
         watchForStalls(video, gen, () => fallback('stream stalled'))
       })
     }
@@ -577,6 +742,7 @@ export default function StreamPlayer({
     after,
     onFirstFrame,
     watchForStalls,
+    watchRtcLag,
   ])
 
   useEffect(() => {
@@ -654,9 +820,13 @@ export default function StreamPlayer({
           <span className="absolute left-2 top-2 flex items-center gap-1.5 rounded bg-black/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-status-online">
             <span className="h-1.5 w-1.5 animate-pulse-alert rounded-full bg-status-online" />
             Live · {transport === 'hls' ? 'HLS' : 'WebRTC'}
-            {clockLive && syncDelayMs > 0 && (
-              <span className="text-primary">· synced</span>
-            )}
+            {/* Not "synced", which used to mean "the picture is being held
+                back". This says the narrower and more useful thing: the player
+                can name which capture instant is on screen, so an overlay can
+                place a box on the frame it was measured in. True of HLS from
+                its programme-date tags and of WebRTC once its receive lag has
+                been measured — with or without a deliberate delay. */}
+            {clockLive && <span className="text-primary">· aligned</span>}
           </span>
         )}
 

@@ -8,14 +8,17 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   disabledValues,
+  className = '',
 }: {
   options: { value: T; label: string; title?: string }[]
   value: T
   onChange: (value: T) => void
   disabledValues?: T[]
+  /** For matching the height of a neighbouring control in a toolbar row. */
+  className?: string
 }) {
   return (
-    <div className="flex overflow-hidden rounded-md border border-border">
+    <div className={`flex overflow-hidden rounded-md border border-border ${className}`}>
       {options.map((opt) => (
         <button
           key={opt.value}

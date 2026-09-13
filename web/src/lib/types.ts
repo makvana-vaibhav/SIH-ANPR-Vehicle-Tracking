@@ -31,6 +31,10 @@ export interface Camera {
   /** Whether a video source is configured. The URL itself is never sent to the
    *  browser — a federated camera's carries the grid credentials. */
   has_stream: boolean
+  /** Recorded clip this camera replays, or null when it pulls a live stream.
+   *  Unlike `stream_url` this is safe to send: a filename in our own video
+   *  directory, carrying no credentials. */
+  source_file: string | null
   created_at: string
   updated_at: string
   distance_km?: number | null
@@ -347,6 +351,15 @@ export interface LiveVehicleEvent {
    * True when this repeats a reading already reported, to update only where
    * the vehicle now is. For drawing, never for counting — see
    * `lib/events.ts`.
+   *
+   * A refresh also arrives **trimmed**: the boxes, the frame, the clock and
+   * enough of the plate to label and colour a rectangle, and none of the
+   * evidence. It is emitted several times a second per vehicle purely so an
+   * overlay has somewhere current to draw, and carrying every read and every
+   * candidate with it made the message whose only job was to be prompt into
+   * the largest on the bus. The fields it omits are marked optional below; do
+   * not read them without checking, and do not list a refresh anywhere a
+   * sighting belongs.
    */
   position_refresh?: boolean
   source: { camera_id: string; name?: string }
@@ -362,8 +375,10 @@ export interface LiveVehicleEvent {
      * timestamp, and so the only one worth drawing over live video.
      */
     live_bbox?: BBox | null
-    first_seen_s: number
-    last_seen_s: number
+    /** Absent on a position refresh. */
+    first_seen_s?: number
+    /** Absent on a position refresh. */
+    last_seen_s?: number
   }
   plate: {
     text: string
@@ -372,8 +387,10 @@ export interface LiveVehicleEvent {
     grammar_valid: boolean
     ambiguous: boolean
     corrected_from: string | null
-    format: string
+    /** Absent on a position refresh. */
+    format?: string
     bbox?: BBox | null
+    /** Absent on a position refresh — a refresh carries no evidence at all. */
     evidence?: { reads_total?: number; agreement?: number; method?: string }
   }
   /**
@@ -413,9 +430,79 @@ export interface LiveAlertEvent {
   }
 }
 
+/**
+ * One vehicle's current boxes inside a `camera.tracks` batch.
+ *
+ * Compact on purpose: boxes are `[x1, y1, x2, y2]` in source-frame pixels
+ * rather than the `{x1, y1, x2, y2, w, h}` objects every other event uses, and
+ * fields that carry nothing are **omitted** rather than sent as null. This
+ * message goes out several times a second per camera with one entry per
+ * vehicle in view, so it is the one place in the schema where byte count is a
+ * design constraint. See `ailab.stream.events.LiveTrackBox`.
+ *
+ * The states an entry can be in, and how to tell them apart:
+ *
+ *   `plate_bbox`, no `plate`   the detector has **located** a plate and can say
+ *                              where it is. Nothing has read it, and nothing
+ *                              may ever read it. Draw the box; claim nothing.
+ *   `plate` present            there is a reading. Whether it is good enough to
+ *                              print is the overlay's policy, which is why
+ *                              `grammar_valid` and `ambiguous` travel with it
+ *                              instead of a verdict.
+ */
+export interface LiveTrackBox {
+  /** The tracker's identity for this vehicle, stable while it holds it. */
+  track_id: number
+  type: string
+  /** `[x1, y1, x2, y2]` in source-frame pixels. */
+  bbox: [number, number, number, number]
+  /** Where its plate is. Absent until the detector has localised one. */
+  plate_bbox?: [number, number, number, number]
+  /** The plate detector's confidence in that localisation, not in any reading. */
+  plate_detection_confidence?: number
+  /** Absent while there is no reading at all. Never a placeholder. */
+  plate?: string
+  confidence?: number
+  grammar_valid?: boolean
+  ambiguous?: boolean
+  corrected_from?: string
+}
+
+/**
+ * Every drawable vehicle on one camera, as of one frame.
+ *
+ * **This is the picture, not the intelligence.** It is never persisted, must
+ * never be counted as a detection and must never be listed in a plate feed: a
+ * vehicle appears in dozens of consecutive batches and each one is the same
+ * car. The record of what was seen is `vehicle.completed`.
+ *
+ * Because it describes the whole camera, it is **authoritative**: a vehicle
+ * absent from the newest batch is no longer drawable on that camera. That is
+ * how a box learns to disappear promptly rather than waiting out a timeout —
+ * and it is why an empty `tracks` array is a meaningful message rather than a
+ * pointless one.
+ */
+export interface LiveTrackBatchEvent {
+  event: 'camera.tracks'
+  /** When this message was built. */
+  event_time: string
+  /**
+   * When the frame every box in it was measured on was captured. An overlay
+   * places boxes against this, not against the moment the message arrived.
+   */
+  captured_at?: string | null
+  /** Capture-to-publish for this batch, in milliseconds. */
+  latency_ms?: number
+  source: { camera_id: string; name?: string }
+  /** The space the coordinates are in. Without it they cannot be scaled. */
+  frame?: { width: number; height: number } | null
+  tracks: LiveTrackBox[]
+}
+
 export type LiveEvent =
   | LiveVehicleEvent
   | LiveAlertEvent
+  | LiveTrackBatchEvent
   | { event: 'connected'; subscribers: number }
   | { event: 'keepalive' }
 

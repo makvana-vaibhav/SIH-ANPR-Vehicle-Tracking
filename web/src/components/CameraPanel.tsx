@@ -127,7 +127,7 @@ export default function CameraPanel({ camera, onClose, onRefresh }: Props) {
 
         {/* Ownership and integration */}
         <section>
-          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Ownership &amp; integration
           </h3>
           <dl className="mt-2 space-y-1.5 text-sm">
@@ -146,7 +146,7 @@ export default function CameraPanel({ camera, onClose, onRefresh }: Props) {
 
         {/* Health */}
         <section>
-          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Health (24h)
           </h3>
           {health ? (
@@ -188,7 +188,7 @@ export default function CameraPanel({ camera, onClose, onRefresh }: Props) {
                         />
                       ))}
                   </div>
-                  <p className="mt-1 text-[10px] text-muted-foreground">
+                  <p className="mt-1 text-[11px] text-muted-foreground">
                     Each bar is one probe · newest on the right
                   </p>
                 </div>
@@ -201,7 +201,7 @@ export default function CameraPanel({ camera, onClose, onRefresh }: Props) {
 
         {/* Live video */}
         <section>
-          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Live view
           </h3>
 

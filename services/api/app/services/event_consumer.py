@@ -96,6 +96,12 @@ class EventConsumer:
         #: Codes the registry did not know, with the time they were looked up.
         self._unknown_cameras: dict[str, float] = {}
         self.consumed = 0
+        # How much of `consumed` was the live-boxes channel rather than
+        # sightings. Counted separately so `consumed` does not quietly change
+        # meaning: `camera.tracks` is genuinely an event off the bus, but a
+        # reader who takes the total for "vehicle events" would be wrong by
+        # however many cameras are being watched.
+        self.boxes = 0
         self.persisted = 0
         self.alerts_raised = 0
         self.failed = 0
@@ -252,8 +258,15 @@ class EventConsumer:
             # on every replica; doing it here too would double every event on a
             # single-node deployment, and would deliver nothing at all on a
             # deployment where ingest runs in a dedicated worker.
-            if event.get("event") == "vehicle.completed":
+            kind = event.get("event")
+            if kind == "vehicle.completed":
                 settled.append(event)
+            elif kind == "camera.tracks":
+                # The drawing channel. Acked like everything else so the stream
+                # is not left with a growing pending list, and persisted never:
+                # a vehicle appears in dozens of consecutive batches and each
+                # one is the same car.
+                self.boxes += 1
 
         if settled:
             try:
@@ -488,6 +501,7 @@ class EventConsumer:
     def stats(self) -> dict[str, Any]:
         return {
             "consumed": self.consumed,
+            "boxes": self.boxes,
             "persisted": self.persisted,
             "alerts_raised": self.alerts_raised,
             "failed": self.failed,

@@ -18,14 +18,17 @@ import {
   Button,
   EmptyState,
   ErrorBanner,
-  Field,
+  InfoHint,
   Input,
+  PageHeader,
   SegmentedControl,
   Select,
   Table,
   Td,
   Th,
   Thead,
+  Toolbar,
+  ToolbarField,
   Tr,
 } from '@/components/ui'
 import * as api from '@/lib/api'
@@ -90,84 +93,90 @@ export default function AuditLog() {
   }, [load])
 
   return (
-    <div className="space-y-4 overflow-y-auto p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Audit trail</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Every plate search, stream open, watchlist change and sign-in.{' '}
-          <span className="text-priority-high">
-            Opening this page is itself recorded.
-          </span>
-        </p>
-      </header>
+    <div className="flex h-full flex-col gap-4 overflow-hidden p-6">
+      <PageHeader
+        title="Audit trail"
+        subtitle={
+          <>
+            <span>
+              {loading ? 'loading…' : `${entries.length} of ${total} matching`}
+            </span>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="text-priority-high">opening this page is recorded</span>
+            <InfoHint label="Why reading the audit trail is itself audited">
+              This platform tracks the movement of private vehicles, so who
+              looked at what is part of the record. A reviewer who left no trace
+              would be a hole in the very control this page exists to provide —
+              which is said here rather than left for somebody to discover in
+              their own entry later.
+            </InfoHint>
+          </>
+        }
+        actions={
+          <Toolbar>
+            <ToolbarField label="Action">
+              <Select
+                value={action}
+                onChange={(e) => setAction(e.target.value)}
+                className="h-8 py-0"
+              >
+                {ACTIONS.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </Select>
+            </ToolbarField>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <Field label="Action">
-          <Select value={action} onChange={(e) => setAction(e.target.value)}>
-            {ACTIONS.map((a) => (
-              <option key={a.value} value={a.value}>
-                {a.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
+            <ToolbarField label="User" className="w-36">
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="any"
+                className="h-8 py-0"
+              />
+            </ToolbarField>
 
-        <div className="w-40">
-          <Field label="User">
-            <Input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="any"
-            />
-          </Field>
-        </div>
+            <ToolbarField label="Window">
+              <SegmentedControl
+                className="h-8"
+                value={String(hours)}
+                onChange={(v) => setHours(Number(v))}
+                options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
+              />
+            </ToolbarField>
 
-        <div>
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Window
-          </span>
-          <div className="mt-1">
-            <SegmentedControl
-              value={String(hours)}
-              onChange={(v) => setHours(Number(v))}
-              options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))}
-            />
-          </div>
-        </div>
-
-        <span className="pb-1.5 text-[11px] text-muted-foreground">
-          {loading ? 'loading…' : `${entries.length} shown of ${total} matching`}
-        </span>
-
-        <Button
-          variant="outline"
-          size="sm"
-          className="mb-0.5"
-          disabled={entries.length === 0}
-          onClick={() =>
-            downloadCsv(stampedName('audit'), entries, [
-              { header: 'timestamp_utc', value: (e) => e.ts },
-              { header: 'username', value: (e) => e.username },
-              { header: 'role', value: (e) => e.role },
-              { header: 'action', value: (e) => e.action },
-              { header: 'resource_type', value: (e) => e.resource_type },
-              { header: 'resource_id', value: (e) => e.resource_id },
-              { header: 'ip', value: (e) => e.ip },
-              { header: 'result', value: (e) => e.result },
-              { header: 'params', value: (e) => e.params },
-            ])
-          }
-          title="Export the rows shown. Timestamps are UTC in the file; the table displays IST."
-        >
-          Export CSV
-        </Button>
-      </div>
+            <Button
+              variant="outline"
+              className="h-8"
+              disabled={entries.length === 0}
+              onClick={() =>
+                downloadCsv(stampedName('audit'), entries, [
+                  { header: 'timestamp_utc', value: (e) => e.ts },
+                  { header: 'username', value: (e) => e.username },
+                  { header: 'role', value: (e) => e.role },
+                  { header: 'action', value: (e) => e.action },
+                  { header: 'resource_type', value: (e) => e.resource_type },
+                  { header: 'resource_id', value: (e) => e.resource_id },
+                  { header: 'ip', value: (e) => e.ip },
+                  { header: 'result', value: (e) => e.result },
+                  { header: 'params', value: (e) => e.params },
+                ])
+              }
+              title="Export the rows shown. Timestamps are UTC in the file; the table displays IST."
+            >
+              Export CSV
+            </Button>
+          </Toolbar>
+        }
+      />
 
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {entries.length === 0 && !loading ? (
         <EmptyState title="Nothing matching in this window." />
       ) : (
+        <div className="min-h-0 flex-1 overflow-auto">
         <Table className="min-w-[880px]">
           <Thead>
             <tr>
@@ -194,7 +203,7 @@ export default function AuditLog() {
                 <Td className="max-w-56 truncate text-[11px] text-muted-foreground">
                   {entry.resource_id ?? entry.resource_type ?? '—'}
                 </Td>
-                <Td className="font-mono text-[10px] text-muted-foreground">
+                <Td className="font-mono text-[11px] text-muted-foreground">
                   {entry.ip ?? '—'}
                 </Td>
                 <Td className={`text-[11px] ${RESULT_STYLE[entry.result] ?? ''}`}>
@@ -204,6 +213,7 @@ export default function AuditLog() {
             ))}
           </tbody>
         </Table>
+        </div>
       )}
     </div>
   )

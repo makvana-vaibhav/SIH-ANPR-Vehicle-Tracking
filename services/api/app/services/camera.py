@@ -82,6 +82,10 @@ def to_out(camera: Camera, *, distance_km: float | None = None) -> CameraOut:
         tags=camera.tags,
         # A boolean, never the URL. See CameraOut.has_stream.
         has_stream=bool(camera.stream_url),
+        # Returned in full, unlike stream_url: a clip name carries no
+        # credentials, and the edit form cannot show which clip is currently
+        # pinned without it.
+        source_file=camera.source_file,
         created_at=camera.created_at,
         updated_at=camera.updated_at,
         distance_km=distance_km,
@@ -390,6 +394,12 @@ async def create_camera(session: AsyncSession, payload: CameraCreate) -> Camera:
         protocol=payload.protocol.value if payload.protocol else None,
         stream_url=payload.stream_url,
         sub_stream_url=payload.sub_stream_url,
+        # Omitted here until now, so a camera registered with a clip already
+        # chosen was stored without one and fell back to the round-robin. The
+        # field list is explicit rather than a model_dump, which is what let a
+        # newly added column go missing silently; `update_camera` sets it
+        # generically and so never had the gap.
+        source_file=payload.source_file,
         resolution=payload.resolution,
         fps=payload.fps,
         anpr_enabled=payload.anpr_enabled,

@@ -7,17 +7,35 @@
  * reading itself, so the two together are honest in a way either alone would
  * not be.
  *
- * ## Synced boxes
+ * ## Where the boxes come from, and why they are not late
  *
- * By default the picture is held a couple of seconds behind live, and each
- * plate box is drawn against the video’s own capture clock rather than against
- * now. That is what puts the rectangle on the vehicle instead of behind it: the
- * delay is exactly the head start the worker needs to read a plate and get the
- * event here before the frame it came from is shown.
+ * A box has to appear early and has to be drawn on the vehicle, which keeps
+ * moving after the frame it was measured on. Four things carry that weight, and
+ * none of them is a delay the viewer has to accept:
  *
- * Turning it off gives the lowest-latency picture the network allows, with
- * boxes that trail it. Both modes label a reading with its true age, so they
- * never disagree about the facts — only about where a rectangle can be put.
+ * **A box appears as soon as a plate is *localised*** — when the detector has
+ * found a plate and can say where it is, before OCR has read it and whether or
+ * not OCR ever does. Waiting for text cost about a second of consensus, and on
+ * this fleet two-thirds of tracked vehicles never yield a reading at all. The
+ * picture distinguishes the three states, so a rectangle meaning "there is a
+ * plate here" is never mistaken for one meaning "this vehicle is identified".
+ *
+ * **The worker publishes one message per camera per tick** — `camera.tracks`,
+ * carrying every drawable vehicle at once, up to five times a second (every
+ * frame it analyses, when it is analysing fewer than that). Because that
+ * message describes the whole camera, a box also goes away the moment the car
+ * does, rather than waiting out a timeout.
+ *
+ * **The player says which capture instant is on screen** — read from the HLS
+ * programme-date tags, or measured from WebRTC's own receive lag — so a box is
+ * scheduled against the picture rather than against now. **The overlay then
+ * predicts** from the vehicle's own measured velocity across the gap between
+ * that instant and the position it was last told about.
+ *
+ * The extra buffer below is the last resort, not the mechanism: it holds the
+ * picture deliberately behind live so that every event arrives before its frame
+ * is shown. Worth spending when the worker is loaded heavily enough that
+ * capture-to-event runs into seconds, and not otherwise.
  *
  * The camera list is the ANPR fleet. Every camera in it is labelled with where
  * its video comes from rather than left to be guessed at — a judge is entitled
@@ -44,8 +62,16 @@ import AnprOverlay from '@/components/AnprOverlay'
 import PipelineDiagnostics from '@/components/PipelineDiagnostics'
 import LivePlateFeed from '@/components/LivePlateFeed'
 import StreamPlayer from '@/components/StreamPlayer'
-import { Badge, Checkbox, ConnectionBadge, ErrorBanner, StatusDot } from '@/components/ui'
-import { useCameraEvents, useEventStream } from '@/hooks/useEventStream'
+import {
+  Badge,
+  Checkbox,
+  ErrorBanner,
+  InfoHint,
+  PageHeader,
+  SectionLabel,
+  StatusDot,
+} from '@/components/ui'
+import { useCameraBoxes, useCameraEvents } from '@/hooks/useEventStream'
 import * as api from '@/lib/api'
 import { isPositionRefresh } from '@/lib/events'
 import type { Camera, Detection, StreamGrant } from '@/lib/types'
@@ -54,13 +80,19 @@ import type { Camera, Detection, StreamGrant } from '@/lib/types'
 const RECENT_WINDOW_HOURS = 6
 
 /**
- * How far behind live to hold the picture when boxes are synced.
+ * How far behind live to hold the picture when the extra buffer is asked for.
  *
  * It has to cover capture-to-event on the worker plus the hop through Redis,
  * the API and the socket — otherwise a read arrives after its frame has already
  * been shown and the box never appears. It also has to stay inside what the
  * gateway keeps available: MediaMTX holds seven one-second segments, so beyond
  * about six seconds there is nothing left to play.
+ *
+ * Not needed for ordinary alignment any more. The gateway's low-latency HLS
+ * already holds back ~600 ms and WebRTC reports its own lag, so the overlay
+ * knows what is on screen either way; this buys headroom for a worker whose
+ * latency has run into seconds, which is a load problem rather than a
+ * synchronisation one.
  */
 const SYNC_DELAY_MS = 2_500
 
@@ -76,19 +108,16 @@ function isDemoFeed(camera: Camera): boolean {
 }
 
 export default function LiveAnpr() {
-  const { status: streamStatus } = useEventStream()
-
   const [cameras, setCameras] = useState<Camera[]>([])
   const [selected, setSelected] = useState<Camera | null>(null)
   const [grant, setGrant] = useState<StreamGrant | null>(null)
   const [history, setHistory] = useState<Detection[]>([])
   const [showBoxes, setShowBoxes] = useState(true)
-  // Off by default: syncing holds the picture SYNC_DELAY_MS behind live, and
-  // that delay is real — it is the single biggest contributor to the video
-  // feeling laggy when you open a camera. Unsynced, the picture is as live as
-  // the transport allows and boxes are held long enough (6 s) to still be up
-  // when the vehicle they describe reaches the screen. Left as a toggle
-  // because frame-accurate placement is genuinely better for a close look.
+  // Off by default, and now genuinely optional rather than the price of
+  // correct boxes: the delay it adds is real and is the single biggest
+  // contributor to the video feeling laggy when you open a camera, while
+  // alignment no longer depends on it. Kept because a worker under enough load
+  // to push capture-to-event into seconds cannot be aligned any other way.
   const [syncBoxes, setSyncBoxes] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeCodes, setActiveCodes] = useState<Set<string>>(new Set())
@@ -101,6 +130,11 @@ export default function LiveAnpr() {
   const videoClockRef = useRef<(() => number | null) | null>(null)
 
   const liveEvents = useCameraEvents(selected?.camera_code ?? null)
+  // The live-boxes channel. One message per camera per tick carrying every
+  // vehicle the pipeline has localised a plate on, which is what the overlay
+  // draws from — earlier than a reading, and an order cheaper than sending the
+  // same boxes one vehicle at a time.
+  const liveBoxes = useCameraBoxes(selected?.camera_code ?? null)
 
   // The overlay wants every event, because position refreshes are what let it
   // follow a vehicle. The feed wants only the readings: a refresh repeats a
@@ -184,77 +218,97 @@ export default function LiveAnpr() {
   const isSandbox = selected?.vms_name?.toLowerCase().includes('sandbox') ?? false
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Live ANPR</h1>
-          {/* Says which cameras are *being read*, not just which exist.
-              Every camera streams, but ANPR runs on the ones a worker is
-              assigned to — one by default, so a reading lands within a few
-              hundred milliseconds of the frame it came from and its box sits
-              on the right vehicle. The "reading plates" badge in the list is
-              driven by real recent detections, so the two always agree. */}
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {cameras.length} cameras streaming.{' '}
-            {activeCodes.size > 0
-              ? `${activeCodes.size} being read by ANPR right now`
-              : 'No camera is being read right now'}
-            {' — '}the rest stream without analysis. Opening a camera shows what
-            it found.
-          </p>
-        </div>
-        <ConnectionBadge live={streamStatus === 'live'} label={`event feed ${streamStatus}`} />
-      </header>
+    // overflow-hidden, not auto: the three columns below each scroll their own
+    // body, so the page itself must hold still. A video wall that scrolls out
+    // from under the operator is worse than one that clips.
+    <div className="flex h-full flex-col gap-4 overflow-hidden p-6">
+      {/* Says which cameras are *being read*, not just which exist. Every
+          camera streams, but ANPR runs on the ones a worker is assigned to —
+          one by default, so a reading lands within a few hundred milliseconds
+          of the frame it came from and its box sits on the right vehicle. */}
+      <PageHeader
+        title="Live ANPR"
+        subtitle={
+          <>
+            <span>{cameras.length} cameras streaming</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span className={activeCodes.size > 0 ? 'text-status-online' : undefined}>
+              {activeCodes.size} being read
+            </span>
+            <InfoHint label="How analysis is assigned">
+              Every camera streams; ANPR runs only on the cameras a worker is
+              assigned to, which is one by default. A worker decodes its
+              camera&rsquo;s full frame rate, so three sharing a laptop tripled
+              capture-to-event latency — and a late reading describes a car that
+              has already moved on. <code className="font-mono">make ai-multi</code>{' '}
+              starts all three when the demo needs cross-camera linking.
+              Opening a camera shows what it found; it does not cause it to look.
+            </InfoHint>
+          </>
+        }
+      />
 
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_300px]">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[190px_minmax(0,1fr)_320px]">
         {/* ── Camera picker ─────────────────────────────────────────── */}
-        <aside className="space-y-1 lg:max-h-[70vh] lg:overflow-y-auto">
-          <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {cameras.length} ANPR cameras
-          </p>
-          {ordered.map((camera) => {
-            const active = camera.id === selected?.id
-            return (
-              <button
-                key={camera.id}
-                type="button"
-                onClick={() => setSelected(camera)}
-                className={`w-full rounded-md border px-2 py-1.5 text-left transition ${
-                  active
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border hover:border-muted-foreground/40'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-1">
-                  <span className="font-mono text-[11px] font-semibold">
-                    {camera.camera_code}
-                  </span>
-                  <StatusDot status={camera.status} />
-                </div>
-                <p className="truncate text-[10px] text-muted-foreground">
-                  {camera.name}
-                </p>
-                <div className="mt-0.5 flex flex-wrap gap-1">
-                  {/* Provenance, always. A viewer should never have to wonder
-                      whether a feed is a government camera or a clip. */}
-                  {isDemoFeed(camera) ? (
-                    <Badge tone="warning">recorded demo</Badge>
-                  ) : (
-                    <Badge tone="primary">live feed</Badge>
-                  )}
-                  {activeCodes.has(camera.camera_code) && (
-                    <Badge tone="success">reading plates</Badge>
-                  )}
-                </div>
-              </button>
-            )
-          })}
+        <aside className="flex min-h-0 flex-col">
+          <SectionLabel>Cameras</SectionLabel>
+          {/* A dense list rather than a stack of bordered cards: this is a
+              picker for twelve to sixty entries, and one bordered box per row
+              made the rail read as sixty separate panels. */}
+          <ul className="mt-1.5 min-h-0 flex-1 overflow-y-auto rounded-md border border-border">
+            {ordered.map((camera) => {
+              const active = camera.id === selected?.id
+              const reading = activeCodes.has(camera.camera_code)
+              return (
+                <li key={camera.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(camera)}
+                    aria-current={active}
+                    className={`relative w-full border-b border-border/60 px-2.5 py-1.5 text-left transition last:border-0 ${
+                      active ? 'bg-primary/10' : 'hover:bg-secondary/40'
+                    }`}
+                  >
+                    {active && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 left-0 w-[3px] bg-primary"
+                      />
+                    )}
+                    <span className="flex items-center gap-1.5">
+                      <StatusDot status={camera.status} />
+                      <span className="font-mono text-[11px] font-semibold">
+                        {camera.camera_code}
+                      </span>
+                      {/* Provenance, always. A viewer should never have to
+                          wonder whether a feed is a real camera or a clip —
+                          but a dot carries it at this density. */}
+                      {isDemoFeed(camera) && (
+                        <span
+                          title="Recorded clip, not a live camera"
+                          className="h-1.5 w-1.5 rounded-full bg-priority-high"
+                        />
+                      )}
+                      {reading && (
+                        <span className="ml-auto text-[9px] font-semibold uppercase tracking-wider text-status-online">
+                          reading
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                      {camera.name}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
         </aside>
 
         {/* ── Video ─────────────────────────────────────────────────── */}
-        <section className="space-y-2">
+        <section className="flex min-h-0 flex-col gap-2 overflow-y-auto">
           {selected && grant ? (
             <>
               <StreamPlayer
@@ -267,17 +321,29 @@ export default function LiveAnpr() {
                   videoClockRef.current = videoClock
                   return (
                     <AnprOverlay
+                      batch={liveBoxes}
+                      // Still passed, and used only for a camera that
+                      // publishes no batches — a worker predating the channel,
+                      // or the simulator's load mode. The overlay ignores them
+                      // for drawing once a batch has arrived.
                       events={liveEvents}
+                      camera={selected.camera_code}
                       enabled={showBoxes}
-                      videoClock={syncBoxes ? videoClock : undefined}
+                      // Always. The clock says which capture instant is on
+                      // screen, and both transports can now answer — HLS from
+                      // its programme-date tags, WebRTC from its own measured
+                      // receive lag. Withholding it unless the extra buffer
+                      // was ticked left the overlay guessing on the default
+                      // path, which is the one everybody actually watches.
+                      videoClock={videoClock}
                     />
                   )
                 }}
               />
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div>
-                  <p className="font-medium">{selected.name}</p>
-                  <p className="text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{selected.name}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">
                     {[selected.city, selected.district, selected.vms_name]
                       .filter(Boolean)
                       .join(' · ')}
@@ -290,15 +356,20 @@ export default function LiveAnpr() {
                     label="plate boxes"
                     labelClassName="gap-1.5 text-[11px] text-muted-foreground"
                   />
-                  <span
-                    title={`Holds the picture ${(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live so each box lands on the frame it was measured in. Off gives the lowest latency the network allows, with boxes that trail the picture.`}
-                  >
+                  <span className="flex items-center gap-1">
                     <Checkbox
                       checked={syncBoxes}
                       onChange={(e) => setSyncBoxes(e.target.checked)}
-                      label="sync to video"
+                      label="extra buffer"
                       labelClassName="gap-1.5 text-[11px] text-muted-foreground"
                     />
+                    <InfoHint label="What the extra buffer does" align="right">
+                      Holds the picture {(SYNC_DELAY_MS / 1000).toFixed(1)}s
+                      behind live, so every reading arrives before the frame it
+                      describes is shown. Boxes are aligned to the picture either
+                      way — turn this on only when the worker is loaded enough
+                      that readings arrive seconds late.
+                    </InfoHint>
                   </span>
                   <Checkbox
                     checked={showDiagnostics}
@@ -311,51 +382,107 @@ export default function LiveAnpr() {
               {showDiagnostics && (
                 <PipelineDiagnostics
                   events={liveEvents}
-                  videoClock={syncBoxes ? videoClockRef.current : null}
+                  videoClock={videoClockRef.current}
                   transport={grant.whep_url ? 'webrtc/hls' : 'hls'}
                 />
               )}
-              {isDemoFeed(selected) ? (
-                <p className="rounded border border-priority-high/40 bg-priority-high/10 px-2 py-1.5 text-[10px] leading-relaxed text-priority-high">
-                  <strong>Recorded footage, not a live camera.</strong> The
-                  three cameras on this corridor replay the same file, so the
-                  pipeline can be demonstrated end to end on traffic close
-                  enough for plates to be legible — and so a vehicle genuinely
-                  passes more than one camera, which is what cross-camera
-                  linking needs in order to have anything to link. Each camera
-                  is seeked to a different point in the clip; they are not
-                  showing the same instant.
-                </p>
-              ) : (
-                <p className="rounded border border-border px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                  <strong className="text-foreground">Live feed</strong>, pulled
-                  on demand. Plate legibility depends entirely on what the
-                  camera can see: vehicles are detected and tracked regardless,
-                  but a plate at 40–60&nbsp;px in glare is frequently
-                  unreadable. Nothing is invented when a plate cannot be read —
-                  the feed simply stays empty.
-                </p>
-              )}
-              <p className="text-[10px] leading-relaxed text-muted-foreground">
-                {syncBoxes ? (
-                  <>
-                    <strong className="text-foreground">Synced.</strong> The
-                    picture is held{' '}
-                    {(SYNC_DELAY_MS / 1000).toFixed(1)}s behind live so each box
-                    can be drawn on the frame it was measured in. Every box
-                    carries the pipeline&rsquo;s own capture-to-event figure.
-                  </>
+
+              {/* Provenance and transport, as facts rather than as an essay.
+                  A viewer is entitled to know whether they are looking at a
+                  live camera or a replayed clip — but that is one word plus a
+                  marker, not a paragraph under every camera they open. The
+                  reasoning is intact behind the hints. */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded border border-border bg-card/60 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                {isDemoFeed(selected) ? (
+                  <span className="flex items-center gap-1.5">
+                    <Badge tone="warning">recorded</Badge>
+                    same clip on 3 cameras, offset starts
+                    <InfoHint label="Why this feed is recorded footage">
+                      Recorded footage, not a live camera. The three cameras on
+                      this corridor replay the same file, so the pipeline can be
+                      demonstrated end to end on traffic close enough for plates
+                      to be legible — and so a vehicle genuinely passes more than
+                      one camera, which is what cross-camera linking needs in
+                      order to have anything to link. Each camera is seeked to a
+                      different point in the clip; they are not showing the same
+                      instant.
+                    </InfoHint>
+                  </span>
                 ) : (
-                  <>
-                    <strong className="text-foreground">Unsynced.</strong>{' '}
-                    Lowest-latency picture, and boxes that trail it: inference
-                    runs on the worker, so a read lands after the frame it came
-                    from. Each box carries how far behind it is.
-                  </>
-                )}{' '}
-                The feed on the right is the authoritative record of what was
-                read.
-              </p>
+                  <span className="flex items-center gap-1.5">
+                    <Badge tone="primary">live</Badge>
+                    pulled on demand
+                    <InfoHint label="What affects plate legibility here">
+                      Plate legibility depends entirely on what the camera can
+                      see. Vehicles are detected and tracked regardless, but a
+                      plate at 40–60&nbsp;px in glare is frequently unreadable.
+                      Nothing is invented when a plate cannot be read — the feed
+                      simply stays empty.
+                    </InfoHint>
+                  </span>
+                )}
+
+                <span className="flex items-center gap-1.5">
+                  {syncBoxes ? (
+                    <>
+                      <span className="text-foreground">
+                        buffered {(SYNC_DELAY_MS / 1000).toFixed(1)}s
+                      </span>
+                      · boxes exact
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-foreground">live</span>· boxes predicted
+                    </>
+                  )}
+                  <InfoHint label="How the boxes are placed">
+                    {syncBoxes ? (
+                      <>
+                        The picture is held {(SYNC_DELAY_MS / 1000).toFixed(1)}s
+                        behind live, so every reading is already here before the
+                        frame it describes is shown and no box has to be
+                        predicted at all.
+                      </>
+                    ) : (
+                      <>
+                        The lowest-latency picture the transport allows. A box
+                        appears as soon as a plate is located — dashed until it
+                        has been read — placed against the capture instant on
+                        screen and carried forward on the vehicle&rsquo;s own
+                        measured velocity, so it lands on the car rather than
+                        behind it.
+                      </>
+                    )}{' '}
+                    Every box carries the pipeline&rsquo;s own capture-to-event
+                    figure; tick <em>latency</em> to see it aggregated. The feed
+                    on the right is the authoritative record of what was read.
+                  </InfoHint>
+                </span>
+              </div>
+
+              {/* What this camera read before the page was opened. It sits
+                  here rather than beside the live feed because the two answer
+                  different questions — "what is happening now" belongs next to
+                  the picture, "what already happened" does not — and because
+                  stacked in the right rail it was the thing that got cut off. */}
+              {history.length > 0 && (
+                <div className="pt-1">
+                  <SectionLabel>Earlier on this camera</SectionLabel>
+                  <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                    {history.map((row) => (
+                      <li
+                        key={row.id}
+                        className="flex items-baseline gap-2 rounded border border-border bg-card px-2 py-1"
+                      >
+                        <span className="font-mono text-[11px]">{row.plate}</span>
+                        <span className="text-[11px] tabular-nums text-muted-foreground">
+                          {api.formatIST(row.ts, false)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           ) : (
             <div className="flex aspect-video items-center justify-center rounded-md border border-dashed border-border">
@@ -367,43 +494,30 @@ export default function LiveAnpr() {
         </section>
 
         {/* ── Plate feed ────────────────────────────────────────────── */}
-        <section className="space-y-3 lg:max-h-[70vh] lg:overflow-y-auto">
+        <section className="flex min-h-0 flex-col gap-3 overflow-y-auto">
           <div>
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <SectionLabel>
               Reading now
-            </h2>
+              <InfoHint label="What this feed is">
+                The authoritative record of what the pipeline read. Unlike the
+                boxes on the video, nothing here depends on lining up with a
+                moving picture — each row carries how many frames were involved,
+                whether they agreed, and whether the grammar had to repair the
+                string.
+              </InfoHint>
+            </SectionLabel>
             <div className="mt-1.5">
               <LivePlateFeed
                 events={readings}
                 emptyMessage={
                   selected
-                    ? `Nothing read on ${selected.camera_code} yet. Plates appear here the moment the worker reads one.`
+                    ? `Nothing read on ${selected.camera_code} yet.`
                     : 'Select a camera.'
                 }
               />
             </div>
           </div>
 
-          {history.length > 0 && (
-            <div>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Earlier on this camera
-              </h2>
-              <ul className="mt-1.5 space-y-1">
-                {history.map((row) => (
-                  <li
-                    key={row.id}
-                    className="flex items-baseline justify-between gap-2 rounded border border-border px-2 py-1"
-                  >
-                    <span className="font-mono text-xs">{row.plate}</span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {api.formatIST(row.ts, false)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </section>
       </div>
     </div>

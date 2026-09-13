@@ -28,12 +28,14 @@
  * local receipt, so it includes any clock skew between container and host;
  * treated as indicative, not exact, and labelled as such.
  *
- * **Video** — how far behind the source the *picture* is. Only the HLS path can
- * answer: MediaMTX stamps playlists with `EXT-X-PROGRAM-DATE-TIME`, so the
- * player can say what wall-clock moment the displayed frame was captured at.
- * WebRTC carries no such clock and reports `—`, which is honest: on WebRTC this
- * is typically a few hundred milliseconds, but this panel does not print
- * numbers it did not measure.
+ * **Video** — how far behind the source the *picture* is, from whatever the
+ * transport can be asked. HLS is stamped: MediaMTX writes
+ * `EXT-X-PROGRAM-DATE-TIME` into the playlist, so the player can name the
+ * wall-clock moment the displayed frame was captured at. WebRTC carries no such
+ * tag but does report how long it has been holding frames and the round trip to
+ * the gateway, which is the same quantity by another route. Either way it is
+ * measured; where neither is available this prints `—` rather than the "few
+ * hundred milliseconds" it would be fair to guess.
  *
  * **End-to-end** — AI + transport. The figure that decides whether a box can
  * land on the right vehicle.
@@ -169,8 +171,9 @@ export default function PipelineDiagnostics({
       </dl>
       {stats.videoLag === null && (
         <p className="mt-1 font-sans leading-snug">
-          Video lag is only measurable on HLS, which carries a capture clock.
-          WebRTC does not, so it is not estimated here.
+          Neither transport has reported a capture clock yet — HLS before its
+          first playlist, or WebRTC before its first statistics sample. Not
+          estimated in the meantime.
         </p>
       )}
     </div>

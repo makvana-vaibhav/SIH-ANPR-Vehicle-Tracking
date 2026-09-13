@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import date, datetime
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -28,6 +29,41 @@ GUJARAT_LAT_MIN, GUJARAT_LAT_MAX = 20.0, 24.8
 GUJARAT_LON_MIN, GUJARAT_LON_MAX = 68.0, 74.6
 
 CAMERA_CODE_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9\-]{2,31}$")
+
+#: Extensions accepted for `source_file`. Kept identical to the simulator's
+#: `publisher.VIDEO_SUFFIXES` so the two cannot disagree about what a clip is —
+#: a value this accepts but `find_videos` skips would be a camera pinned to a
+#: file that silently never plays. Duplicated rather than imported because the
+#: API image does not carry the simulator package; `test_cameras.py` asserts
+#: the two sets match.
+SOURCE_VIDEO_SUFFIXES = frozenset({".mp4", ".mkv", ".mov", ".avi", ".ts"})
+
+
+def clean_source_file(v: str | None) -> str | None:
+    """Keep `source_file` a filename, so it can never address anything else.
+
+    The value is joined to the simulator's video directory, which makes it a
+    path-traversal sink: `../../etc/passwd` would escape it and an absolute
+    path would ignore it entirely. Rejecting every separator and dot-segment is
+    the whole defence, and it costs nothing — a legitimate value is a basename
+    with a video extension and nothing more.
+
+    Validated at the edge rather than where it is read, so the database cannot
+    hold a value the simulator would have to defend itself against. Shared by
+    `CameraBase` and `CameraUpdate` because a rule enforced on create and not
+    on update is not a rule.
+    """
+    if v is None:
+        return None
+    v = v.strip()
+    if not v:
+        return None
+    if v != Path(v).name or v in (".", ".."):
+        raise ValueError("source_file must be a bare filename, not a path")
+    if Path(v).suffix.lower() not in SOURCE_VIDEO_SUFFIXES:
+        allowed = ", ".join(sorted(SOURCE_VIDEO_SUFFIXES))
+        raise ValueError(f"source_file must be a video file ({allowed})")
+    return v
 
 Latitude = Annotated[float, Field(ge=-90, le=90, examples=[22.3039])]
 Longitude = Annotated[float, Field(ge=-180, le=180, examples=[70.8022])]
@@ -64,6 +100,16 @@ class CameraBase(BaseModel):
     )
     resolution: str | None = Field(default=None, max_length=16, examples=["1920x1080"])
     fps: int | None = Field(default=None, ge=1, le=120)
+    source_file: str | None = Field(
+        default=None,
+        max_length=255,
+        description=(
+            "Filename of a recorded clip for the simulator to replay instead of "
+            "pulling a live stream. A bare filename from the simulator's video "
+            "directory — list them at GET /cameras/source-videos."
+        ),
+        examples=["highway_cam_a.mp4"],
+    )
     anpr_enabled: bool = True
     installed_on: date | None = None
     tags: list[str] | None = None
@@ -76,6 +122,8 @@ class CameraBase(BaseModel):
         if not re.fullmatch(r"\d{3,5}x\d{3,5}", v):
             raise ValueError("resolution must look like 1920x1080")
         return v
+
+    _validate_source_file = field_validator("source_file")(clean_source_file)
 
     @field_validator("stream_url", "sub_stream_url")
     @classmethod
@@ -153,11 +201,14 @@ class CameraUpdate(BaseModel):
     sub_stream_url: str | None = None
     resolution: str | None = None
     fps: int | None = Field(default=None, ge=1, le=120)
+    source_file: str | None = Field(default=None, max_length=255)
     anpr_enabled: bool | None = None
     status: CameraStatus | None = None
     installed_on: date | None = None
     tags: list[str] | None = None
     department_code: str | None = None
+
+    _validate_source_file = field_validator("source_file")(clean_source_file)
 
     @model_validator(mode="after")
     def _coordinates_move_together(self) -> CameraUpdate:
@@ -208,6 +259,13 @@ class CameraOut(BaseModel):
     #: or analysed, and that distinction is the whole reason the registry no
     #: longer holds 250 cameras that could do neither.
     has_stream: bool = False
+    #: The pinned clip, if this camera replays recorded footage.
+    #:
+    #: Returned in full, unlike `stream_url`: it is a filename inside our own
+    #: video directory, chosen by an operator from a list this API served, and
+    #: it carries no credentials. The form has to render the current choice to
+    #: be editable at all.
+    source_file: str | None = None
     created_at: datetime
     updated_at: datetime
     # Only populated by /nearby.
@@ -317,6 +375,18 @@ class DepartmentOut(BaseModel):
     name: str
     contact_email: str | None = None
     camera_count: int = 0
+
+
+class SourceVideoOut(BaseModel):
+    """One recorded clip an operator can pin to a camera.
+
+    Filename and size, nothing more. The size is here because it is the only
+    cue distinguishing two similarly-named clips in a dropdown, and it costs
+    one `stat` per file.
+    """
+
+    filename: str
+    size_bytes: int
 
 
 class VendorEnumOut(BaseModel):

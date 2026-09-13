@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -485,6 +486,20 @@ async def seed_watchlist() -> None:
     stays retired through every future re-seed unless seeding says otherwise.
     That is exactly how this database ended up with all eight of its entries
     inactive.
+
+    ## Off by default
+
+    The rows in `watchlist.csv` are invented — plates nobody reported, against
+    FIR numbers that do not exist. That was harmless while the whole fleet was
+    replaying stock clips, but the demo now runs on our own footage of real
+    vehicles, and an invented "stolen, occupants may be armed" flag against a
+    real plate photographed on a real road is not a thing to put on a screen.
+
+    So seeding it is opt-in: `SEED_WATCHLIST=true`, or `--only watchlist`,
+    which is explicit enough to count as asking. Without it the watchlist
+    starts empty and no alert fires, which is the honest state of a system
+    nobody has entered a wanted vehicle into. Turn it on to rehearse the
+    blacklist-alert demo moment.
     """
     csv_path = SEED_DIR / "watchlist.csv"
     if not csv_path.exists():
@@ -582,8 +597,15 @@ async def main() -> int:
             await retire_legacy_demo_camera()
         if args.only in ("fleet", "all"):
             await seed_fleet()
-        if args.only in ("watchlist", "all"):
+        # `--only watchlist` is someone asking for it by name; `all` is not.
+        # See `seed_watchlist`'s docstring for why the default is off.
+        if args.only == "watchlist" or (
+            args.only == "all" and os.environ.get("SEED_WATCHLIST", "").lower()
+            in ("1", "true", "yes")
+        ):
             await seed_watchlist()
+        elif args.only == "all":
+            print("  watchlist: skipped — set SEED_WATCHLIST=true to load demo entries")
     finally:
         await dispose_engine()
 

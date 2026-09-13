@@ -9,7 +9,6 @@
  * screen.
  */
 
-import PlateCrop from '@/components/PlateCrop'
 import { liveTrackKey } from '@/lib/events'
 import type { LiveVehicleEvent } from '@/lib/types'
 
@@ -70,23 +69,14 @@ export default function LivePlateFeed({
               <span className="font-mono text-sm font-bold tracking-wide">
                 {plate.text}
               </span>
-              {/* The pixels the text was read from. Absent for the first
-                  moment after a read, because the upload is still in flight —
-                  PlateCrop renders nothing rather than a broken image. */}
-              <PlateCrop
-                url={event.evidence?.plate_crop_url ?? null}
-                plate={plate.text}
-                height={22}
-                className="ml-auto mr-1"
-              />
               <span
-                className={`font-mono text-xs ${confidenceColour(plate.confidence)}`}
+                className={`ml-auto font-mono text-xs ${confidenceColour(plate.confidence)}`}
               >
                 {plate.confidence.toFixed(2)}
               </span>
             </div>
 
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
               {showCamera && (
                 <span className="font-mono uppercase">{event.source?.camera_id}</span>
               )}

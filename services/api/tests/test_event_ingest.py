@@ -7,6 +7,7 @@ here were broken in ways nothing else would have caught.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -55,6 +56,95 @@ async def _make_camera(code: str) -> uuid.UUID:
         session.add(camera)
         await session.commit()
         return camera.id
+
+
+def a_track_batch(camera_code: str, tracks: int = 3) -> dict:
+    """A `camera.tracks` message as the AI worker publishes it.
+
+    The live-boxes channel: every drawable vehicle on one camera, as of one
+    frame. It is the picture, not the intelligence.
+    """
+    return {
+        "schema": "ailab.camera.tracks.v1",
+        "event": "camera.tracks",
+        "event_time": datetime.now(UTC).isoformat(),
+        "captured_at": datetime.now(UTC).isoformat(),
+        "latency_ms": 271.4,
+        "source": {"camera_id": camera_code},
+        "frame": {"width": 1920, "height": 1080},
+        "tracks": [
+            {
+                "track_id": index,
+                "type": "car",
+                "bbox": [120.0, 210.0, 420.0, 480.0],
+                "plate_bbox": [300.0, 400.0, 390.0, 422.0],
+                "plate_detection_confidence": 0.88,
+            }
+            for index in range(tracks)
+        ],
+        "run_id": camera_code,
+    }
+
+
+class _AckOnlyRedis:
+    """Enough of a Redis client for `_handle_batch` to finish."""
+
+    def __init__(self) -> None:
+        self.acked: list[str] = []
+
+    async def xack(self, stream: str, group: str, *ids: str) -> int:
+        self.acked.extend(ids)
+        return len(ids)
+
+
+class TestTheLiveBoxesChannelIsNotASighting:
+    """`camera.tracks` must be acked, counted apart, and never persisted.
+
+    A vehicle appears in dozens of consecutive batches, so persisting them
+    would write one row per redraw — and counting them among `consumed` without
+    saying so would make the ingest rate read like a sighting rate. Neither
+    failure announces itself: the first inflates the `detections` table, the
+    second inflates a number on an operator's screen.
+    """
+
+    async def test_it_is_acked_and_counted_but_never_persisted(self):
+        consumer = EventConsumer()
+        client = _AckOnlyRedis()
+        entries = [
+            (f"{index}-0", {"payload": json.dumps(a_track_batch("CAM-TEST-BOXES"))})
+            for index in range(4)
+        ]
+
+        await consumer._handle_batch(client, entries)  # type: ignore[arg-type]
+
+        # Acked, or the stream's pending list grows without bound for a message
+        # nobody was ever going to act on.
+        assert client.acked == ["0-0", "1-0", "2-0", "3-0"]
+        assert consumer.boxes == 4
+        assert consumer.consumed == 4
+        # Nothing reached the database, and nothing even tried: no camera was
+        # created for this code, so a persist attempt would have had to invent
+        # one or fail.
+        assert consumer.persisted == 0
+        assert consumer.failed == 0
+
+    async def test_a_mixed_batch_persists_only_the_sightings(self, _clean_detections):
+        code = "CAM-TEST-MIXED"
+        await _make_camera(code)
+
+        consumer = EventConsumer()
+        client = _AckOnlyRedis()
+        entries = [
+            ("1-0", {"payload": json.dumps(a_track_batch(code))}),
+            ("2-0", {"payload": json.dumps(an_event(code, vehicle_id=1))}),
+            ("3-0", {"payload": json.dumps(a_track_batch(code))}),
+        ]
+
+        await consumer._handle_batch(client, entries)  # type: ignore[arg-type]
+
+        assert consumer.boxes == 2
+        assert consumer.persisted == 1
+        assert client.acked == ["1-0", "2-0", "3-0"]
 
 
 class TestBatchedPersistence:

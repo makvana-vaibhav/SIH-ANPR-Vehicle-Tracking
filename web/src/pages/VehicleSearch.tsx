@@ -28,8 +28,11 @@ import {
   ErrorBanner,
   EmptyState,
   Field,
+  InfoHint,
   Input,
+  PageHeader,
   PriorityBadge,
+  SectionLabel,
   SegmentedControl,
   Select,
   Table,
@@ -187,24 +190,38 @@ export default function VehicleSearch() {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Vehicle search</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {mode === 'plate'
-              ? 'Every sighting of a plate, and the journey they imply.'
-              : 'Browse sightings by what a vehicle looks like, when there is no plate to search on.'}
-          </p>
-        </div>
-        <SegmentedControl
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: 'plate', label: 'By plate' },
-            { value: 'attributes', label: 'By attributes' },
-          ]}
-        />
-      </header>
+      <PageHeader
+        title="Vehicle search"
+        subtitle={
+          <>
+            <span>
+              {mode === 'plate'
+                ? 'every sighting of a plate, and the journey they imply'
+                : 'browse sightings by what a vehicle looks like'}
+            </span>
+            <InfoHint label="What a drawn route is and is not">
+              A route is inference. The platform knows where a vehicle was seen,
+              not how it got between those points — the lines are straight legs
+              between cameras, not the roads driven, so every distance and speed
+              is a lower bound. Legs the correlator could not believe are shown
+              in red rather than hidden: an impossible leg is the signature of a
+              cloned plate, and removing it would remove the most useful thing
+              on the page.
+            </InfoHint>
+          </>
+        }
+        actions={
+          <SegmentedControl
+            className="h-8"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: 'plate', label: 'By plate' },
+              { value: 'attributes', label: 'By attributes' },
+            ]}
+          />
+        }
+      />
 
       {mode === 'attributes' && <AttributeSearch />}
 
@@ -243,7 +260,7 @@ export default function VehicleSearch() {
 
       {suggestions.length > 0 && !route && (
         <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
             {suggestions.length > 0
               ? 'Plates seen on more than one camera in this window'
               : 'No plate was seen on more than one camera in this window'}
@@ -276,7 +293,7 @@ export default function VehicleSearch() {
           <section className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-border bg-card px-4 py-3">
             <div>
               <p className="font-mono text-lg font-bold tracking-wide">{route.plate}</p>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {route.hop_count} sighting{route.hop_count === 1 ? '' : 's'} on{' '}
                 {route.camera_count} camera{route.camera_count === 1 ? '' : 's'}
               </p>
@@ -352,12 +369,13 @@ export default function VehicleSearch() {
               />
               {fuzzyMatches.length > 0 && (
                 <section>
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel>
                     Did you mean…
-                  </h2>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">
-                    Ranked by how closely each plate matches what you typed, not by when it was seen.
-                  </p>
+                    <InfoHint>
+                      Ranked by how closely each plate matches what you typed,
+                      not by when it was seen.
+                    </InfoHint>
+                  </SectionLabel>
                   <ul className="mt-1.5 space-y-1.5">
                     {fuzzyMatches.map((match) => (
                       <li key={match.plate_normalised}>
@@ -372,15 +390,15 @@ export default function VehicleSearch() {
                           <span className="font-mono text-sm font-semibold">
                             {match.plate_normalised}
                           </span>
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[11px] text-muted-foreground">
                             {Math.round(match.similarity * 100)}% match
                           </span>
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[11px] text-muted-foreground">
                             {match.sightings} sighting{match.sightings === 1 ? '' : 's'} ·{' '}
                             {match.cameras} camera{match.cameras === 1 ? '' : 's'}
                           </span>
                           {match.watchlist && <PriorityBadge priority={match.watchlist.priority} solid />}
-                          <span className="ml-auto shrink-0 text-[10px] text-primary">Search →</span>
+                          <span className="ml-auto shrink-0 text-[11px] text-primary">Search →</span>
                         </button>
                       </li>
                     ))}
@@ -411,9 +429,10 @@ export default function VehicleSearch() {
               {/* ── Hop table ─────────────────────────────────────── */}
               <section className="space-y-3">
                 <div>
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel>
                     Journey
-                  </h2>
+                    <InfoHint>{route.geometry_note}</InfoHint>
+                  </SectionLabel>
                   <ol className="mt-1.5 space-y-1.5">
                     {hops.map((hop, index) => (
                       <li
@@ -439,7 +458,7 @@ export default function VehicleSearch() {
                               {hop.camera_code}
                             </span>
                           </span>
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[11px] text-muted-foreground">
                             {api.formatIST(hop.arrived_at, spansDays)}
                           </span>
                         </div>
@@ -449,7 +468,7 @@ export default function VehicleSearch() {
                           {hop.city ? ` · ${hop.city}` : ''}
                         </p>
 
-                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                           <span>
                             {hop.sightings} read{hop.sightings === 1 ? '' : 's'}
                           </span>
@@ -473,7 +492,7 @@ export default function VehicleSearch() {
                             {hop.flags.map((flag) => (
                               <li
                                 key={flag}
-                                className={`text-[10px] leading-snug ${
+                                className={`text-[11px] leading-snug ${
                                   flag === 'implausible_speed' ||
                                   flag === 'impossible_simultaneous'
                                     ? 'text-status-offline'
@@ -497,12 +516,14 @@ export default function VehicleSearch() {
                     const misreads = convoys.filter((c) => c.likely_same_vehicle)
                     return (
                       <div>
-                        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <SectionLabel>
                           Seen alongside
-                        </h2>
-                        <p className="mt-0.5 text-[10px] text-muted-foreground">
-                          Co-occurrence is evidence of association, not proof of it.
-                        </p>
+                          <InfoHint>
+                            Co-occurrence is evidence of association, not proof
+                            of it. Two vehicles on the same road at the same
+                            time will co-occur without being related.
+                          </InfoHint>
+                        </SectionLabel>
 
                         {real.length === 0 && (
                           <p className="mt-1.5 text-[11px] text-muted-foreground">
@@ -526,7 +547,7 @@ export default function VehicleSearch() {
                               >
                                 {convoy.with_plate}
                               </button>
-                              <span className="text-[10px] text-muted-foreground">
+                              <span className="text-[11px] text-muted-foreground">
                                 {convoy.shared_cameras} shared cameras ·{' '}
                                 {Math.round(convoy.median_gap_s)}s apart
                               </span>
@@ -540,7 +561,7 @@ export default function VehicleSearch() {
                             vehicle, which is worth an operator knowing. */}
                         {misreads.length > 0 && (
                           <details className="mt-2">
-                            <summary className="cursor-pointer text-[10px] text-muted-foreground">
+                            <summary className="cursor-pointer text-[11px] text-muted-foreground">
                               {misreads.length} near-identical plate
                               {misreads.length === 1 ? '' : 's'} — almost certainly
                               this same vehicle read differently, not a convoy
@@ -549,7 +570,7 @@ export default function VehicleSearch() {
                               {misreads.map((convoy) => (
                                 <li
                                   key={convoy.with_plate}
-                                  className="rounded border border-border/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                                  className="rounded border border-border/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
                                 >
                                   {convoy.with_plate}
                                 </li>
@@ -561,9 +582,7 @@ export default function VehicleSearch() {
                     )
                   })()}
 
-                <p className="rounded border border-border/60 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                  {route.geometry_note}
-                </p>
+
               </section>
             </div>
             </>
@@ -587,7 +606,7 @@ function Stat({
 }) {
   return (
     <div title={hint}>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="font-mono text-sm">{value}</p>
     </div>
   )

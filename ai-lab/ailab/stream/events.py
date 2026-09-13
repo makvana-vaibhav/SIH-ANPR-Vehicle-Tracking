@@ -16,6 +16,19 @@ Two event kinds are emitted, and the distinction matters for a live system:
 A system that only emitted the final event could not raise a real-time alert,
 because the alert would arrive after the car had gone. One that only emitted
 provisional events would fill the platform's history with half-formed readings.
+
+A third kind exists for a different purpose entirely:
+
+  camera.tracks      every drawable vehicle on one camera as of one frame, in
+                     one message. Not a sighting and never persisted — it is
+                     the picture, not the intelligence.
+
+The split matters. The two vehicle events answer "what did this camera see?",
+which is the product. `camera.tracks` answers "where is everything right now?",
+which is what an overlay on live video needs several times a second and which
+costs an order less when it is sent per camera instead of per vehicle. Mixing
+the two made the drawing traffic the most expensive thing on the bus and made
+every counter on an operator's screen wrong unless it remembered to filter.
 """
 
 from __future__ import annotations
@@ -29,6 +42,11 @@ from ailab.track.merge import Vehicle
 from ailab.types import Track
 
 SCHEMA_VERSION = "ailab.vehicle.event.v1"
+
+#: The live-boxes channel. Separate schema because it is a different kind of
+#: message: one per camera per tick describing every vehicle currently drawable,
+#: rather than one per vehicle describing what was read off it.
+SCHEMA_TRACKS = "ailab.camera.tracks.v1"
 
 
 @dataclass(slots=True)
@@ -123,6 +141,139 @@ def _motion_block(vehicle: Vehicle, frame_size: tuple[int, int] | None) -> dict[
     }
 
 
+@dataclass(slots=True)
+class LiveTrackBox:
+    """One vehicle's current boxes, for drawing and nothing else.
+
+    Assembled by the runner and shaped here, so the wire format has exactly one
+    owner. Everything on it is a fact measured on the frame named by the batch's
+    `captured_at`; nothing is derived, scored or interpreted.
+
+    `plate_bbox` is the point of this message. A plate the detector has
+    *localised* is the earliest thing that can honestly be drawn over a vehicle:
+    it says "there is a plate, and it is here", which is true well before OCR
+    has agreed with itself about what it says, and often true when OCR never
+    manages to read it at all.
+    """
+
+    track_id: int
+    class_name: str
+    #: Where the vehicle is on the batch's frame, in full-frame pixels.
+    bbox: Any
+    #: Where its plate is, if the detector has found one. Full-frame pixels.
+    plate_bbox: Any = None
+    #: The plate detector's own confidence in that localisation.
+    plate_detection_confidence: float = 0.0
+    #: The current reading, empty while there is none. Never a placeholder.
+    plate_text: str = ""
+    plate_confidence: float = 0.0
+    grammar_valid: bool = False
+    ambiguous: bool = False
+    corrected_from: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """The compact form.
+
+        Boxes go out as `[x1, y1, x2, y2]` rather than the `{"x1": ...}` dicts
+        every other event uses, and fields that carry nothing are **omitted**
+        rather than sent as null. That is a deliberate and local exception:
+        this message is emitted several times a second per camera and carries
+        one entry per vehicle in view, so its byte count is a design constraint
+        in a way no other event's is. `BBox.to_dict()` also carries `w` and `h`,
+        which are `x2 - x1` and `y2 - y1` — pure redundancy repeated per box per
+        tick.
+
+        Omission is not ambiguity here: a missing `plate` means no reading
+        exists yet, which is precisely the state this channel was added to be
+        able to draw.
+        """
+        entry: dict[str, Any] = {
+            "track_id": self.track_id,
+            "type": self.class_name,
+            "bbox": _box(self.bbox),
+        }
+        if self.plate_bbox is not None:
+            entry["plate_bbox"] = _box(self.plate_bbox)
+            entry["plate_detection_confidence"] = round(self.plate_detection_confidence, 3)
+        if self.plate_text:
+            entry["plate"] = self.plate_text
+            entry["confidence"] = round(self.plate_confidence, 4)
+            entry["grammar_valid"] = self.grammar_valid
+            entry["ambiguous"] = self.ambiguous
+            if self.corrected_from:
+                entry["corrected_from"] = self.corrected_from
+        return entry
+
+
+def _box(bbox: Any) -> list[float]:
+    """A box as four numbers. See `LiveTrackBox.to_dict`."""
+    return [round(value, 1) for value in bbox.as_xyxy()]
+
+
+def track_batch_event(
+    source: SourceIdentity,
+    boxes: list[LiveTrackBox],
+    frame_size: tuple[int, int] | None,
+    captured_at: datetime | None,
+    latency_ms: float | None = None,
+    run_id: str = "",
+) -> dict[str, Any]:
+    """Every drawable vehicle on one camera, as of one frame.
+
+    ## Why this exists at all
+
+    An overlay needs a box per vehicle several times a second. Sending that as
+    one `vehicle.observed` per vehicle per tick makes the message whose entire
+    job is to be prompt into the most expensive traffic on the bus — and it
+    scales with the number of vehicles, which is exactly when latency matters
+    most. One message per *camera* carries the same information: N boxes in one
+    envelope instead of N envelopes.
+
+    Measured: a 305-byte envelope, then 132 bytes for a vehicle whose plate has
+    been located and 218 for one that has been read. Ten vehicles, three of them
+    read, is 1,987 bytes — 9.7 KB/s per camera at five batches a second. The
+    per-vehicle refresh this replaces was 793 bytes each, so ten of them at the
+    same cadence is 39.6 KB/s, four times as much traffic for a third of the
+    coverage: refreshes only ever described vehicles that had already been read.
+
+    ## Why it is authoritative
+
+    Because it describes the whole camera, a consumer can read it as complete: a
+    vehicle that is not in the newest batch is no longer drawable on that
+    camera, full stop. That is how a box learns to disappear promptly, without
+    waiting out a timeout and without depending on a `vehicle.completed` event
+    arriving. An empty `tracks` list is therefore a meaningful message — "this
+    camera has nothing to draw" — and is sent once when the last vehicle leaves.
+
+    ## What it is not
+
+    Not a sighting, not a detection record, and not evidence of anything. It is
+    never persisted, must never be counted, and must never be listed in a plate
+    feed: a vehicle appears in dozens of consecutive batches, and each one is
+    the same car, not a new one. The record of what was seen is
+    `vehicle.completed`, exactly as before.
+    """
+    payload: dict[str, Any] = {
+        "schema": SCHEMA_TRACKS,
+        "event": "camera.tracks",
+        "event_time": datetime.now(UTC).isoformat(),
+        # The frame every box in this batch was measured on. An overlay places
+        # boxes against this, not against the time the message arrived.
+        "captured_at": captured_at.isoformat() if captured_at is not None else None,
+        "source": source.to_dict(),
+        "frame": (
+            {"width": frame_size[0], "height": frame_size[1]}
+            if frame_size is not None
+            else None
+        ),
+        "tracks": [box.to_dict() for box in boxes],
+        "run_id": run_id,
+    }
+    if latency_ms is not None:
+        payload["latency_ms"] = round(latency_ms, 1)
+    return payload
+
+
 def _plate_block(vehicle: Vehicle | Track) -> dict[str, Any]:
     result = vehicle.result
     if result is None or not result.text:
@@ -155,6 +306,79 @@ def _plate_block(vehicle: Vehicle | Track) -> dict[str, Any]:
             "char_confidences": result.char_confidences,
         },
     }
+
+
+def _position_refresh_event(
+    vehicle: Vehicle,
+    source: SourceIdentity,
+    latency_ms: float | None,
+    run_id: str,
+    frame_size: tuple[int, int] | None,
+    live_bbox: Any,
+    captured_at: datetime | None,
+) -> dict[str, Any]:
+    """A refresh carries a position and nothing else.
+
+    A refresh repeats a reading the platform already has; the *only* new fact
+    in it is where the vehicle has got to. The full event is a different size
+    of thing: `evidence.reads` holds one entry per frame the plate was read in,
+    each with its crop path, plus every candidate string and every per-character
+    confidence. That grows for as long as the vehicle stays in view — so the
+    message whose entire job is to move a rectangle was both the largest on the
+    bus and getting larger the longer it mattered.
+
+    Measured on one vehicle with a dozen reads behind it: 3,787 bytes of JSON
+    for the full event against 793 for this one, a factor of 4.8, and the gap
+    widens with every further read. Every one of those bytes is JSON the worker
+    encodes, Redis stores, the API re-encodes and the browser parses before a
+    box on screen can move.
+
+    What stays is exactly what an overlay reads: the boxes, the frame they were
+    measured in, the capture time to schedule against, and enough of the plate
+    to label and colour the box. Nothing here is persisted — the `detections`
+    table is written from `vehicle.completed` alone — so trimming it loses no
+    record of anything.
+    """
+    result = vehicle.result
+    plate: dict[str, Any] = {
+        "text": result.text if result else "",
+        "confidence": round(result.confidence, 4) if result else 0.0,
+        "readable": bool(result and result.text),
+        "grammar_valid": bool(result and result.grammar_valid),
+        "ambiguous": bool(result and result.ambiguous),
+        "corrected_from": result.corrected_from if result else None,
+    }
+    last_detection = vehicle.plate_detections[-1] if vehicle.plate_detections else None
+    if last_detection is not None:
+        plate["bbox"] = last_detection.bbox.to_dict()
+        plate["detection_confidence"] = round(last_detection.confidence, 4)
+
+    payload: dict[str, Any] = {
+        "schema": SCHEMA_VERSION,
+        "event": "vehicle.observed",
+        "event_time": datetime.now(UTC).isoformat(),
+        "captured_at": captured_at.isoformat() if captured_at is not None else None,
+        "position_refresh": True,
+        "source": source.to_dict(),
+        "frame": (
+            {"width": frame_size[0], "height": frame_size[1]}
+            if frame_size is not None
+            else None
+        ),
+        "vehicle": {
+            "vehicle_id": vehicle.vehicle_id,
+            "track_ids": vehicle.track_ids,
+            "type": vehicle.class_name,
+            "confidence": round(vehicle.mean_detection_confidence, 4),
+            "bbox": vehicle.bbox.to_dict() if vehicle.bbox is not None else None,
+            "live_bbox": live_bbox.to_dict() if live_bbox is not None else None,
+        },
+        "plate": plate,
+        "run_id": run_id,
+    }
+    if latency_ms is not None:
+        payload["latency_ms"] = round(latency_ms, 1)
+    return payload
 
 
 def vehicle_event(
@@ -196,8 +420,18 @@ def vehicle_event(
     already been told about, purely to say where the vehicle has got to. It is
     for drawing, not for reporting: counted as a detection it inflates every
     figure on an operator's screen, and listed in a plate feed it fills the feed
-    with the same car several times a second.
+    with the same car several times a second. A refresh is emitted in the lean
+    shape described in `_position_refresh_event` — the boxes and the clock, no
+    evidence — because it is sent several times a second per vehicle and the
+    only thing a consumer can do with it is move a rectangle.
     """
+    if position_refresh:
+        # Nothing new to report about the plate, so nothing but the position is
+        # sent. See `_position_refresh_event`.
+        return _position_refresh_event(
+            vehicle, source, latency_ms, run_id, frame_size, live_bbox, captured_at
+        )
+
     best_read = max(vehicle.reads, key=lambda r: r.vote_weight, default=None)
     last_detection = vehicle.plate_detections[-1] if vehicle.plate_detections else None
 

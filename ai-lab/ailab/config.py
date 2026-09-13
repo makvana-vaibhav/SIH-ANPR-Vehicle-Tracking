@@ -293,18 +293,44 @@ class StreamConfig(BaseModel):
     # Bound on provisional events per vehicle, so one long-dwelling vehicle
     # cannot dominate the event stream.
     max_observed_per_track: int = Field(default=4, ge=0)
+    # ── the live-boxes channel ──
+    #
+    # How often to publish `camera.tracks`: one message per camera carrying
+    # every vehicle currently drawable on it. This is what an overlay draws
+    # from, and the cadence is therefore the box's frame rate — at 0.2 s a
+    # rectangle over 25 fps video advances five times a second, and the overlay
+    # predicts along each vehicle's measured velocity in between.
+    #
+    # A ceiling, not a promise: a batch can only be built from a frame the
+    # worker actually analysed, so a worker keeping up with a camera by
+    # analysing one frame in nine publishes one batch per analysed frame and no
+    # more. That is the most that can honestly be said about where a vehicle
+    # is, and it is why the overlay predicts rather than relying on the cadence.
+    #
+    # A vehicle enters the batch as soon as the plate detector has *localised* a
+    # plate on it — before OCR has read it, and whether or not OCR ever does.
+    # That is the earliest instant at which there is something true to draw over
+    # a plate. 0 disables the channel.
+    track_batch_s: float = Field(default=0.2, ge=0.0)
+
     # Re-emit a vehicle whose reading has not changed, purely to refresh where
-    # it now is. Without this a box drawn on live video is pinned to wherever
-    # the vehicle was when its plate first resolved, and stays there while the
-    # vehicle drives out of frame — which looks like a tracking failure and is
-    # in fact the overlay having nothing newer to draw. Position refreshes are
-    # provisional events, so they are broadcast and never persisted: the
-    # `detections` table still gets exactly one row per vehicle, from
-    # `vehicle.completed`. 0 disables them.
-    observed_refresh_s: float = Field(default=0.4, ge=0.0)
+    # it now is. **Superseded by `track_batch_s` and off by default.**
+    #
+    # This existed because an overlay had nothing newer to draw: a box was
+    # pinned to wherever the vehicle was when its plate first resolved and sat
+    # there while the car drove out of frame. `camera.tracks` answers the same
+    # need per camera instead of per vehicle, so it covers every vehicle with a
+    # localised plate rather than only those already read, and costs an order
+    # less on the bus. Running both would put two sources behind one rectangle.
+    #
+    # Kept as a knob rather than deleted: a consumer that predates the batch
+    # channel still understands `vehicle.observed`, and this is how it is fed.
+    observed_refresh_s: float = Field(default=0.0, ge=0.0)
     # Ceiling on those refreshes, so a vehicle parked in view cannot emit
-    # forever. At the default cadence this is ~30 s of following one vehicle.
-    max_position_refresh_per_track: int = Field(default=75, ge=0)
+    # forever. Only meaningful when `observed_refresh_s` is re-enabled; the
+    # batch channel needs no such cap, because its cost is one message per
+    # camera per tick however many vehicles are in view.
+    max_position_refresh_per_track: int = Field(default=150, ge=0)
 
 
 class OutputConfig(BaseModel):
